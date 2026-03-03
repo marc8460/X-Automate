@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
-import { testTwitterConnection } from "./twitter";
+import { testTwitterConnection, getTwitterClient, analyzeUserFeed, getCached, setCache } from "./twitter";
 import { storage } from "./storage";
 import {
   insertTweetSchema,
@@ -16,6 +16,8 @@ import {
   insertActivityLogSchema,
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
+  insertNicheProfileSchema,
+  insertTrendingPostSchema,
 } from "@shared/schema";
 
 const uploadDir = path.join(process.cwd(), "uploads");
