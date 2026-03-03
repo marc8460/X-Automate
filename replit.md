@@ -16,7 +16,7 @@ Full-stack Twitter/X AI influencer automation dashboard for a female AI persona.
 - Dark theme with CSS variables, `glass-panel` utility class for frosted glass cards.
 
 ## Database Schema (shared/schema.ts)
-Tables: tweets, media_items, engagements, follower_interactions, trends, activity_logs, analytics_data, peak_times, niche_profiles, trending_posts (with tweetId for real tweets), comment_suggestions, behavior_limits, settings
+Tables: tweets, media_items, engagements, follower_interactions, trends, activity_logs, analytics_data, peak_times, niche_profiles (with `source` column: "auto"|"manual"), trending_posts (with tweetId, language, postAge, nicheMatchScore), comment_suggestions, behavior_limits, settings
 
 ## Project Structure
 ```
@@ -27,8 +27,8 @@ client/src/
 server/
   index.ts        - Express entry + static serving for /uploads
   routes.ts       - REST API endpoints + file upload + AI generation + trending system + Twitter API + seed
-  twitter.ts      - Twitter API client module (getTwitterClient, testTwitterConnection)
-  storage.ts      - DatabaseStorage with IStorage interface
+  twitter.ts      - Twitter API client module (getTwitterClient, testTwitterConnection, analyzeUserFeed, apiCache)
+  storage.ts      - DatabaseStorage with IStorage interface + TrendingPostFilters
   db.ts           - Drizzle + pg pool
 shared/
   schema.ts       - Drizzle schema + Zod insert schemas + types
@@ -37,13 +37,20 @@ uploads/          - User-uploaded media files (served statically)
 
 ## Twitter/X Integration
 - **Dual mode**: Live Mode (real Twitter API) or Demo Mode (AI-simulated posts)
+- **Graceful fallback**: When Twitter API credits are depleted (Free tier), both search and feed analysis automatically fall back to Groq AI simulation
 - **Credentials**: OAuth 1.0a via environment secrets: TWITTER_APP_KEY, TWITTER_APP_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET
-- **server/twitter.ts**: `getTwitterClient()` returns TwitterApi instance or null if credentials missing; `testTwitterConnection()` verifies connection and returns handle
-- **Discovery**: When connected, uses `client.v2.search()` with niche keywords; when disconnected, falls back to Groq AI simulation
+- **server/twitter.ts**: `getTwitterClient()` returns TwitterApi instance or null; `testTwitterConnection()` verifies connection; `analyzeUserFeed()` does feed-based niche detection with fallback; `getCached()`/`setCache()` for in-memory API caching (10 min TTL)
+- **Discovery**: Tries `client.v2.search()` first, falls back to Groq AI simulation on any Twitter API error
 - **Posting**: When connected, uses `client.v2.reply()` to post approved comments as real replies; when disconnected, marks as posted in DB only
 - **Rate limiting**: Behavior limits (daily cap, hourly limit, cooldown) enforced before every post attempt
-- **Status endpoint**: `GET /api/twitter/status` returns connection state + handle
-- **UI indicators**: TrendScanner shows Live/Demo mode badge; Discover button says "Search Twitter" vs "Simulate Posts"; Post button says "Post to Twitter" vs "Post (Demo)"
+- **API caching**: In-memory Map with TTL for search results (10 min) and niche detection (10 min) to avoid redundant API calls
+
+## Trend Scanner V2 Features
+- **Auto-niche detection**: `POST /api/niches/auto-detect` — analyzes user's X feed for hashtag/keyword clusters, maps to niche patterns (Tech, Crypto, Fitness, Fashion, etc). Falls back to AI-generated niche suggestions when Twitter credits depleted.
+- **Weighted velocity scoring**: `trend_score = (likes/min * 3) + (replies/min * 5) + (retweets/min * 4) + (engagement_ratio * 100)`, normalized 0-100 per batch. Status: <30 rising, 30-70 trending, >70 viral.
+- **Dashboard filters**: Time range (1h-24h), language (10 options), min engagement slider (0-1000), sort by (score/velocity/recent). Filters stored in frontend state and passed as query params.
+- **Storage filtering**: `getTrendingPostsFiltered(filters)` builds dynamic Drizzle queries with `and`, `gte`, `eq`, `desc`.
+- **Post metadata**: Each post stores `language`, `postAge` (minutes), `nicheMatchScore`. Cards display age badge, language tag, velocity/hr.
 
 ## API Endpoints
 - GET/POST: /api/tweets, /api/media, /api/engagements, /api/follower-interactions, /api/trends, /api/activity-logs, /api/analytics, /api/peak-times
@@ -57,8 +64,9 @@ uploads/          - User-uploaded media files (served statically)
   - GET: /api/twitter/status (connection check + handle)
 - **Trending System:**
   - GET/POST/DELETE: /api/niches (niche profiles)
-  - GET: /api/trending-posts (with optional ?nicheId filter, includes comments)
-  - POST: /api/trending-posts/discover (real Twitter search OR AI simulation, based on connection)
+  - POST: /api/niches/auto-detect (feed analysis + AI fallback for niche detection)
+  - GET: /api/trending-posts (with filters: ?nicheId, ?minLikes, ?minScore, ?lang, ?hours, ?sort)
+  - POST: /api/trending-posts/discover (accepts { nicheId, language?, minFaves? }; real Twitter search with fallback to AI)
   - POST: /api/trending-posts/:id/generate-comments (AI comment suggestions with vision analysis)
   - DELETE: /api/trending-posts/:id
   - PATCH: /api/comments/:id (approve/reject/edit)
@@ -83,9 +91,13 @@ App.tsx includes a `SeedOnMount` component that calls POST /api/seed on first lo
 - Temperature bumps to 1.0 at >80% seductiveness
 
 ## Trending Opportunities
-- Dual-mode: real Twitter search (live) or AI-simulated posts (demo)
+- Dual-mode with graceful degradation: real Twitter search → AI simulation fallback on credits/errors
+- Auto-niche detection from X feed with AI fallback
+- Weighted engagement velocity scoring (replies weighted 5x, retweets 4x, likes 3x, plus follower ratio)
+- Dashboard filters: time range, language, min engagement, sort order
 - AI comment generation with 5 types: witty, flirty, insightful, disagreement, question
 - Vision-aware: if trending post has image, analyzes it before generating comments
 - Human approval workflow — comments must be approved before posting
 - Real Twitter replies when connected, DB-only when in demo
 - Anti-bot behavior limits: daily cap, hourly limit, cooldown, enforced on every post attempt
+- In-memory API cache (Map with TTL) to reduce redundant Twitter API calls

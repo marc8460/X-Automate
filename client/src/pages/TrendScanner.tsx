@@ -431,7 +431,7 @@ export default function TrendScanner() {
             size="sm"
             className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 text-xs"
             onClick={handleAutoDetect}
-            disabled={autoDetectMutation.isPending || !isLive}
+            disabled={autoDetectMutation.isPending}
             data-testid="button-auto-detect-niches"
           >
             {autoDetectMutation.isPending ? (
