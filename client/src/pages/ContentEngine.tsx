@@ -18,6 +18,98 @@ const TWEET_STYLES = [
   "Community Love"
 ];
 
+function getQuickTimes() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const dayAfter = new Date(today.getTime() + 2 * 86400000);
+
+  const fmt = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${y}-${m}-${day}T${h}:${min}`;
+  };
+
+  const label = (d: Date) => {
+    const isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth();
+    const isTomorrow = d.getDate() === tomorrow.getDate() && d.getMonth() === tomorrow.getMonth();
+    const dayLabel = isToday ? "Today" : isTomorrow ? "Tomorrow" : d.toLocaleDateString([], { weekday: "short" });
+    return `${dayLabel} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  };
+
+  const hours = [9, 12, 15, 18, 21, 23];
+  const slots: { label: string; value: string }[] = [];
+
+  for (const base of [today, tomorrow, dayAfter]) {
+    for (const h of hours) {
+      const d = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, 0);
+      if (d.getTime() > now.getTime()) {
+        slots.push({ label: label(d), value: fmt(d) });
+      }
+      if (slots.length >= 12) break;
+    }
+    if (slots.length >= 12) break;
+  }
+  return slots;
+}
+
+function SchedulePicker({ value, onChange, size = "sm" }: { value: string; onChange: (v: string) => void; size?: "sm" | "md" }) {
+  const [open, setOpen] = useState(false);
+  const quickTimes = getQuickTimes();
+  const isSm = size === "sm";
+
+  const displayLabel = value
+    ? new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1.5 rounded-md border border-border/50 bg-background/50 hover:border-primary/40 transition-colors ${isSm ? "px-2 py-1 text-xs" : "px-3 py-1.5 text-sm"}`}
+        data-testid="button-schedule-picker"
+      >
+        <Clock className={isSm ? "w-3 h-3" : "w-4 h-4"} />
+        {displayLabel || (isSm ? "Schedule" : "Set post time")}
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 left-0 w-56 bg-card border border-border/50 rounded-lg shadow-xl p-2 space-y-1 max-h-72 overflow-y-auto">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 pt-1 pb-1">Quick pick</p>
+          {quickTimes.map((slot) => (
+            <button
+              key={slot.value}
+              onClick={() => { onChange(slot.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs rounded-md transition-colors ${value === slot.value ? "bg-primary/20 text-primary" : "hover:bg-secondary/50 text-foreground"}`}
+            >
+              {slot.label}
+            </button>
+          ))}
+          <div className="border-t border-border/30 pt-2 mt-1">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 pb-1">Custom</p>
+            <input
+              type="datetime-local"
+              value={value}
+              onChange={(e) => { onChange(e.target.value); setOpen(false); }}
+              className="w-full bg-background/50 border border-border/50 rounded-md px-2 py-1 text-xs"
+            />
+          </div>
+          {value && (
+            <button
+              onClick={() => { onChange(""); setOpen(false); }}
+              className="w-full text-left px-3 py-1.5 text-xs rounded-md text-red-400 hover:bg-red-400/10 transition-colors"
+            >
+              Clear schedule
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ContentEngine() {
   const [selectedStyle, setSelectedStyle] = useState(TWEET_STYLES[0]);
   const [showVault, setShowVault] = useState<number | null>(null);
@@ -258,20 +350,8 @@ export default function ContentEngine() {
               data-testid="input-tweet-text"
             />
             <div className="flex items-center gap-3 mb-4">
-              <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-              <Input
-                type="datetime-local"
-                value={draftSchedule}
-                onChange={(e) => setDraftSchedule(e.target.value)}
-                className="bg-background/50 border-border/50 w-auto text-sm"
-                data-testid="input-schedule-time"
-              />
-              {draftSchedule && (
-                <button onClick={() => setDraftSchedule("")} className="text-muted-foreground hover:text-foreground">
-                  <X size={14} />
-                </button>
-              )}
-              <span className="text-xs text-muted-foreground">{draftSchedule ? "Scheduled" : "No time set (unscheduled)"}</span>
+              <SchedulePicker value={draftSchedule} onChange={setDraftSchedule} size="md" />
+              {!draftSchedule && <span className="text-xs text-muted-foreground">No time set</span>}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">{draftText.length}/280</span>
@@ -367,22 +447,11 @@ export default function ContentEngine() {
                     </div>
 
                     <div className="flex items-center gap-2 mb-2">
-                      <Clock className="w-3 h-3 text-muted-foreground" />
-                      <Input
-                        type="datetime-local"
+                      <SchedulePicker
                         value={tweet.scheduledAt || ""}
-                        onChange={(e) => updateTweetMutation.mutate({ id: tweet.id, scheduledAt: e.target.value || null })}
-                        className="bg-background/50 border-border/50 h-7 text-xs w-auto"
-                        data-testid={`input-schedule-tweet-${tweet.id}`}
+                        onChange={(v) => updateTweetMutation.mutate({ id: tweet.id, scheduledAt: v || null })}
+                        size="sm"
                       />
-                      {tweet.scheduledAt && (
-                        <button
-                          onClick={() => updateTweetMutation.mutate({ id: tweet.id, scheduledAt: null })}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <X size={12} />
-                        </button>
-                      )}
                     </div>
 
                     <div className="flex gap-2 justify-between items-center mt-2 pt-2 border-t border-border/10">
