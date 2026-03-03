@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 
 export default function MediaVault() {
+  const [, navigate] = useLocation();
   const [view, setView] = useState<"grid" | "list">("grid");
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [uploadMood, setUploadMood] = useState("Playful");
@@ -320,7 +322,18 @@ export default function MediaVault() {
                   </div>
 
                   <div className="absolute bottom-3 left-3 right-3 translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
-                    <Button className="w-full bg-primary text-white shadow-lg shadow-primary/20" data-testid={`button-media-use-${item.id}`}>
+                    <Button
+                      className="w-full bg-primary text-white shadow-lg shadow-primary/20"
+                      onClick={() => {
+                        const params = new URLSearchParams({
+                          imageUrl: item.url,
+                          mood: item.mood,
+                          outfit: item.outfit,
+                        });
+                        navigate(`/content?${params.toString()}`);
+                      }}
+                      data-testid={`button-media-use-${item.id}`}
+                    >
                       Use in Post
                     </Button>
                   </div>
