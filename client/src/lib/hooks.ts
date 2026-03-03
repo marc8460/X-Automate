@@ -114,7 +114,7 @@ export function useDeleteMediaItem() {
 
 export function useGenerateTweets() {
   return useMutation({
-    mutationFn: async (data: { style: string; topic?: string }) => {
+    mutationFn: async (data: { style: string; topic?: string; seductiveness?: number }) => {
       const res = await apiRequest("POST", "/api/generate", data);
       return res.json() as Promise<{ tweets: string[] }>;
     },

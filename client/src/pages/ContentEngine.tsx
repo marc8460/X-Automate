@@ -24,6 +24,7 @@ export default function ContentEngine() {
   const [draftText, setDraftText] = useState("");
   const [topicInput, setTopicInput] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [seductiveness, setSeductiveness] = useState(75);
   const { toast } = useToast();
 
   const { data: tweets = [], isLoading: isLoadingTweets } = useTweets();
@@ -34,7 +35,7 @@ export default function ContentEngine() {
 
   const handleGenerate = async () => {
     generateMutation.mutate(
-      { style: selectedStyle, topic: topicInput || undefined },
+      { style: selectedStyle, topic: topicInput || undefined, seductiveness },
       {
         onSuccess: (data) => {
           setSuggestions(data.tweets || []);
@@ -125,9 +126,16 @@ export default function ContentEngine() {
               <div className="space-y-4 pt-2">
                 <div className="flex justify-between items-center">
                   <label className="text-sm font-medium text-muted-foreground">Seductiveness / Playfulness</label>
-                  <span className="text-xs text-primary font-mono">75%</span>
+                  <span className="text-xs text-primary font-mono" data-testid="text-seductiveness-value">{seductiveness}%</span>
                 </div>
-                <Slider defaultValue={[75]} max={100} step={1} className="[&_[role=slider]]:border-primary [&_[role=slider]]:bg-primary" />
+                <Slider
+                  value={[seductiveness]}
+                  onValueChange={(v) => setSeductiveness(v[0])}
+                  max={100}
+                  step={1}
+                  className="[&_[role=slider]]:border-primary [&_[role=slider]]:bg-primary"
+                  data-testid="slider-seductiveness"
+                />
               </div>
 
               <Button

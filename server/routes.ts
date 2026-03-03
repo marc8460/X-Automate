@@ -230,7 +230,7 @@ export async function registerRoutes(
   // --- AI Content Generation (Groq) ---
   app.post("/api/generate", async (req, res) => {
     try {
-      const { style, topic } = req.body;
+      const { style, topic, seductiveness: sliderValue } = req.body;
       if (!style) return res.status(400).json({ message: "style is required" });
 
       const settingsData = await storage.getSettings();
@@ -238,7 +238,7 @@ export async function registerRoutes(
         const s = settingsData.find((s) => s.key === key);
         return s ? s.value : fallback;
       };
-      const seductiveness = getSetting("seductiveness", "60");
+      const seductiveness = sliderValue !== undefined ? String(sliderValue) : getSetting("seductiveness", "60");
       const playfulness = getSetting("playfulness", "85");
       const dominance = getSetting("dominance", "35");
 
