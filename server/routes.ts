@@ -14,6 +14,10 @@ import {
   insertActivityLogSchema,
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
+  insertNicheProfileSchema,
+  insertTrendingPostSchema,
+  insertCommentSuggestionSchema,
+  insertBehaviorLimitSchema,
 } from "@shared/schema";
 
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -177,6 +181,211 @@ export async function registerRoutes(
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const peakTime = await storage.createPeakTime(parsed.data);
     res.status(201).json(peakTime);
+  });
+
+  // --- Niches ---
+  app.get("/api/niches", async (_req, res) => {
+    const niches = await storage.getNicheProfiles();
+    res.json(niches);
+  });
+
+  app.post("/api/niches", async (req, res) => {
+    const parsed = insertNicheProfileSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const niche = await storage.createNicheProfile(parsed.data);
+    res.status(201).json(niche);
+  });
+
+  app.delete("/api/niches/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    await storage.deleteNicheProfile(id);
+    res.status(204).send();
+  });
+
+  // --- Trending Posts ---
+  app.get("/api/trending-posts", async (req, res) => {
+    const nicheId = req.query.nicheId ? parseInt(req.query.nicheId as string) : undefined;
+    const posts = nicheId ? await storage.getTrendingPostsByNiche(nicheId) : await storage.getTrendingPosts();
+    // For each post, get its comments
+    const postsWithComments = await Promise.all(posts.map(async (post) => {
+      const comments = await storage.getCommentsByPost(post.id);
+      return { ...post, comments };
+    }));
+    res.json(postsWithComments);
+  });
+
+  app.post("/api/trending-posts/discover", async (req, res) => {
+    try {
+      const { nicheId } = req.body;
+      if (!nicheId) return res.status(400).json({ message: "nicheId is required" });
+
+      const niches = await storage.getNicheProfiles();
+      const niche = niches.find(n => n.id === nicheId);
+      if (!niche) return res.status(404).json({ message: "Niche not found" });
+
+      const systemPrompt = `You are a trend discovery engine for Twitter/X.
+Generate 5-8 realistic trending posts for the niche: "${niche.name}" with keywords: "${niche.keywords}".
+For each post, include:
+- authorHandle: a realistic twitter handle (e.g. @tech_guru, @fitness_junkie)
+- authorFollowers: realistic follower count (10k to 500k)
+- postText: high-engagement tweet content relevant to the niche
+- postUrl: a dummy twitter URL
+- likes: realistic engagement (500 to 50000)
+- replies: realistic engagement (50 to 5000)
+- retweets: realistic engagement (100 to 10000)
+- trendScore: 0-100
+- status: "rising", "trending", or "viral"
+- engagementVelocity: points per hour (10 to 1000)
+
+Return ONLY a JSON array of objects. No explanation.`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "system", content: systemPrompt }],
+        temperature: 0.8,
+        response_format: { type: "json_object" }
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{\"posts\": []}";
+      const data = JSON.parse(raw);
+      const generatedPosts = Array.isArray(data) ? data : (data.posts || []);
+
+      const discoveredPosts = [];
+      for (const p of generatedPosts) {
+        const post = await storage.createTrendingPost({
+          nicheId,
+          authorHandle: p.authorHandle || "@user",
+          authorFollowers: p.authorFollowers || 1000,
+          postText: p.postText || "",
+          postUrl: p.postUrl || "https://twitter.com/status/123",
+          likes: p.likes || 0,
+          replies: p.replies || 0,
+          retweets: p.retweets || 0,
+          trendScore: p.trendScore || 50,
+          status: p.status || "rising",
+          discoveredAt: new Date().toISOString(),
+          engagementVelocity: p.engagementVelocity || 10,
+        });
+        discoveredPosts.push(post);
+      }
+
+      res.status(201).json(discoveredPosts);
+    } catch (err: any) {
+      console.error("Discovery error:", err);
+      res.status(500).json({ message: err.message || "Discovery failed" });
+    }
+  });
+
+  app.post("/api/trending-posts/:id/generate-comments", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const post = await storage.getTrendingPost(id);
+      if (!post) return res.status(404).json({ message: "Post not found" });
+
+      const settingsData = await storage.getSettings();
+      const getSetting = (key: string, fallback: string) => {
+        const s = settingsData.find((s) => s.key === key);
+        return s ? s.value : fallback;
+      };
+      const seductiveness = getSetting("seductiveness", "60");
+      const playfulness = getSetting("playfulness", "85");
+      const dominance = getSetting("dominance", "35");
+
+      const systemPrompt = `You are the ghost-writer for a popular female influencer on Twitter/X. She is confident, magnetic, and human.
+Her persona dials: Seductiveness ${seductiveness}/100, Playfulness ${playfulness}/100, Dominance ${dominance}/100.
+Voice: lowercase casual twitter voice, natural emojis, spontaneous, real.
+
+Analyze this trending post:
+"${post.postText}" by ${post.authorHandle}
+
+Generate 5 different contextual comments she would leave on this post.
+Generate exactly one of each type:
+1. "witty": Clever, sharp, or funny
+2. "flirty": Suggestive, teasing, or charming
+3. "insightful": Thoughtful, adding value, or perspective
+4. "disagreement": Playful disagreement, challenging the author
+5. "question": Engagement-focused question
+
+Rules:
+- Blend naturally, no spam, no self-promo, no links.
+- Human variability, slight imperfections.
+- Match her persona dials.
+- For each comment, assign a "riskLevel": "low", "medium", or "high".
+
+Return ONLY a JSON array of objects with keys: commentText, commentType, riskLevel. No explanation.`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "system", content: systemPrompt }],
+        temperature: 0.9,
+        response_format: { type: "json_object" }
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{\"comments\": []}";
+      const data = JSON.parse(raw);
+      const generatedComments = Array.isArray(data) ? data : (data.comments || []);
+
+      const suggestions = [];
+      for (const c of generatedComments) {
+        const suggestion = await storage.createCommentSuggestion({
+          trendingPostId: id,
+          commentText: c.commentText,
+          commentType: c.commentType,
+          riskLevel: c.riskLevel || "low",
+          status: "pending",
+        });
+        suggestions.push(suggestion);
+      }
+
+      res.status(201).json(suggestions);
+    } catch (err: any) {
+      console.error("Comment generation error:", err);
+      res.status(500).json({ message: err.message || "Generation failed" });
+    }
+  });
+
+  app.delete("/api/trending-posts/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    await storage.deleteTrendingPost(id);
+    res.status(204).send();
+  });
+
+  // --- Comments ---
+  app.patch("/api/comments/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const data = req.body;
+    if (data.status === "approved") {
+      data.approvedAt = new Date().toISOString();
+    }
+    const comment = await storage.updateCommentSuggestion(id, data);
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+    res.json(comment);
+  });
+
+  app.post("/api/comments/:id/post", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const existing = await storage.updateCommentSuggestion(id, { status: "pending" }); // dummy update to get object
+    if (!existing || existing.status !== "approved") {
+      return res.status(400).json({ message: "Only approved comments can be posted" });
+    }
+    const comment = await storage.updateCommentSuggestion(id, {
+      status: "posted",
+      postedAt: new Date().toISOString(),
+    });
+    res.json(comment);
+  });
+
+  // --- Behavior Limits ---
+  app.get("/api/behavior-limits", async (_req, res) => {
+    const limits = await storage.getBehaviorLimits();
+    res.json(limits);
+  });
+
+  app.post("/api/behavior-limits", async (req, res) => {
+    const { key, value } = req.body;
+    if (!key || value === undefined) return res.status(400).json({ message: "key and value are required" });
+    const limit = await storage.upsertBehaviorLimit(key, String(value));
+    res.json(limit);
   });
 
   // --- Settings ---

@@ -1,0 +1,154 @@
+----------------------------------------
+TREND DISCOVERY & HUMAN-APPROVED COMMENT ENGINE
+----------------------------------------
+
+Create a "Trending Opportunities" tab inside the admin dashboard.
+
+GOAL:
+Identify rising and trending posts within selected niches and generate
+high-quality, contextual comment suggestions using Groq AI.
+
+IMPORTANT:
+The system must NEVER auto-post comments.
+All comments must require manual human approval before publishing.
+
+----------------------------------------
+1. TREND SCANNER MODULE
+----------------------------------------
+
+- Connect to Twitter API v2 search endpoints
+- Allow custom keyword-based niche selection
+- Allow multiple niche profiles (e.g., fitness, crypto, dating, memes)
+
+For each niche:
+- Pull latest posts within X minutes/hours
+- Rank posts based on:
+    - Engagement velocity (likes/minute, replies/minute)
+    - Follower count ratio
+    - Early growth spike detection
+- Flag posts as:
+    - Rising
+    - Trending
+    - Viral candidate
+
+Include adjustable filters:
+- Minimum engagement threshold
+- Max follower size (to avoid mega-accounts only)
+- Language filter
+- Geographic filter
+
+Store trend data in database table:
+- trending_posts
+- niche_profiles
+- trend_score_logs
+
+----------------------------------------
+2. COMMENT GENERATION ENGINE (Groq AI)
+----------------------------------------
+
+For each selected trending post:
+
+- Analyze:
+    - Post tone
+    - Topic
+    - Audience style
+    - Sentiment
+    - Humor level
+
+Generate 3–5 contextual comment suggestions:
+- Not generic
+- No spam patterns
+- No obvious self-promotion
+- No direct link dropping
+- Must blend naturally into conversation
+
+Comment types:
+- Witty observation
+- Slightly flirty remark (if relevant)
+- Thoughtful insight
+- Playful disagreement
+- Question-based engagement
+
+Each suggestion must:
+- Avoid repetitive structure
+- Avoid templated tone
+- Use slight human variability
+- Include occasional imperfection
+
+----------------------------------------
+3. HUMAN APPROVAL WORKFLOW
+----------------------------------------
+
+Dashboard UI must show:
+
+- Original post preview
+- Engagement metrics
+- Trend score
+- Suggested comments
+- Risk indicator (low / medium / high visibility)
+
+User must:
+- Select one comment
+- Edit if desired
+- Click “Approve & Post”
+
+Only then:
+- Post comment via Twitter API
+
+No automatic posting under any condition.
+
+----------------------------------------
+4. ANTI-BOT BEHAVIOR LAYER
+----------------------------------------
+
+- Daily comment cap (configurable)
+- Hourly limit
+- Randomized posting delay (even after approval)
+- No commenting in rapid succession
+- Avoid commenting on same account repeatedly
+- Cooldown per niche
+
+Add:
+- Behavioral pacing engine
+- Engagement distribution randomness
+- Safe-mode toggle
+
+----------------------------------------
+5. STRATEGIC GROWTH DESIGN
+----------------------------------------
+
+System should prioritize:
+
+- Posts where small/medium accounts are likely to notice and reply
+- Early-stage viral tweets (before peak)
+- High-comment threads
+- Community-driven discussions
+
+Optional setting:
+- Aggression level (low / medium / high visibility)
+
+----------------------------------------
+6. DATABASE TABLES
+----------------------------------------
+
+Create:
+
+- trending_posts
+- comment_suggestions
+- approved_comments
+- comment_post_log
+- niche_profiles
+- behavior_limits
+
+----------------------------------------
+7. FUTURE EXPANDABILITY
+----------------------------------------
+
+Design architecture so that:
+- Other platforms can be integrated later
+- Comment performance can be tracked
+- AI can learn which comment style converts best
+- Engagement scoring can auto-adjust weighting
+
+Code must be modular, production-ready, and well commented.
+No placeholders.

@@ -3,7 +3,113 @@ import { queryClient, apiRequest } from "./queryClient";
 import type {
   Tweet, MediaItem, Engagement, FollowerInteraction,
   Trend, ActivityLog, AnalyticsData, PeakTime, Setting,
+  NicheProfile, TrendingPost, CommentSuggestion, BehaviorLimit,
 } from "@shared/schema";
+
+export function useNicheProfiles() {
+  return useQuery<NicheProfile[]>({ queryKey: ["/api/niches"] });
+}
+
+export function useCreateNiche() {
+  return useMutation({
+    mutationFn: async (data: Partial<NicheProfile>) => {
+      const res = await apiRequest("POST", "/api/niches", data);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
+  });
+}
+
+export function useDeleteNiche() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/niches/${id}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
+  });
+}
+
+export function useTrendingPosts(nicheId?: number) {
+  const queryKey = nicheId ? [`/api/trending-posts?nicheId=${nicheId}`] : ["/api/trending-posts"];
+  return useQuery<(TrendingPost & { comments?: CommentSuggestion[] })[]>({ queryKey });
+}
+
+export function useDiscoverTrending() {
+  return useMutation({
+    mutationFn: async (nicheId: number) => {
+      const res = await apiRequest("POST", "/api/trending-posts/discover", { nicheId });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
+  });
+}
+
+export function useGenerateComments() {
+  return useMutation({
+    mutationFn: async (postId: number) => {
+      const res = await apiRequest("POST", `/api/trending-posts/${postId}/generate-comments`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/comments"] });
+    },
+  });
+}
+
+export function useCommentSuggestions(postId?: number) {
+  const queryKey = postId ? [`/api/comments?postId=${postId}`] : ["/api/comments"];
+  return useQuery<CommentSuggestion[]>({ queryKey });
+}
+
+export function useUpdateComment() {
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: number } & Partial<CommentSuggestion>) => {
+      const res = await apiRequest("PATCH", `/api/comments/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/comments"] });
+    },
+  });
+}
+
+export function usePostComment() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/comments/${id}/post`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/comments"] });
+    },
+  });
+}
+
+export function useDeleteTrendingPost() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/trending-posts/${id}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
+  });
+}
+
+export function useBehaviorLimits() {
+  return useQuery<BehaviorLimit[]>({ queryKey: ["/api/behavior-limits"] });
+}
+
+export function useUpdateBehaviorLimit() {
+  return useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+      const res = await apiRequest("POST", "/api/behavior-limits", { key, value });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/behavior-limits"] }),
+  });
+}
 
 export function useTweets() {
   return useQuery<Tweet[]>({ queryKey: ["/api/tweets"] });
