@@ -40,15 +40,17 @@ uploads/          - User-uploaded media files (served statically)
 - **server/twitter.ts**: `getTwitterClient()` returns TwitterApi instance or null; `testTwitterConnection()` verifies connection
 
 ## Viral Comment Engine
-- **3-step workflow**: Discover trending topics → Find post on X manually → Paste post details → AI generates viral comments
+- **3-step workflow**: Discover trending topics → Find post on X → Screenshot scan or manual entry → AI generates viral comments
 - **Trend discovery**: Google Trends API (free) with Groq AI fallback when Google Trends is unavailable
-- **No X API scraping**: User searches X manually, copies post details back — zero X API cost
-- **Post analysis**: AI analyzes post text + optional image (vision via llama-4-scout) + metrics + trend context
+- **No X API scraping**: User searches X manually — zero X API cost
+- **Screenshot Scan (primary)**: Upload/paste/drag a screenshot of an X post → Groq vision (llama-4-scout) extracts post text, author, metrics, image descriptions automatically → then generates viral comments in one shot
+- **Manual Entry (fallback)**: Paste post text and fill in metrics manually
+- **Clipboard paste**: Ctrl+V pastes screenshot directly from clipboard
+- **Post analysis**: AI analyzes post text + image + metrics + trend context using elite social engagement strategist prompt
 - **Comment generation**: 5 comments per analysis with strategy labels (Authority/Curious/Contrarian/Relatable/Insightful), safest pick, high-visibility pick, and skip recommendations
 - **Comment styles**: Safe, Balanced, Bold, Contrarian
 - **Region support**: 10 geo regions for trend discovery
 - **Frontend page**: `/viral` route, 3-step animated UI (trends → analyze → results)
-- **Prompt**: Detailed elite social engagement strategist prompt stored in `/api/analyze-post` route
 
 ## API Endpoints
 - GET/POST: /api/tweets, /api/media, /api/engagements, /api/follower-interactions, /api/trends, /api/activity-logs, /api/analytics, /api/peak-times
@@ -61,6 +63,7 @@ uploads/          - User-uploaded media files (served statically)
 - GET: /api/twitter/status (connection check + handle)
 - GET: /api/trending-topics?geo=US (Google Trends + AI fallback)
 - POST: /api/analyze-post (AI post analysis + viral comment generation with vision support)
+- POST: /api/scan-screenshot (multipart: screenshot file → vision extraction + comment generation)
 
 ## Environment Secrets
 - GROQ_API_KEY — for AI content generation via Groq

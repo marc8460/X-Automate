@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useTrendingTopics, useAnalyzePost } from "@/lib/hooks";
+import { useTrendingTopics, useAnalyzePost, useScanScreenshot } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +16,6 @@ import {
   MessageCircle,
   Zap,
   Rocket,
-  AlertTriangle,
   Copy,
   Check,
   ChevronDown,
@@ -30,6 +29,11 @@ import {
   Repeat2,
   Clock,
   XCircle,
+  Camera,
+  Upload,
+  Clipboard,
+  Eye,
+  ChevronRight,
 } from "lucide-react";
 
 type TrendTopic = {
@@ -72,13 +76,37 @@ type AnalysisResult = {
   skipReason: string | null;
 };
 
+type ExtractedData = {
+  postText: string;
+  authorUsername?: string;
+  authorDisplayName?: string;
+  authorFollowers?: string;
+  likes?: number;
+  replies?: number;
+  retweets?: number;
+  views?: number;
+  timeElapsed?: string;
+  hasImage?: boolean;
+  imageDescription?: string | null;
+  hashtags?: string[];
+  isQuotePost?: boolean;
+  quotedText?: string | null;
+};
+
 type Step = "trends" | "analyze" | "results";
+type AnalyzeMode = "screenshot" | "manual";
 
 export default function ViralEngine() {
   const [step, setStep] = useState<Step>("trends");
   const [selectedTrend, setSelectedTrend] = useState<TrendTopic | null>(null);
   const [geo, setGeo] = useState("US");
   const [expandedTrend, setExpandedTrend] = useState<number | null>(null);
+
+  const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>("screenshot");
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
 
   const [postText, setPostText] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -93,18 +121,88 @@ export default function ViralEngine() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { data: trendsData, isLoading: trendsLoading, refetch: refetchTrends } = useTrendingTopics(geo);
   const analyzePost = useAnalyzePost();
+  const scanScreenshot = useScanScreenshot();
 
   const handleSelectTrend = (topic: TrendTopic) => {
     setSelectedTrend(topic);
     setStep("analyze");
   };
 
-  const handleAnalyze = () => {
+  const processImageFile = useCallback((file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please use an image file (PNG, JPG, etc.)", variant: "destructive" });
+      return;
+    }
+    setScreenshotFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setScreenshotPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+    setExtractedData(null);
+  }, [toast]);
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (step !== "analyze" || analyzeMode !== "screenshot") return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) processImageFile(file);
+          break;
+        }
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [step, analyzeMode, processImageFile]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processImageFile(file);
+  }, [processImageFile]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processImageFile(file);
+  };
+
+  const handleScreenshotScan = () => {
+    if (!screenshotFile) return;
+
+    const formData = new FormData();
+    formData.append("screenshot", screenshotFile);
+    if (selectedTrend) {
+      formData.append("trendTopic", selectedTrend.title);
+      formData.append("trendGrowth", selectedTrend.traffic);
+      formData.append("trendContext", selectedTrend.relatedQueries?.join(", ") || "");
+    }
+    formData.append("commentStyle", commentStyle);
+    if (niche) formData.append("niche", niche);
+
+    scanScreenshot.mutate(formData, {
+      onSuccess: (data) => {
+        setExtractedData(data.extracted);
+        setAnalysis(data.analysis);
+        setStep("results");
+      },
+      onError: (err: any) => {
+        toast({ title: "Scan failed", description: err.message, variant: "destructive" });
+      },
+    });
+  };
+
+  const handleManualAnalyze = () => {
     if (!postText.trim()) {
-      toast({ title: "Post text required", description: "Paste the text from the X post you want to analyze", variant: "destructive" });
+      toast({ title: "Post text required", description: "Paste the text of the X post", variant: "destructive" });
       return;
     }
 
@@ -159,12 +257,14 @@ export default function ViralEngine() {
     return "bg-red-500/20 border-red-500/30";
   };
 
+  const isScanning = scanScreenshot.isPending || analyzePost.isPending;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-display font-bold" data-testid="text-page-title">Viral Comment Engine</h1>
-          <p className="text-muted-foreground mt-1">Find trending topics, analyze posts, generate viral comments</p>
+          <p className="text-muted-foreground mt-1">Find trending topics, scan posts, generate viral comments</p>
         </div>
         <div className="flex items-center gap-2">
           {["trends", "analyze", "results"].map((s, i) => (
@@ -363,8 +463,8 @@ export default function ViralEngine() {
 
             <div className="glass-panel p-4">
               <p className="text-sm text-muted-foreground">
-                <strong>How it works:</strong> Pick a trending topic above, then click "Search on X" to find viral posts in X's interface. 
-                Come back here, paste the post details, and our AI will generate high-engagement comments optimized for that trend.
+                <strong>How it works:</strong> Pick a trending topic, click "Search on X" to find viral posts.
+                Then take a screenshot of the post, come back, and drop it here — AI does the rest automatically.
               </p>
             </div>
 
@@ -416,135 +516,283 @@ export default function ViralEngine() {
               </div>
             )}
 
-            <div className="glass-panel p-6 space-y-5">
-              <div className="flex items-center gap-2 mb-2">
-                <Brain size={20} className="text-primary" />
-                <h2 className="font-display font-semibold text-lg">Paste Post Details</h2>
-              </div>
-
-              <p className="text-sm text-muted-foreground -mt-2">
-                Find a post on X about this trend, then paste its details here for AI analysis.
-              </p>
-
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">Post Text *</label>
-                <Textarea
-                  placeholder="Paste the full text of the X post here..."
-                  value={postText}
-                  onChange={(e) => setPostText(e.target.value)}
-                  className="min-h-[100px] bg-secondary/30"
-                  data-testid="input-post-text"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5">
-                  <ImageIcon size={14} />
-                  Image URL (optional)
-                </label>
-                <Input
-                  placeholder="https://pbs.twimg.com/... or paste image URL"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  className="bg-secondary/30"
-                  data-testid="input-image-url"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Right-click the image on X and "Copy image address"</p>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
-                  <label className="text-xs font-medium mb-1 block flex items-center gap-1">
-                    <Users size={12} /> Followers
-                  </label>
-                  <Input
-                    placeholder="e.g. 50K"
-                    value={authorFollowers}
-                    onChange={(e) => setAuthorFollowers(e.target.value)}
-                    className="bg-secondary/30"
-                    data-testid="input-followers"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block flex items-center gap-1">
-                    <Heart size={12} /> Likes
-                  </label>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    value={likes}
-                    onChange={(e) => setLikes(e.target.value)}
-                    className="bg-secondary/30"
-                    data-testid="input-likes"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block flex items-center gap-1">
-                    <MessageSquare size={12} /> Replies
-                  </label>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    value={replies}
-                    onChange={(e) => setReplies(e.target.value)}
-                    className="bg-secondary/30"
-                    data-testid="input-replies"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block flex items-center gap-1">
-                    <Repeat2 size={12} /> Reposts
-                  </label>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    value={retweets}
-                    onChange={(e) => setRetweets(e.target.value)}
-                    className="bg-secondary/30"
-                    data-testid="input-retweets"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-medium mb-1 block flex items-center gap-1">
-                    <Clock size={12} /> Time Since Posted
-                  </label>
-                  <Input
-                    placeholder="e.g. 2h, 30m, 1d"
-                    value={timeElapsed}
-                    onChange={(e) => setTimeElapsed(e.target.value)}
-                    className="bg-secondary/30"
-                    data-testid="input-time-elapsed"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Niche</label>
-                  <Input
-                    placeholder="e.g. Tech, Fashion, Crypto"
-                    value={niche}
-                    onChange={(e) => setNiche(e.target.value)}
-                    className="bg-secondary/30"
-                    data-testid="input-niche"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Comment Style</label>
-                  <select
-                    value={commentStyle}
-                    onChange={(e) => setCommentStyle(e.target.value)}
-                    className="w-full bg-secondary/30 border border-border/50 rounded-md px-3 py-2 text-sm"
-                    data-testid="select-comment-style"
-                  >
-                    <option value="Safe">Safe</option>
-                    <option value="Balanced">Balanced</option>
-                    <option value="Bold">Bold</option>
-                    <option value="Contrarian">Contrarian</option>
-                  </select>
-                </div>
-              </div>
+            <div className="flex gap-1 p-1 bg-secondary/30 rounded-lg w-fit">
+              <button
+                onClick={() => setAnalyzeMode("screenshot")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                  analyzeMode === "screenshot"
+                    ? "bg-primary/20 text-primary border border-primary/30"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                data-testid="button-mode-screenshot"
+              >
+                <Camera size={14} />
+                Screenshot Scan
+              </button>
+              <button
+                onClick={() => setAnalyzeMode("manual")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                  analyzeMode === "manual"
+                    ? "bg-primary/20 text-primary border border-primary/30"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                data-testid="button-mode-manual"
+              >
+                <MessageSquare size={14} />
+                Manual Entry
+              </button>
             </div>
+
+            {analyzeMode === "screenshot" && (
+              <div className="space-y-4">
+                <div className="glass-panel p-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Camera size={20} className="text-primary" />
+                    <h2 className="font-display font-semibold text-lg">Screenshot Scan</h2>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">AI-Powered</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Take a screenshot of any X post and drop it here. AI will automatically read the post text, metrics, images — everything — and generate viral comments.
+                  </p>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                    data-testid="input-screenshot-file"
+                  />
+
+                  <div
+                    ref={dropZoneRef}
+                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={handleDrop}
+                    onClick={() => !screenshotPreview && fileInputRef.current?.click()}
+                    className={`relative border-2 border-dashed rounded-xl transition-all cursor-pointer min-h-[200px] flex flex-col items-center justify-center ${
+                      isDragging
+                        ? "border-primary bg-primary/10 scale-[1.02]"
+                        : screenshotPreview
+                        ? "border-border/50 bg-secondary/20"
+                        : "border-border/50 hover:border-primary/50 hover:bg-primary/5"
+                    }`}
+                    data-testid="dropzone-screenshot"
+                  >
+                    {screenshotPreview ? (
+                      <div className="w-full p-4">
+                        <div className="relative max-h-[400px] overflow-hidden rounded-lg">
+                          <img
+                            src={screenshotPreview}
+                            alt="Screenshot preview"
+                            className="w-full object-contain max-h-[400px] rounded-lg"
+                          />
+                          <div className="absolute top-2 right-2 flex gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setScreenshotPreview(null);
+                                setScreenshotFile(null);
+                                setExtractedData(null);
+                              }}
+                              data-testid="button-remove-screenshot"
+                            >
+                              <XCircle size={14} className="mr-1" /> Remove
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                fileInputRef.current?.click();
+                              }}
+                              data-testid="button-replace-screenshot"
+                            >
+                              <Upload size={14} className="mr-1" /> Replace
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-4 py-8">
+                        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                          <Camera size={28} className="text-primary" />
+                        </div>
+                        <div className="text-center">
+                          <p className="font-medium mb-1">Drop screenshot here or click to upload</p>
+                          <p className="text-sm text-muted-foreground">
+                            You can also press <kbd className="px-1.5 py-0.5 bg-secondary/50 border border-border/50 rounded text-xs font-mono">Ctrl+V</kbd> to paste from clipboard
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              fileInputRef.current?.click();
+                            }}
+                            data-testid="button-browse-files"
+                          >
+                            <Upload size={14} className="mr-1" /> Browse Files
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.read().then(items => {
+                                for (const item of items) {
+                                  const imageType = item.types.find(t => t.startsWith("image/"));
+                                  if (imageType) {
+                                    item.getType(imageType).then(blob => {
+                                      const file = new File([blob], "clipboard.png", { type: imageType });
+                                      processImageFile(file);
+                                    });
+                                  }
+                                }
+                              }).catch(() => {
+                                toast({ title: "Paste failed", description: "No image in clipboard. Try Ctrl+V after taking a screenshot.", variant: "destructive" });
+                              });
+                            }}
+                            data-testid="button-paste-clipboard"
+                          >
+                            <Clipboard size={14} className="mr-1" /> Paste from Clipboard
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Niche (optional)</label>
+                    <Input
+                      placeholder="e.g. Tech, Fashion, Crypto"
+                      value={niche}
+                      onChange={(e) => setNiche(e.target.value)}
+                      className="bg-secondary/30"
+                      data-testid="input-niche-screenshot"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Comment Style</label>
+                    <select
+                      value={commentStyle}
+                      onChange={(e) => setCommentStyle(e.target.value)}
+                      className="w-full bg-secondary/30 border border-border/50 rounded-md px-3 py-2 text-sm"
+                      data-testid="select-comment-style-screenshot"
+                    >
+                      <option value="Safe">Safe</option>
+                      <option value="Balanced">Balanced</option>
+                      <option value="Bold">Bold</option>
+                      <option value="Contrarian">Contrarian</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {analyzeMode === "manual" && (
+              <div className="glass-panel p-6 space-y-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Brain size={20} className="text-primary" />
+                  <h2 className="font-display font-semibold text-lg">Manual Entry</h2>
+                </div>
+
+                <p className="text-sm text-muted-foreground -mt-2">
+                  Paste the post details manually if you prefer not to use a screenshot.
+                </p>
+
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Post Text *</label>
+                  <Textarea
+                    placeholder="Paste the full text of the X post here..."
+                    value={postText}
+                    onChange={(e) => setPostText(e.target.value)}
+                    className="min-h-[100px] bg-secondary/30"
+                    data-testid="input-post-text"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5">
+                    <ImageIcon size={14} />
+                    Image URL (optional)
+                  </label>
+                  <Input
+                    placeholder="https://pbs.twimg.com/... or paste image URL"
+                    value={imageUrl}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    className="bg-secondary/30"
+                    data-testid="input-image-url"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-xs font-medium mb-1 block flex items-center gap-1">
+                      <Users size={12} /> Followers
+                    </label>
+                    <Input
+                      placeholder="e.g. 50K"
+                      value={authorFollowers}
+                      onChange={(e) => setAuthorFollowers(e.target.value)}
+                      className="bg-secondary/30"
+                      data-testid="input-followers"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block flex items-center gap-1">
+                      <Heart size={12} /> Likes
+                    </label>
+                    <Input type="number" placeholder="0" value={likes} onChange={(e) => setLikes(e.target.value)} className="bg-secondary/30" data-testid="input-likes" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block flex items-center gap-1">
+                      <MessageSquare size={12} /> Replies
+                    </label>
+                    <Input type="number" placeholder="0" value={replies} onChange={(e) => setReplies(e.target.value)} className="bg-secondary/30" data-testid="input-replies" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block flex items-center gap-1">
+                      <Repeat2 size={12} /> Reposts
+                    </label>
+                    <Input type="number" placeholder="0" value={retweets} onChange={(e) => setRetweets(e.target.value)} className="bg-secondary/30" data-testid="input-retweets" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-medium mb-1 block flex items-center gap-1">
+                      <Clock size={12} /> Time Since Posted
+                    </label>
+                    <Input placeholder="e.g. 2h, 30m" value={timeElapsed} onChange={(e) => setTimeElapsed(e.target.value)} className="bg-secondary/30" data-testid="input-time-elapsed" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Niche</label>
+                    <Input placeholder="e.g. Tech, Fashion" value={niche} onChange={(e) => setNiche(e.target.value)} className="bg-secondary/30" data-testid="input-niche" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Comment Style</label>
+                    <select
+                      value={commentStyle}
+                      onChange={(e) => setCommentStyle(e.target.value)}
+                      className="w-full bg-secondary/30 border border-border/50 rounded-md px-3 py-2 text-sm"
+                      data-testid="select-comment-style"
+                    >
+                      <option value="Safe">Safe</option>
+                      <option value="Balanced">Balanced</option>
+                      <option value="Bold">Bold</option>
+                      <option value="Contrarian">Contrarian</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-between">
               <Button
@@ -554,24 +802,45 @@ export default function ViralEngine() {
               >
                 Back to Trends
               </Button>
-              <Button
-                onClick={handleAnalyze}
-                disabled={analyzePost.isPending || !postText.trim()}
-                className="min-w-[200px]"
-                data-testid="button-generate-comments"
-              >
-                {analyzePost.isPending ? (
-                  <>
-                    <RefreshCw size={14} className="mr-2 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Zap size={14} className="mr-2" />
-                    Generate Viral Comments
-                  </>
-                )}
-              </Button>
+              {analyzeMode === "screenshot" ? (
+                <Button
+                  onClick={handleScreenshotScan}
+                  disabled={isScanning || !screenshotFile}
+                  className="min-w-[200px]"
+                  data-testid="button-scan-screenshot"
+                >
+                  {scanScreenshot.isPending ? (
+                    <>
+                      <RefreshCw size={14} className="mr-2 animate-spin" />
+                      AI is reading the post...
+                    </>
+                  ) : (
+                    <>
+                      <Eye size={14} className="mr-2" />
+                      Scan & Generate Comments
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleManualAnalyze}
+                  disabled={isScanning || !postText.trim()}
+                  className="min-w-[200px]"
+                  data-testid="button-generate-comments"
+                >
+                  {analyzePost.isPending ? (
+                    <>
+                      <RefreshCw size={14} className="mr-2 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Zap size={14} className="mr-2" />
+                      Generate Viral Comments
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </motion.div>
         )}
@@ -584,6 +853,49 @@ export default function ViralEngine() {
             exit={{ opacity: 0, y: -20 }}
             className="space-y-4"
           >
+            {extractedData && (
+              <div className="glass-panel p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Eye size={16} className="text-primary" />
+                  <span className="text-sm font-medium">AI Extracted from Screenshot</span>
+                </div>
+                <div className="bg-secondary/30 rounded-lg p-3 space-y-2">
+                  {extractedData.authorDisplayName && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Users size={12} className="text-muted-foreground" />
+                      <span className="font-medium">{extractedData.authorDisplayName}</span>
+                      {extractedData.authorUsername && <span className="text-muted-foreground">{extractedData.authorUsername}</span>}
+                      {extractedData.authorFollowers && <span className="text-xs text-primary">{extractedData.authorFollowers} followers</span>}
+                    </div>
+                  )}
+                  <p className="text-sm">{extractedData.postText}</p>
+                  <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    {extractedData.likes !== undefined && extractedData.likes > 0 && (
+                      <span className="flex items-center gap-1"><Heart size={10} /> {extractedData.likes.toLocaleString()}</span>
+                    )}
+                    {extractedData.replies !== undefined && extractedData.replies > 0 && (
+                      <span className="flex items-center gap-1"><MessageSquare size={10} /> {extractedData.replies.toLocaleString()}</span>
+                    )}
+                    {extractedData.retweets !== undefined && extractedData.retweets > 0 && (
+                      <span className="flex items-center gap-1"><Repeat2 size={10} /> {extractedData.retweets.toLocaleString()}</span>
+                    )}
+                    {extractedData.views !== undefined && extractedData.views > 0 && (
+                      <span className="flex items-center gap-1"><BarChart3 size={10} /> {extractedData.views.toLocaleString()} views</span>
+                    )}
+                    {extractedData.timeElapsed && (
+                      <span className="flex items-center gap-1"><Clock size={10} /> {extractedData.timeElapsed}</span>
+                    )}
+                  </div>
+                  {extractedData.imageDescription && (
+                    <div className="text-xs text-muted-foreground mt-1 pt-1 border-t border-border/30">
+                      <ImageIcon size={10} className="inline mr-1" />
+                      Image: {extractedData.imageDescription}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {analysis.skipRecommended && (
               <div className="glass-panel p-4 border-red-500/30 bg-red-500/10">
                 <div className="flex items-center gap-2 text-red-400 font-medium">
@@ -723,7 +1035,14 @@ export default function ViralEngine() {
             <div className="flex justify-between">
               <Button
                 variant="outline"
-                onClick={() => setStep("analyze")}
+                onClick={() => {
+                  setStep("analyze");
+                  setAnalysis(null);
+                  setExtractedData(null);
+                  setScreenshotPreview(null);
+                  setScreenshotFile(null);
+                  setPostText("");
+                }}
                 data-testid="button-analyze-another"
               >
                 Analyze Another Post
@@ -731,7 +1050,15 @@ export default function ViralEngine() {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => { setStep("trends"); setAnalysis(null); setPostText(""); setImageUrl(""); }}
+                  onClick={() => {
+                    setStep("trends");
+                    setAnalysis(null);
+                    setExtractedData(null);
+                    setScreenshotPreview(null);
+                    setScreenshotFile(null);
+                    setPostText("");
+                    setImageUrl("");
+                  }}
                   data-testid="button-new-trend"
                 >
                   New Trend

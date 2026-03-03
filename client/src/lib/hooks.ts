@@ -202,6 +202,19 @@ export function useAnalyzePost() {
   });
 }
 
+export function useScanScreenshot() {
+  return useMutation({
+    mutationFn: async (formData: FormData) => {
+      const res = await fetch("/api/scan-screenshot", { method: "POST", body: formData });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Screenshot scan failed");
+      }
+      return res.json();
+    },
+  });
+}
+
 export function useSeedData() {
   return useMutation({
     mutationFn: async () => {

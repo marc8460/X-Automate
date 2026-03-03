@@ -636,6 +636,193 @@ ${commentStyle || "Balanced"}`;
     }
   });
 
+  // --- Screenshot Scan: Upload screenshot of X post, AI extracts everything + generates comments ---
+  app.post("/api/scan-screenshot", (req, res, next) => {
+    upload.single("screenshot")(req, res, (err) => {
+      if (err) return res.status(400).json({ message: err.message || "Upload failed" });
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No screenshot uploaded" });
+
+      const trendTopic = (req.body.trendTopic as string) || "";
+      const trendGrowth = (req.body.trendGrowth as string) || "";
+      const trendContext = (req.body.trendContext as string) || "";
+      const commentStyle = (req.body.commentStyle as string) || "Balanced";
+      const niche = (req.body.niche as string) || "";
+
+      const imageData = await fs.promises.readFile(req.file.path);
+      const base64Image = imageData.toString("base64");
+      const ext = path.extname(req.file.originalname || ".png").toLowerCase();
+      const mimeMap: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif" };
+      const mimeType = mimeMap[ext] || "image/png";
+
+      const extractionResult = await groq.chat.completions.create({
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } },
+            {
+              type: "text",
+              text: `This is a screenshot of an X/Twitter post. Extract ALL information you can see. Return ONLY valid JSON:
+{
+  "postText": "the full text content of the post/tweet",
+  "authorUsername": "the @username if visible",
+  "authorDisplayName": "display name if visible",
+  "authorFollowers": "follower count if visible (e.g. '50K')",
+  "likes": number or 0,
+  "replies": number or 0,
+  "retweets": number or 0,
+  "views": number or 0,
+  "timeElapsed": "time since posted if visible (e.g. '2h', '3m')",
+  "hasImage": true/false if the post contains an image,
+  "imageDescription": "if the post contains an image, describe what's in it in detail - scene, emotions, meme structure, cultural references. Otherwise null",
+  "hashtags": ["any", "hashtags", "visible"],
+  "isQuotePost": true/false,
+  "quotedText": "text of quoted post if it's a quote post, otherwise null"
+}
+Return ONLY the JSON. No markdown, no extra text.`
+            },
+          ],
+        }],
+        temperature: 0.2,
+        max_tokens: 1000,
+      });
+
+      const extractedRaw = extractionResult.choices[0]?.message?.content || "{}";
+      let extracted: any;
+      try {
+        const jsonMatch = extractedRaw.match(/\{[\s\S]*\}/);
+        extracted = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      } catch {
+        extracted = { postText: "Could not extract post content from screenshot" };
+      }
+
+      if (!extracted.postText || extracted.postText === "Could not extract post content from screenshot") {
+        fs.promises.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ message: "Could not read the post from the screenshot. Try a clearer screenshot showing the full post.", extracted });
+      }
+
+      const systemPrompt = `You are an elite social engagement strategist specialized in identifying emerging trends and generating high-visibility comments on X (Twitter).
+
+Your job is to:
+1. Analyze a rising topic (from Google Trends or other trend signals).
+2. Analyze a specific X post (text + image if provided).
+3. Evaluate both the trend momentum and the post's viral potential.
+4. Generate high-quality, human-like comments optimized for visibility and engagement.
+
+IMPORTANT RULES:
+- Comments must feel 100% human.
+- No generic praise (avoid "Love this!", "So true!", etc.).
+- No spammy tone.
+- No emojis overload.
+- No bot-like enthusiasm.
+- Add insight, curiosity, perspective, or subtle authority.
+- Comments must expand the conversation, not repeat the post.
+- If engagement velocity is low relative to follower count, recommend skipping the post and explain why.
+
+Optimize for:
+- Early engagement advantage
+- Psychological triggers
+- Curiosity gaps
+- Authority positioning
+- Relatability
+- Conversation expansion
+
+If an image is provided, integrate visual analysis into comment strategy.
+
+You MUST return your response as valid JSON with this exact structure:
+{
+  "trendMomentumScore": <number 1-10>,
+  "trendMomentumExplanation": "<string>",
+  "postViralPotential": <number 1-10>,
+  "postViralExplanation": "<string>",
+  "toneAnalysis": {
+    "emotionalTone": "<string>",
+    "controversyLevel": "<string low/medium/high>",
+    "authorityLevel": "<string low/medium/high>",
+    "audienceType": "<string>",
+    "memeVisualFactor": "<string or null>"
+  },
+  "bestStrategy": {
+    "type": "<Authority/Curious/Contrarian/Relatable/Insightful>",
+    "explanation": "<string>"
+  },
+  "comments": ["<comment1>", "<comment2>", "<comment3>", "<comment4>", "<comment5>"],
+  "safestOption": {
+    "index": <number 0-4>,
+    "explanation": "<string>"
+  },
+  "highVisibilityOption": {
+    "index": <number 0-4>,
+    "explanation": "<string>"
+  },
+  "skipRecommended": <boolean>,
+  "skipReason": "<string or null>"
+}
+
+Return ONLY the JSON. No markdown, no extra text.`;
+
+      const userPrompt = `INPUT DATA:
+
+TREND DATA:
+Topic: ${trendTopic || "Not specified"}
+Growth Rate: ${trendGrowth || "Unknown"}
+Context: ${trendContext || "No additional context"}
+
+POST TEXT:
+${extracted.postText}
+
+IMAGE DESCRIPTION:
+${extracted.imageDescription || "No image in post"}
+
+POST METRICS:
+Author: ${extracted.authorDisplayName || "Unknown"} (${extracted.authorUsername || "Unknown"})
+Author Followers: ${extracted.authorFollowers || "Unknown"}
+Likes: ${extracted.likes || 0}
+Replies: ${extracted.replies || 0}
+Reposts: ${extracted.retweets || 0}
+Views: ${extracted.views || "Unknown"}
+Time Since Posted: ${extracted.timeElapsed || "Unknown"}
+Hashtags: ${extracted.hashtags?.join(", ") || "None"}
+
+NICHE:
+${niche || "General"}
+
+COMMENT STYLE MODE:
+${commentStyle}`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: 2048,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{}";
+      let analysis;
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      } catch {
+        analysis = { raw, parseError: true };
+      }
+
+      fs.promises.unlink(req.file.path).catch(() => {});
+
+      res.json({ analysis, extracted });
+    } catch (err: any) {
+      console.error("Screenshot scan error:", err);
+      if (req.file) fs.promises.unlink(req.file.path).catch(() => {});
+      res.status(500).json({ message: err.message || "Screenshot scan failed" });
+    }
+  });
+
   // --- Seed endpoint (populate initial data if empty) ---
   app.post("/api/seed", async (_req, res) => {
     const existingTweets = await storage.getTweets();
