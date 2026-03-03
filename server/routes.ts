@@ -28,7 +28,7 @@ const uploadStorage = multer.diskStorage({
 });
 const upload = multer({
   storage: uploadStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only image files are allowed"));
@@ -194,7 +194,17 @@ export async function registerRoutes(
   });
 
   // --- Media Upload ---
-  app.post("/api/media/upload", upload.single("file"), async (req, res) => {
+  app.post("/api/media/upload", (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ message: "File too large. Maximum size is 50MB." });
+        }
+        return res.status(400).json({ message: err.message || "Upload failed" });
+      }
+      next();
+    });
+  }, async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const url = `/uploads/${req.file.filename}`;

@@ -21,7 +21,7 @@ app.use(
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
