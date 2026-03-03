@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
+import googleTrends from "google-trends-api";
 import { testTwitterConnection } from "./twitter";
 import { storage } from "./storage";
 import {
@@ -373,6 +374,265 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
     } catch (err: any) {
       console.error("Groq generation error:", err);
       res.status(500).json({ message: err.message || "Generation failed" });
+    }
+  });
+
+  // --- Trending Topics (Google Trends with AI fallback) ---
+  app.get("/api/trending-topics", async (req, res) => {
+    try {
+      const geo = (req.query.geo as string) || "US";
+      const category = (req.query.category as string) || "all";
+
+      let topics: any[] = [];
+      let source = "google_trends";
+
+      try {
+        const dailyResult = await googleTrends.dailyTrends({ geo });
+        const dailyData = JSON.parse(dailyResult);
+        const trendingSearches = dailyData?.default?.trendingSearchesDays?.[0]?.trendingSearches || [];
+
+        topics = trendingSearches.slice(0, 20).map((t: any, i: number) => ({
+          id: i + 1,
+          title: t.title?.query || t.query || "Unknown",
+          traffic: t.formattedTraffic || "N/A",
+          relatedQueries: (t.relatedQueries || []).map((q: any) => q.query).slice(0, 5),
+          articles: (t.articles || []).slice(0, 3).map((a: any) => ({
+            title: a.title,
+            url: a.url,
+            source: a.source,
+            snippet: a.snippet,
+          })),
+          image: t.image?.imageUrl || null,
+          searchQuery: `"${t.title?.query || t.query || ""}"`,
+        }));
+      } catch (googleErr: any) {
+        console.error("Google Trends unavailable, using AI:", googleErr.message);
+        source = "ai_generated";
+
+        const niches = category !== "all" ? category : "general news, tech, entertainment, sports, politics, business, culture, science";
+        const completion = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            {
+              role: "system",
+              content: `You are a trend analyst. Generate 15 currently trending or likely-to-trend topics that people are actively discussing on X/Twitter right now. Focus on topics with high viral potential. Mix breaking news, cultural moments, tech, entertainment, and viral debates. For each topic, provide related search queries people would use on X to find posts about it. Return ONLY a JSON array with this structure:
+[{"title": "Topic Name", "traffic": "estimated search volume like 100K+", "relatedQueries": ["query1", "query2", "query3"], "context": "brief 1-sentence context"}]
+No markdown, no extra text, ONLY the JSON array.`
+            },
+            {
+              role: "user",
+              content: `Generate 15 trending topics for ${geo} region, covering: ${niches}. These should be topics that are realistically trending right now or have high potential to trend. Be specific — real events, people, products, not generic categories.`
+            }
+          ],
+          temperature: 0.9,
+          max_tokens: 2048,
+        });
+
+        const raw = completion.choices[0]?.message?.content || "[]";
+        try {
+          const jsonMatch = raw.match(/\[[\s\S]*\]/);
+          const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+          topics = parsed.map((t: any, i: number) => ({
+            id: i + 1,
+            title: t.title,
+            traffic: t.traffic || "Trending",
+            relatedQueries: t.relatedQueries || [],
+            articles: [],
+            image: null,
+            searchQuery: `"${t.title}"`,
+            context: t.context || null,
+          }));
+        } catch {
+          topics = [];
+        }
+      }
+
+      res.json({ topics, geo, source, fetchedAt: new Date().toISOString() });
+    } catch (err: any) {
+      console.error("Trending topics error:", err);
+      res.status(500).json({ message: err.message || "Failed to fetch trends" });
+    }
+  });
+
+  // --- Analyze Post & Generate Viral Comments (Groq AI) ---
+  app.post("/api/analyze-post", async (req, res) => {
+    try {
+      const {
+        trendTopic,
+        trendGrowth,
+        trendContext,
+        postText,
+        imageUrl,
+        authorFollowers,
+        likes,
+        replies,
+        retweets,
+        timeElapsed,
+        niche,
+        commentStyle,
+      } = req.body;
+
+      if (!postText) return res.status(400).json({ message: "postText is required" });
+
+      let imageDescription = "";
+      if (imageUrl) {
+        try {
+          if (imageUrl.startsWith("/uploads/")) {
+            const imageData = await fs.promises.readFile(path.join(process.cwd(), imageUrl));
+            const base64Image = imageData.toString("base64");
+            const ext = path.extname(imageUrl).toLowerCase();
+            const mimeMap: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif" };
+            const mimeType = mimeMap[ext] || "image/jpeg";
+
+            const visionResult = await groq.chat.completions.create({
+              model: "meta-llama/llama-4-scout-17b-16e-instruct",
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } },
+                  { type: "text", text: "Analyze this image in detail. Describe: scene content, emotional signals, meme potential, cultural references, visual irony or contrast. Be specific and concise, 3-4 sentences." },
+                ],
+              }],
+              temperature: 0.3,
+              max_tokens: 400,
+            });
+            imageDescription = visionResult.choices[0]?.message?.content || "";
+          } else if (imageUrl.startsWith("http")) {
+            const visionResult = await groq.chat.completions.create({
+              model: "meta-llama/llama-4-scout-17b-16e-instruct",
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "image_url", image_url: { url: imageUrl } },
+                  { type: "text", text: "Analyze this image in detail. Describe: scene content, emotional signals, meme potential, cultural references, visual irony or contrast. Be specific and concise, 3-4 sentences." },
+                ],
+              }],
+              temperature: 0.3,
+              max_tokens: 400,
+            });
+            imageDescription = visionResult.choices[0]?.message?.content || "";
+          }
+        } catch (visionErr: any) {
+          console.error("Vision analysis failed:", visionErr.message);
+          imageDescription = "Image could not be analyzed.";
+        }
+      }
+
+      const systemPrompt = `You are an elite social engagement strategist specialized in identifying emerging trends and generating high-visibility comments on X (Twitter).
+
+Your job is to:
+1. Analyze a rising topic (from Google Trends or other trend signals).
+2. Analyze a specific X post (text + image if provided).
+3. Evaluate both the trend momentum and the post's viral potential.
+4. Generate high-quality, human-like comments optimized for visibility and engagement.
+
+IMPORTANT RULES:
+- Comments must feel 100% human.
+- No generic praise (avoid "Love this!", "So true!", etc.).
+- No spammy tone.
+- No emojis overload.
+- No bot-like enthusiasm.
+- Add insight, curiosity, perspective, or subtle authority.
+- Comments must expand the conversation, not repeat the post.
+- If engagement velocity is low relative to follower count, recommend skipping the post and explain why.
+
+Optimize for:
+- Early engagement advantage
+- Psychological triggers
+- Curiosity gaps
+- Authority positioning
+- Relatability
+- Conversation expansion
+
+If an image is provided, analyze:
+- Scene content
+- Emotional signals
+- Meme structure
+- Cultural references
+- Visual irony or contrast
+Integrate visual analysis into comment strategy.
+
+You MUST return your response as valid JSON with this exact structure:
+{
+  "trendMomentumScore": <number 1-10>,
+  "trendMomentumExplanation": "<string>",
+  "postViralPotential": <number 1-10>,
+  "postViralExplanation": "<string>",
+  "toneAnalysis": {
+    "emotionalTone": "<string>",
+    "controversyLevel": "<string low/medium/high>",
+    "authorityLevel": "<string low/medium/high>",
+    "audienceType": "<string>",
+    "memeVisualFactor": "<string or null>"
+  },
+  "bestStrategy": {
+    "type": "<Authority/Curious/Contrarian/Relatable/Insightful>",
+    "explanation": "<string>"
+  },
+  "comments": ["<comment1>", "<comment2>", "<comment3>", "<comment4>", "<comment5>"],
+  "safestOption": {
+    "index": <number 0-4>,
+    "explanation": "<string>"
+  },
+  "highVisibilityOption": {
+    "index": <number 0-4>,
+    "explanation": "<string>"
+  },
+  "skipRecommended": <boolean>,
+  "skipReason": "<string or null>"
+}
+
+Return ONLY the JSON. No markdown, no extra text.`;
+
+      const userPrompt = `INPUT DATA:
+
+TREND DATA:
+Topic: ${trendTopic || "Not specified"}
+Growth Rate: ${trendGrowth || "Unknown"}
+Context: ${trendContext || "No additional context"}
+
+POST TEXT:
+${postText}
+
+IMAGE DESCRIPTION:
+${imageDescription || "No image provided"}
+
+POST METRICS:
+Author Followers: ${authorFollowers || "Unknown"}
+Likes: ${likes || 0}
+Replies: ${replies || 0}
+Reposts: ${retweets || 0}
+Time Since Posted: ${timeElapsed || "Unknown"}
+
+NICHE:
+${niche || "General"}
+
+COMMENT STYLE MODE:
+${commentStyle || "Balanced"}`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: 2048,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{}";
+      let analysis;
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      } catch {
+        analysis = { raw, parseError: true };
+      }
+
+      res.json({ analysis, imageDescription: imageDescription || null });
+    } catch (err: any) {
+      console.error("Post analysis error:", err);
+      res.status(500).json({ message: err.message || "Analysis failed" });
     }
   });
 

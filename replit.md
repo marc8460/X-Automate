@@ -21,12 +21,12 @@ Tables: tweets, media_items, engagements, follower_interactions, trends, activit
 ## Project Structure
 ```
 client/src/
-  pages/          - Dashboard, ContentEngine, MediaVault, EngagementEngine, Settings
+  pages/          - Dashboard, ContentEngine, MediaVault, EngagementEngine, ViralEngine, Settings
   components/     - UI (shadcn), layout (Layout, Sidebar)
   lib/            - hooks.ts (TanStack Query hooks), queryClient.ts
 server/
   index.ts        - Express entry + static serving for /uploads
-  routes.ts       - REST API endpoints + file upload + AI generation + Twitter status + seed
+  routes.ts       - REST API endpoints + file upload + AI generation + viral analysis + Twitter status + seed
   twitter.ts      - Twitter API client module (getTwitterClient, testTwitterConnection)
   storage.ts      - DatabaseStorage with IStorage interface
   db.ts           - Drizzle + pg pool
@@ -39,6 +39,17 @@ uploads/          - User-uploaded media files (served statically)
 - **Credentials**: OAuth 1.0a via environment secrets: TWITTER_APP_KEY, TWITTER_APP_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET
 - **server/twitter.ts**: `getTwitterClient()` returns TwitterApi instance or null; `testTwitterConnection()` verifies connection
 
+## Viral Comment Engine
+- **3-step workflow**: Discover trending topics → Find post on X manually → Paste post details → AI generates viral comments
+- **Trend discovery**: Google Trends API (free) with Groq AI fallback when Google Trends is unavailable
+- **No X API scraping**: User searches X manually, copies post details back — zero X API cost
+- **Post analysis**: AI analyzes post text + optional image (vision via llama-4-scout) + metrics + trend context
+- **Comment generation**: 5 comments per analysis with strategy labels (Authority/Curious/Contrarian/Relatable/Insightful), safest pick, high-visibility pick, and skip recommendations
+- **Comment styles**: Safe, Balanced, Bold, Contrarian
+- **Region support**: 10 geo regions for trend discovery
+- **Frontend page**: `/viral` route, 3-step animated UI (trends → analyze → results)
+- **Prompt**: Detailed elite social engagement strategist prompt stored in `/api/analyze-post` route
+
 ## API Endpoints
 - GET/POST: /api/tweets, /api/media, /api/engagements, /api/follower-interactions, /api/trends, /api/activity-logs, /api/analytics, /api/peak-times
 - PATCH: /api/tweets/:id, /api/engagements/:id
@@ -48,6 +59,8 @@ uploads/          - User-uploaded media files (served statically)
 - POST: /api/generate (AI tweet generation via Groq: { style, topic?, seductiveness?, imageUrl? })
 - POST: /api/seed (idempotent - checks if data exists first)
 - GET: /api/twitter/status (connection check + handle)
+- GET: /api/trending-topics?geo=US (Google Trends + AI fallback)
+- POST: /api/analyze-post (AI post analysis + viral comment generation with vision support)
 
 ## Environment Secrets
 - GROQ_API_KEY — for AI content generation via Groq

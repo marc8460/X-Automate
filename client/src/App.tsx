@@ -10,7 +10,7 @@ import Dashboard from "@/pages/Dashboard";
 import ContentEngine from "@/pages/ContentEngine";
 import MediaVault from "@/pages/MediaVault";
 import EngagementEngine from "@/pages/EngagementEngine";
-
+import ViralEngine from "@/pages/ViralEngine";
 import SettingsPage from "@/pages/Settings";
 import { useSeedData } from "@/lib/hooks";
 
@@ -30,7 +30,7 @@ function Router() {
         <Route path="/vault" component={MediaVault}/>
         <Route path="/content" component={ContentEngine}/>
         <Route path="/engagement" component={EngagementEngine}/>
-
+        <Route path="/viral" component={ViralEngine}/>
         <Route path="/settings" component={SettingsPage}/>
         <Route component={NotFound} />
       </Switch>

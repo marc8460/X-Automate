@@ -5,7 +5,8 @@ import {
   MessageSquareHeart, 
   Settings,
   User,
-  Image
+  Image,
+  Flame
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,7 @@ const navItems = [
   { href: "/vault", label: "Media Vault", icon: Image },
   { href: "/content", label: "Content Engine", icon: PenTool },
   { href: "/engagement", label: "Engagement", icon: MessageSquareHeart },
+  { href: "/viral", label: "Viral Engine", icon: Flame },
   { href: "/settings", label: "Configuration", icon: Settings },
 ];
 

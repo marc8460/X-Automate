@@ -154,6 +154,54 @@ export function useTestTwitterConnection() {
   });
 }
 
+export function useTrendingTopics(geo: string = "US") {
+  return useQuery<{
+    topics: Array<{
+      id: number;
+      title: string;
+      traffic: string;
+      relatedQueries: string[];
+      articles: Array<{ title: string; url: string; source: string; snippet: string }>;
+      image: string | null;
+      searchQuery: string;
+    }>;
+    geo: string;
+    source?: string;
+    fetchedAt: string;
+  }>({
+    queryKey: ["/api/trending-topics", geo],
+    queryFn: async () => {
+      const res = await fetch(`/api/trending-topics?geo=${geo}`);
+      if (!res.ok) throw new Error("Failed to fetch trends");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+export function useAnalyzePost() {
+  return useMutation({
+    mutationFn: async (data: {
+      trendTopic?: string;
+      trendGrowth?: string;
+      trendContext?: string;
+      postText: string;
+      imageUrl?: string;
+      authorFollowers?: string;
+      likes?: number;
+      replies?: number;
+      retweets?: number;
+      timeElapsed?: string;
+      niche?: string;
+      commentStyle?: string;
+    }) => {
+      const res = await apiRequest("POST", "/api/analyze-post", data);
+      return res.json();
+    },
+  });
+}
+
 export function useSeedData() {
   return useMutation({
     mutationFn: async () => {
