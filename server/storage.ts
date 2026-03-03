@@ -1,4 +1,4 @@
-import { eq, gte, desc, and, sql, asc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "./db";
 import {
   tweets, type Tweet, type InsertTweet,
@@ -9,21 +9,8 @@ import {
   activityLogs, type ActivityLog, type InsertActivityLog,
   analyticsData, type AnalyticsData, type InsertAnalyticsData,
   peakTimes, type PeakTime, type InsertPeakTime,
-  nicheProfiles, type NicheProfile, type InsertNicheProfile,
-  trendingPosts, type TrendingPost, type InsertTrendingPost,
-  commentSuggestions, type CommentSuggestion, type InsertCommentSuggestion,
-  behaviorLimits, type BehaviorLimit,
   settings, type Setting, type InsertSetting,
 } from "@shared/schema";
-
-export interface TrendingPostFilters {
-  nicheId?: number;
-  minLikes?: number;
-  minTrendScore?: number;
-  language?: string;
-  hoursAgo?: number;
-  sortBy?: "score" | "velocity" | "recent";
-}
 
 export interface IStorage {
   getTweets(): Promise<Tweet[]>;
@@ -55,27 +42,6 @@ export interface IStorage {
 
   getPeakTimes(): Promise<PeakTime[]>;
   createPeakTime(time: InsertPeakTime): Promise<PeakTime>;
-
-  getNicheProfiles(): Promise<NicheProfile[]>;
-  createNicheProfile(profile: InsertNicheProfile): Promise<NicheProfile>;
-  deleteNicheProfile(id: number): Promise<void>;
-
-  getTrendingPosts(): Promise<TrendingPost[]>;
-  getTrendingPostsByNiche(nicheId: number): Promise<TrendingPost[]>;
-  getTrendingPostsFiltered(filters: TrendingPostFilters): Promise<TrendingPost[]>;
-  getTrendingPost(id: number): Promise<TrendingPost | undefined>;
-  getTrendingPostByTweetId(tweetId: string): Promise<TrendingPost | undefined>;
-  createTrendingPost(post: InsertTrendingPost): Promise<TrendingPost>;
-  deleteTrendingPost(id: number): Promise<void>;
-
-  getCommentSuggestions(): Promise<CommentSuggestion[]>;
-  getCommentsByPost(postId: number): Promise<CommentSuggestion[]>;
-  createCommentSuggestion(comment: InsertCommentSuggestion): Promise<CommentSuggestion>;
-  updateCommentSuggestion(id: number, data: Partial<InsertCommentSuggestion>): Promise<CommentSuggestion | undefined>;
-  deleteCommentsByPost(postId: number): Promise<void>;
-
-  getBehaviorLimits(): Promise<BehaviorLimit[]>;
-  upsertBehaviorLimit(key: string, value: string): Promise<BehaviorLimit>;
 
   getSettings(): Promise<Setting[]>;
   getSetting(key: string): Promise<Setting | undefined>;
@@ -198,121 +164,6 @@ export class DatabaseStorage implements IStorage {
       return result;
     }
     const [result] = await db.insert(settings).values({ key, value }).returning();
-    return result;
-  }
-
-  async getNicheProfiles(): Promise<NicheProfile[]> {
-    return db.select().from(nicheProfiles);
-  }
-
-  async createNicheProfile(profile: InsertNicheProfile): Promise<NicheProfile> {
-    const [result] = await db.insert(nicheProfiles).values(profile).returning();
-    return result;
-  }
-
-  async deleteNicheProfile(id: number): Promise<void> {
-    await db.delete(nicheProfiles).where(eq(nicheProfiles.id, id));
-  }
-
-  async getTrendingPosts(): Promise<TrendingPost[]> {
-    return db.select().from(trendingPosts);
-  }
-
-  async getTrendingPostsByNiche(nicheId: number): Promise<TrendingPost[]> {
-    return db.select().from(trendingPosts).where(eq(trendingPosts.nicheId, nicheId));
-  }
-
-  async getTrendingPostsFiltered(filters: TrendingPostFilters): Promise<TrendingPost[]> {
-    const conditions = [];
-    if (filters.nicheId) {
-      conditions.push(eq(trendingPosts.nicheId, filters.nicheId));
-    }
-    if (filters.minLikes) {
-      conditions.push(gte(trendingPosts.likes, filters.minLikes));
-    }
-    if (filters.minTrendScore) {
-      conditions.push(gte(trendingPosts.trendScore, filters.minTrendScore));
-    }
-    if (filters.language) {
-      conditions.push(eq(trendingPosts.language, filters.language));
-    }
-    if (filters.hoursAgo) {
-      const cutoff = new Date(Date.now() - filters.hoursAgo * 60 * 60 * 1000).toISOString();
-      conditions.push(gte(trendingPosts.discoveredAt, cutoff));
-    }
-
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-    let orderBy;
-    switch (filters.sortBy) {
-      case "velocity":
-        orderBy = desc(trendingPosts.engagementVelocity);
-        break;
-      case "recent":
-        orderBy = desc(trendingPosts.discoveredAt);
-        break;
-      case "score":
-      default:
-        orderBy = desc(trendingPosts.trendScore);
-        break;
-    }
-
-    return db.select().from(trendingPosts).where(where).orderBy(orderBy);
-  }
-
-  async getTrendingPost(id: number): Promise<TrendingPost | undefined> {
-    const [result] = await db.select().from(trendingPosts).where(eq(trendingPosts.id, id));
-    return result;
-  }
-
-  async getTrendingPostByTweetId(tweetId: string): Promise<TrendingPost | undefined> {
-    const [result] = await db.select().from(trendingPosts).where(eq(trendingPosts.tweetId, tweetId));
-    return result;
-  }
-
-  async createTrendingPost(post: InsertTrendingPost): Promise<TrendingPost> {
-    const [result] = await db.insert(trendingPosts).values(post).returning();
-    return result;
-  }
-
-  async deleteTrendingPost(id: number): Promise<void> {
-    await db.delete(commentSuggestions).where(eq(commentSuggestions.trendingPostId, id));
-    await db.delete(trendingPosts).where(eq(trendingPosts.id, id));
-  }
-
-  async getCommentSuggestions(): Promise<CommentSuggestion[]> {
-    return db.select().from(commentSuggestions);
-  }
-
-  async getCommentsByPost(postId: number): Promise<CommentSuggestion[]> {
-    return db.select().from(commentSuggestions).where(eq(commentSuggestions.trendingPostId, postId));
-  }
-
-  async createCommentSuggestion(comment: InsertCommentSuggestion): Promise<CommentSuggestion> {
-    const [result] = await db.insert(commentSuggestions).values(comment).returning();
-    return result;
-  }
-
-  async updateCommentSuggestion(id: number, data: Partial<InsertCommentSuggestion>): Promise<CommentSuggestion | undefined> {
-    const [result] = await db.update(commentSuggestions).set(data).where(eq(commentSuggestions.id, id)).returning();
-    return result;
-  }
-
-  async deleteCommentsByPost(postId: number): Promise<void> {
-    await db.delete(commentSuggestions).where(eq(commentSuggestions.trendingPostId, postId));
-  }
-
-  async getBehaviorLimits(): Promise<BehaviorLimit[]> {
-    return db.select().from(behaviorLimits);
-  }
-
-  async upsertBehaviorLimit(key: string, value: string): Promise<BehaviorLimit> {
-    const existing = await db.select().from(behaviorLimits).where(eq(behaviorLimits.key, key));
-    if (existing.length > 0) {
-      const [result] = await db.update(behaviorLimits).set({ value }).where(eq(behaviorLimits.key, key)).returning();
-      return result;
-    }
-    const [result] = await db.insert(behaviorLimits).values({ key, value }).returning();
     return result;
   }
 }

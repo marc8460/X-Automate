@@ -3,7 +3,6 @@ import {
   Home, 
   PenTool, 
   MessageSquareHeart, 
-  TrendingUp, 
   Settings,
   User,
   Image
@@ -15,7 +14,6 @@ const navItems = [
   { href: "/vault", label: "Media Vault", icon: Image },
   { href: "/content", label: "Content Engine", icon: PenTool },
   { href: "/engagement", label: "Engagement", icon: MessageSquareHeart },
-  { href: "/trends", label: "Trend Scanner", icon: TrendingUp },
   { href: "/settings", label: "Configuration", icon: Settings },
 ];
 

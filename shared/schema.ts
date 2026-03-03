@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -100,70 +100,6 @@ export const peakTimes = pgTable("peak_times", {
 export const insertPeakTimeSchema = createInsertSchema(peakTimes).omit({ id: true });
 export type InsertPeakTime = z.infer<typeof insertPeakTimeSchema>;
 export type PeakTime = typeof peakTimes.$inferSelect;
-
-export const nicheProfiles = pgTable("niche_profiles", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  keywords: text("keywords").notNull(),
-  active: boolean("active").notNull().default(true),
-  source: text("source").notNull().default("manual"),
-});
-
-export const insertNicheProfileSchema = createInsertSchema(nicheProfiles).omit({ id: true });
-export type InsertNicheProfile = z.infer<typeof insertNicheProfileSchema>;
-export type NicheProfile = typeof nicheProfiles.$inferSelect;
-
-export const trendingPosts = pgTable("trending_posts", {
-  id: serial("id").primaryKey(),
-  nicheId: integer("niche_id").notNull(),
-  authorHandle: text("author_handle").notNull(),
-  authorFollowers: integer("author_followers").notNull(),
-  postText: text("post_text").notNull(),
-  postUrl: text("post_url").notNull(),
-  postImageUrl: text("post_image_url"),
-  tweetId: text("tweet_id"),
-  likes: integer("likes").notNull().default(0),
-  replies: integer("replies").notNull().default(0),
-  retweets: integer("retweets").notNull().default(0),
-  views: integer("views").default(0),
-  trendScore: integer("trend_score").notNull().default(0),
-  status: text("status").notNull().default("rising"),
-  source: text("source").default("live"),
-  discoveredAt: text("discovered_at").notNull(),
-  engagementVelocity: integer("engagement_velocity").notNull().default(0),
-  language: text("language"),
-  postAge: integer("post_age"),
-  nicheMatchScore: integer("niche_match_score"),
-});
-
-export const insertTrendingPostSchema = createInsertSchema(trendingPosts).omit({ id: true });
-export type InsertTrendingPost = z.infer<typeof insertTrendingPostSchema>;
-export type TrendingPost = typeof trendingPosts.$inferSelect;
-
-export const commentSuggestions = pgTable("comment_suggestions", {
-  id: serial("id").primaryKey(),
-  trendingPostId: integer("trending_post_id").notNull(),
-  commentText: text("comment_text").notNull(),
-  commentType: text("comment_type").notNull(),
-  riskLevel: text("risk_level").notNull().default("low"),
-  status: text("status").notNull().default("pending"),
-  approvedAt: text("approved_at"),
-  postedAt: text("posted_at"),
-});
-
-export const insertCommentSuggestionSchema = createInsertSchema(commentSuggestions).omit({ id: true });
-export type InsertCommentSuggestion = z.infer<typeof insertCommentSuggestionSchema>;
-export type CommentSuggestion = typeof commentSuggestions.$inferSelect;
-
-export const behaviorLimits = pgTable("behavior_limits", {
-  id: serial("id").primaryKey(),
-  key: text("key").notNull().unique(),
-  value: text("value").notNull(),
-});
-
-export const insertBehaviorLimitSchema = createInsertSchema(behaviorLimits).omit({ id: true });
-export type InsertBehaviorLimit = z.infer<typeof insertBehaviorLimitSchema>;
-export type BehaviorLimit = typeof behaviorLimits.$inferSelect;
 
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),

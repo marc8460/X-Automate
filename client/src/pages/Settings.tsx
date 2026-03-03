@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { Shield, Key, Bot, Settings2, Save, Loader2, CheckCircle2, AlertCircle, Twitter, Wifi, WifiOff, Workflow } from "lucide-react";
+import { Shield, Key, Bot, Settings2, Save, Loader2, CheckCircle2, AlertCircle, Twitter, Wifi, WifiOff } from "lucide-react";
 import { useSettings, useUpdateSetting, useTwitterStatus, useTestTwitterConnection } from "@/lib/hooks";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -341,77 +341,6 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          <Card className="p-6 glass-panel border-border/50">
-            <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-              <Workflow className="w-5 h-5 text-orange-400" />
-              n8n Scraper
-            </h2>
-
-            <div className={`flex items-center gap-3 p-3 rounded-lg mb-4 ${
-              localSettings.n8nWebhookUrl 
-                ? 'bg-green-500/10 border border-green-500/30' 
-                : 'bg-muted/30 border border-border/50'
-            }`}>
-              {localSettings.n8nWebhookUrl ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-green-400">Webhook Configured</p>
-                    <p className="text-[10px] text-green-400/70">n8n will scrape real posts when you discover</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="w-4 h-4 text-muted-foreground" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-muted-foreground">Not Configured</p>
-                    <p className="text-[10px] text-muted-foreground/70">Add your n8n webhook URL below</p>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">n8n Webhook URL</Label>
-                <Input
-                  value={localSettings.n8nWebhookUrl || ""}
-                  onChange={(e) => updateLocalSetting("n8nWebhookUrl", e.target.value)}
-                  placeholder="https://your-n8n.app/webhook/xxxxx"
-                  className="bg-background/50 text-xs"
-                  data-testid="input-n8n-webhook-url"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs">Callback URL (for n8n to send results back)</Label>
-                <Input
-                  value={`${window.location.origin}/api/trending-posts/import`}
-                  readOnly
-                  className="bg-background/50 text-xs font-mono text-muted-foreground"
-                  onClick={(e) => {
-                    (e.target as HTMLInputElement).select();
-                    navigator.clipboard.writeText(`${window.location.origin}/api/trending-posts/import`);
-                    toast({ title: "Copied!", description: "Callback URL copied to clipboard." });
-                  }}
-                  data-testid="input-n8n-callback-url"
-                />
-                <p className="text-[9px] text-muted-foreground">Click to copy. Use this in your n8n HTTP Request node.</p>
-              </div>
-
-              <div className="p-2.5 bg-background/50 rounded-md border border-border/50">
-                <p className="text-[10px] text-muted-foreground leading-tight">
-                  <strong className="text-orange-400">How it works:</strong> When you click "Search Twitter" in Trend Scanner, your app sends the niche keywords to n8n. n8n scrapes real tweets and sends them back to your app automatically. No paid Twitter API needed.
-                </p>
-              </div>
-
-              <div className="p-2.5 bg-background/50 rounded-md border border-border/50">
-                <p className="text-[10px] text-muted-foreground leading-tight">
-                  <strong className="text-orange-400">n8n Setup:</strong> Create a workflow with: Webhook trigger → X/Twitter scrape node → Code node (format data) → HTTP Request node (POST to callback URL above). Set the Webhook trigger to receive POST requests.
-                </p>
-              </div>
-            </div>
-          </Card>
         </div>
       </div>
       
