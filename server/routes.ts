@@ -289,7 +289,7 @@ No explanation.`;
 
       const twitterClient = getTwitterClient();
       const lang = language || "en";
-      const minFavesVal = minFaves || 50;
+      const minFavesVal = minFaves || 10;
 
       const settingsData = await storage.getSettings();
       const n8nWebhookUrl = settingsData.find(s => s.key === "n8nWebhookUrl")?.value;
@@ -395,7 +395,8 @@ No explanation.`;
           console.log(`Twitter v2 search query: "${query}"`);
 
           const searchResult = await twitterClient.v2.search(query, {
-            max_results: 10,
+            max_results: 50,
+            sort_order: "relevancy",
             "tweet.fields": ["public_metrics", "created_at", "attachments", "lang"],
             expansions: ["author_id", "attachments.media_keys"],
             "user.fields": ["username", "public_metrics", "profile_image_url"],
@@ -404,11 +405,24 @@ No explanation.`;
 
           const users = searchResult.includes?.users || [];
           const media = searchResult.includes?.media || [];
+          let tweetsArray: any[] = [];
+          if (searchResult.tweets && Array.isArray(searchResult.tweets)) {
+            tweetsArray = searchResult.tweets;
+          } else if (searchResult.data && Array.isArray(searchResult.data)) {
+            tweetsArray = searchResult.data;
+          } else if (searchResult.data && typeof searchResult.data === 'object' && (searchResult.data as any).data) {
+            tweetsArray = (searchResult.data as any).data || [];
+          }
 
-          console.log(`Twitter v2 search returned ${searchResult.data?.length || 0} tweets`);
+          console.log(`Twitter v2 search returned ${tweetsArray.length} tweets`);
+
+          if (tweetsArray.length === 0) {
+            console.log("Twitter returned 0 results for this query — returning empty (no fallback)");
+            return res.status(201).json([]);
+          }
 
           const rawPosts = [];
-          for (const tweet of searchResult.data || []) {
+          for (const tweet of tweetsArray) {
             const author = users.find((u: any) => u.id === tweet.author_id);
             const tweetMedia = tweet.attachments?.media_keys?.map(
               (key: string) => media.find((m: any) => m.media_key === key)
@@ -481,7 +495,9 @@ No explanation.`;
           return res.status(201).json(discoveredPosts);
         } catch (twitterErr: any) {
           const errDetail = twitterErr?.data?.detail || twitterErr?.data?.title || twitterErr?.message || "";
-          console.warn("Twitter search failed, falling back to AI simulation:", errDetail);
+          const errCode = twitterErr?.code || twitterErr?.data?.status || "";
+          console.warn(`Twitter search failed [${errCode}]:`, errDetail);
+          console.warn("Full Twitter error:", JSON.stringify(twitterErr?.data || twitterErr?.message || twitterErr, null, 2));
           useFallback = true;
         }
       }
