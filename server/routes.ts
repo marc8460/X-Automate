@@ -269,7 +269,7 @@ export async function registerRoutes(
           const mimeType = mimeMap[ext] || "image/webp";
 
           const visionResult = await groq.chat.completions.create({
-            model: "llama-3.2-90b-vision-preview",
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
             messages: [
               {
                 role: "user",
@@ -280,15 +280,16 @@ export async function registerRoutes(
                   },
                   {
                     type: "text",
-                    text: "Describe this image in detail for a social media caption writer. Focus on: the setting/location, what the person is wearing, their pose/mood/vibe, colors, and overall aesthetic. Be specific and vivid. Keep it to 2-3 sentences.",
+                    text: "Describe this photo in detail. What is the person wearing (be very specific — bikini, dress, lingerie, crop top, etc.)? What is the setting (beach, bedroom, pool, city, etc.)? What is the person's pose and body language? What mood or vibe does this give off? Be concrete and specific, not vague. 2-3 sentences max.",
                   },
                 ],
               },
             ],
-            temperature: 0.5,
+            temperature: 0.3,
             max_tokens: 300,
           });
           imageDescription = visionResult.choices[0]?.message?.content || "";
+          console.log("Vision analysis result:", imageDescription);
         } catch (visionErr: any) {
           console.error("Vision analysis failed, falling back to text-only:", visionErr.message);
         }
@@ -307,7 +308,7 @@ export async function registerRoutes(
       }
 
       const imageContext = imageDescription
-        ? `\n\nIMAGE CONTEXT (the tweet will be posted alongside this photo):\n${imageDescription}\n\nIMPORTANT: The captions MUST directly reference or relate to what's in the photo. Comment on the outfit, setting, pose, vibe — make it feel like SHE took this photo and is captioning it herself.`
+        ? `\n\nPHOTO DESCRIPTION (she is posting this exact photo with the tweet):\n${imageDescription}\n\nCRITICAL: Every caption MUST directly reference specific things visible in this photo. If she's in a bikini, mention the bikini. If she's at the beach, mention the beach. If she's in lingerie, reference it. The caption should sound like she's literally looking at THIS photo and writing about it. Examples of good photo captions: "do u like my new bikini? 🌊", "who wants to take this off me?", "beach days hit different when you look like this". Do NOT write generic captions that could apply to any photo.`
         : "";
 
       const systemPrompt = `You are the ghost-writer for a popular female influencer on Twitter/X. She is a real human woman — confident, magnetic, and deeply online. She never reveals or hints that she is AI or that anyone writes for her.
