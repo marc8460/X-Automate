@@ -3,7 +3,6 @@ import { queryClient, apiRequest } from "./queryClient";
 import type {
   Tweet, MediaItem, Engagement, FollowerInteraction,
   Trend, ActivityLog, AnalyticsData, PeakTime, Setting,
-  NicheProfile, TrendingPost,
 } from "@shared/schema";
 
 export function useTweets() {
@@ -236,88 +235,6 @@ export function useScanScreenshot() {
       }
       return res.json();
     },
-  });
-}
-
-export function useNicheProfiles() {
-  return useQuery<NicheProfile[]>({ queryKey: ["/api/niches"] });
-}
-
-export function useCreateNiche() {
-  return useMutation({
-    mutationFn: async (data: { name: string; keywords: string; source?: string }) => {
-      const res = await apiRequest("POST", "/api/niches", data);
-      return res.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
-  });
-}
-
-export function useDeleteNiche() {
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("DELETE", `/api/niches/${id}`);
-      return res.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
-  });
-}
-
-export function useAutoDetectNiches() {
-  return useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/niches/auto-detect");
-      return res.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
-  });
-}
-
-export type TrendingPostFilters = {
-  nicheId?: number;
-  minLikes?: number;
-  minScore?: number;
-  lang?: string;
-  hours?: number;
-  sort?: string;
-};
-
-export function useTrendingPosts(filters: TrendingPostFilters = {}) {
-  const params = new URLSearchParams();
-  if (filters.nicheId) params.set("nicheId", String(filters.nicheId));
-  if (filters.minLikes) params.set("minLikes", String(filters.minLikes));
-  if (filters.minScore) params.set("minScore", String(filters.minScore));
-  if (filters.lang) params.set("lang", filters.lang);
-  if (filters.hours) params.set("hours", String(filters.hours));
-  if (filters.sort) params.set("sort", filters.sort);
-
-  return useQuery<TrendingPost[]>({
-    queryKey: ["/api/trending-posts", filters],
-    queryFn: async () => {
-      const res = await fetch(`/api/trending-posts?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch trending posts");
-      return res.json();
-    },
-  });
-}
-
-export function useDiscoverTrendingPosts() {
-  return useMutation({
-    mutationFn: async (data: { nicheId?: number; language?: string; minFaves?: number; hoursBack?: number }) => {
-      const res = await apiRequest("POST", "/api/trending-posts/discover", data);
-      return res.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
-  });
-}
-
-export function useClearTrendingPosts() {
-  return useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("DELETE", "/api/trending-posts");
-      return res.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
   });
 }
 

@@ -17,6 +17,7 @@ Full-stack Twitter/X AI influencer automation dashboard for a female AI persona.
 
 ## Database Schema (shared/schema.ts)
 Tables: tweets, media_items, engagements, follower_interactions, trends, activity_logs, analytics_data, peak_times, settings
+(Trend Scanner tables were scrapped — no niche_profiles, trending_posts, etc.)
 
 ## Project Structure
 ```

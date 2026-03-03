@@ -11,7 +11,6 @@ import ContentEngine from "@/pages/ContentEngine";
 import MediaVault from "@/pages/MediaVault";
 import EngagementEngine from "@/pages/EngagementEngine";
 import ViralEngine from "@/pages/ViralEngine";
-import TrendScanner from "@/pages/TrendScanner";
 import SettingsPage from "@/pages/Settings";
 import { useSeedData } from "@/lib/hooks";
 
@@ -32,7 +31,6 @@ function Router() {
         <Route path="/content" component={ContentEngine}/>
         <Route path="/engagement" component={EngagementEngine}/>
         <Route path="/viral" component={ViralEngine}/>
-        <Route path="/scanner" component={TrendScanner}/>
         <Route path="/settings" component={SettingsPage}/>
         <Route component={NotFound} />
       </Switch>
