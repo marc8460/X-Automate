@@ -291,6 +291,95 @@ No explanation.`;
       const lang = language || "en";
       const minFavesVal = minFaves || 50;
 
+      const settingsData = await storage.getSettings();
+      const n8nWebhookUrl = settingsData.find(s => s.key === "n8nWebhookUrl")?.value;
+
+      if (n8nWebhookUrl) {
+        try {
+          console.log(`Triggering n8n webhook for niche "${niche.name}" with keywords: ${niche.keywords}`);
+          const n8nPayload = {
+            nicheId: niche.id,
+            nicheName: niche.name,
+            keywords: niche.keywords,
+            language: lang,
+            minFaves: minFavesVal,
+            callbackUrl: `/api/trending-posts/import`,
+          };
+          const n8nRes = await fetch(n8nWebhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(n8nPayload),
+            signal: AbortSignal.timeout(15000),
+          });
+
+          if (n8nRes.ok) {
+            const n8nData = await n8nRes.json().catch(() => null);
+            if (n8nData?.posts && Array.isArray(n8nData.posts) && n8nData.posts.length > 0) {
+              const importedPosts = [];
+              const maxRawScore = Math.max(...n8nData.posts.map((p: any) => {
+                const ageMin = Math.max(1, p.postAge || p.post_age || 60);
+                const likes = p.likes || p.favorite_count || p.like_count || 0;
+                const replies = p.replies || p.reply_count || 0;
+                const retweets = p.retweets || p.retweet_count || 0;
+                const followers = p.authorFollowers || p.author_followers || p.followers_count || 1;
+                const total = likes + replies + retweets;
+                return (likes / ageMin * 3) + (replies / ageMin * 5) + (retweets / ageMin * 4) + (total / Math.max(followers, 1) * 100);
+              }), 1);
+
+              for (const p of n8nData.posts) {
+                const handle = p.authorHandle || p.author_handle || p.username || p.screen_name || "@unknown";
+                const tweetId = p.tweetId || p.tweet_id || p.id_str || p.id?.toString() || null;
+                const likes = p.likes || p.favorite_count || p.like_count || 0;
+                const replies = p.replies || p.reply_count || 0;
+                const retweets = p.retweets || p.retweet_count || 0;
+                const views = p.views || p.impression_count || p.impressions || 0;
+                const followers = p.authorFollowers || p.author_followers || p.followers_count || p.user?.followers_count || 0;
+                const text = p.postText || p.post_text || p.text || p.full_text || "";
+                const ageMin = Math.max(1, p.postAge || p.post_age || 60);
+                const total = likes + replies + retweets;
+                const url = p.postUrl || p.post_url || p.url || (tweetId ? `https://x.com/i/status/${tweetId}` : "");
+                const imageUrl = p.postImageUrl || p.post_image_url || p.image_url || p.media_url || null;
+
+                const rawScore = (likes / ageMin * 3) + (replies / ageMin * 5) + (retweets / ageMin * 4) + (total / Math.max(followers, 1) * 100);
+                const trendScore = Math.min(100, Math.round((rawScore / maxRawScore) * 100));
+                const status = trendScore > 70 ? "viral" : trendScore >= 30 ? "trending" : "rising";
+                const velocity = Math.round(total / Math.max(1, ageMin / 60));
+
+                const existing = tweetId ? await storage.getTrendingPostByTweetId(tweetId) : null;
+                if (existing) continue;
+
+                const post = await storage.createTrendingPost({
+                  nicheId: niche.id,
+                  authorHandle: handle.startsWith("@") ? handle : `@${handle}`,
+                  authorFollowers: followers,
+                  postText: text,
+                  postUrl: url,
+                  postImageUrl: imageUrl,
+                  tweetId,
+                  likes, replies, retweets, views,
+                  trendScore, status,
+                  source: "n8n",
+                  discoveredAt: new Date().toISOString(),
+                  engagementVelocity: velocity,
+                  language: lang,
+                  postAge: Math.round(ageMin),
+                  nicheMatchScore: null,
+                });
+                importedPosts.push(post);
+              }
+              console.log(`n8n returned ${n8nData.posts.length} posts, imported ${importedPosts.length}`);
+              return res.status(201).json(importedPosts);
+            }
+            console.log("n8n webhook responded OK but returned no posts, triggering async scrape");
+            return res.status(201).json([]);
+          } else {
+            console.warn(`n8n webhook returned ${n8nRes.status}, falling back`);
+          }
+        } catch (n8nErr: any) {
+          console.warn("n8n webhook failed:", n8nErr.message);
+        }
+      }
+
       let useFallback = !twitterClient;
       
       if (twitterClient) {

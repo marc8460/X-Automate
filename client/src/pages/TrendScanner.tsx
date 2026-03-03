@@ -51,6 +51,7 @@ import {
   useUpdateBehaviorLimit,
   useTwitterStatus,
   useAutoDetectNiches,
+  useSettings,
   type TrendingPostFilters
 } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -131,7 +132,9 @@ export default function TrendScanner() {
   );
   const { data: behaviorLimits = [] } = useBehaviorLimits();
   const { data: twitterStatus } = useTwitterStatus();
+  const { data: allSettings } = useSettings();
   const isLive = twitterStatus?.connected === true;
+  const hasN8n = !!allSettings?.find(s => s.key === "n8nWebhookUrl" && s.value);
 
   const createNicheMutation = useCreateNiche();
   const deleteNicheMutation = useDeleteNiche();
@@ -490,7 +493,7 @@ export default function TrendScanner() {
               ) : (
                 <>
                   <RefreshCw className="w-4 h-4 mr-2" />
-                  {isLive ? "Search Twitter" : "Simulate Posts"}
+                  {hasN8n ? "Scrape via n8n" : isLive ? "Search Twitter" : "Simulate Posts"}
                 </>
               )}
             </Button>
