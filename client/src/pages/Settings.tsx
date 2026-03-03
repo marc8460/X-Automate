@@ -4,16 +4,24 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { Shield, Key, Bot, Settings2, Save, Loader2 } from "lucide-react";
-import { useSettings, useUpdateSetting } from "@/lib/hooks";
+import { Shield, Key, Bot, Settings2, Save, Loader2, CheckCircle2, AlertCircle, Twitter, Wifi, WifiOff } from "lucide-react";
+import { useSettings, useUpdateSetting, useTwitterStatus, useTestTwitterConnection } from "@/lib/hooks";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
+  const { data: twitterStatus } = useTwitterStatus();
+  const testConnection = useTestTwitterConnection();
   const { toast } = useToast();
   const [localSettings, setLocalSettings] = useState<Record<string, string>>({});
+  const [twitterCreds, setTwitterCreds] = useState({
+    appKey: "",
+    appSecret: "",
+    accessToken: "",
+    accessSecret: "",
+  });
 
   useEffect(() => {
     if (settings) {
@@ -221,31 +229,115 @@ export default function SettingsPage() {
 
           <Card className="p-6 glass-panel border-border/50">
             <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-              <Key className="w-5 h-5 text-yellow-500" />
-              API Keys
+              <Twitter className="w-5 h-5 text-blue-400" />
+              Twitter / X Connection
             </h2>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label className="text-xs">Twitter API Bearer Token</Label>
-                <Input 
-                  type="password" 
-                  value={localSettings.twitterApiToken || ""} 
-                  onChange={(e) => updateLocalSetting("twitterApiToken", e.target.value)}
-                  className="bg-background/50 text-xs" 
-                  data-testid="input-twitter-token"
+
+            <div className={`flex items-center gap-3 p-3 rounded-lg mb-4 ${
+              twitterStatus?.connected 
+                ? 'bg-green-500/10 border border-green-500/30' 
+                : 'bg-amber-500/10 border border-amber-500/30'
+            }`}>
+              {twitterStatus?.connected ? (
+                <>
+                  <Wifi className="w-4 h-4 text-green-400" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-green-400" data-testid="text-twitter-handle">{twitterStatus.handle}</p>
+                    <p className="text-[10px] text-green-400/70">Connected — Live Mode</p>
+                  </div>
+                  <CheckCircle2 className="w-4 h-4 text-green-400" />
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-4 h-4 text-amber-400" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-400">Not Connected</p>
+                    <p className="text-[10px] text-amber-400/70">Demo Mode — add credentials below</p>
+                  </div>
+                  <AlertCircle className="w-4 h-4 text-amber-400" />
+                </>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">App Key (API Key)</Label>
+                <Input
+                  type="password"
+                  value={twitterCreds.appKey}
+                  onChange={(e) => setTwitterCreds(p => ({ ...p, appKey: e.target.value }))}
+                  placeholder="Enter your Twitter App Key"
+                  className="bg-background/50 text-xs"
+                  data-testid="input-twitter-app-key"
                 />
               </div>
-              <div className="space-y-2">
-                <Label className="text-xs">OpenAI API Key</Label>
-                <Input 
-                  type="password" 
-                  value={localSettings.openaiApiKey || ""} 
-                  onChange={(e) => updateLocalSetting("openaiApiKey", e.target.value)}
-                  className="bg-background/50 text-xs" 
-                  data-testid="input-openai-key"
+              <div className="space-y-1.5">
+                <Label className="text-xs">App Secret (API Secret)</Label>
+                <Input
+                  type="password"
+                  value={twitterCreds.appSecret}
+                  onChange={(e) => setTwitterCreds(p => ({ ...p, appSecret: e.target.value }))}
+                  placeholder="Enter your Twitter App Secret"
+                  className="bg-background/50 text-xs"
+                  data-testid="input-twitter-app-secret"
                 />
               </div>
-              <Button variant="outline" size="sm" className="w-full text-xs" data-testid="button-manage-keys">Manage Keys</Button>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Access Token</Label>
+                <Input
+                  type="password"
+                  value={twitterCreds.accessToken}
+                  onChange={(e) => setTwitterCreds(p => ({ ...p, accessToken: e.target.value }))}
+                  placeholder="Enter your Access Token"
+                  className="bg-background/50 text-xs"
+                  data-testid="input-twitter-access-token"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Access Secret</Label>
+                <Input
+                  type="password"
+                  value={twitterCreds.accessSecret}
+                  onChange={(e) => setTwitterCreds(p => ({ ...p, accessSecret: e.target.value }))}
+                  placeholder="Enter your Access Secret"
+                  className="bg-background/50 text-xs"
+                  data-testid="input-twitter-access-secret"
+                />
+              </div>
+
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full text-xs"
+                onClick={() => {
+                  testConnection.mutate(undefined, {
+                    onSuccess: (data: any) => {
+                      if (data.connected) {
+                        toast({ title: "Connected!", description: `Logged in as ${data.handle}` });
+                      } else {
+                        toast({ title: "Connection failed", description: data.error || "Check your credentials", variant: "destructive" });
+                      }
+                    },
+                  });
+                }}
+                disabled={testConnection.isPending}
+                data-testid="button-test-twitter"
+              >
+                {testConnection.isPending ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Wifi className="w-3 h-3 mr-1.5" />}
+                Test Connection
+              </Button>
+
+              <div className="p-2.5 bg-background/50 rounded-md border border-border/50">
+                <p className="text-[10px] text-muted-foreground leading-tight">
+                  <strong className="text-blue-400">Official API:</strong> Uses Twitter's official API for all operations. No IP spoofing, device emulation, or browser automation needed — server-to-server calls are expected by Twitter.
+                </p>
+              </div>
+
+              <div className="p-2.5 bg-background/50 rounded-md border border-border/50">
+                <p className="text-[10px] text-muted-foreground leading-tight">
+                  <strong className="text-primary">Setup:</strong> Add your credentials as environment secrets named TWITTER_APP_KEY, TWITTER_APP_SECRET, TWITTER_ACCESS_TOKEN, and TWITTER_ACCESS_SECRET. Get these from the Twitter Developer Portal.
+                </p>
+              </div>
             </div>
           </Card>
         </div>

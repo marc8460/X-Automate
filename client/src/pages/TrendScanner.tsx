@@ -39,7 +39,8 @@ import {
   usePostComment,
   useDeleteTrendingPost,
   useBehaviorLimits,
-  useUpdateBehaviorLimit
+  useUpdateBehaviorLimit,
+  useTwitterStatus
 } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -57,6 +58,8 @@ export default function TrendScanner() {
   const { data: niches = [], isLoading: isLoadingNiches } = useNicheProfiles();
   const { data: posts = [], isLoading: isLoadingPosts, refetch: refetchPosts } = useTrendingPosts(selectedNicheId || undefined);
   const { data: behaviorLimits = [] } = useBehaviorLimits();
+  const { data: twitterStatus } = useTwitterStatus();
+  const isLive = twitterStatus?.connected === true;
 
   const createNicheMutation = useCreateNiche();
   const deleteNicheMutation = useDeleteNiche();
@@ -134,6 +137,18 @@ export default function TrendScanner() {
         <div>
           <h1 className="text-3xl font-bold font-display tracking-tight" data-testid="text-page-title">Trending Opportunities</h1>
           <p className="text-muted-foreground mt-1" data-testid="text-page-description">Discover rising conversations and engage with AI assistance.</p>
+          <div className={`inline-flex items-center gap-2 mt-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+            isLive 
+              ? 'bg-green-500/10 border border-green-500/30 text-green-400' 
+              : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+          }`} data-testid="badge-connection-mode">
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-amber-400'}`} />
+            {isLive ? (
+              <span>Live Mode — {twitterStatus?.handle} connected</span>
+            ) : (
+              <span>Demo Mode — <a href="/settings" className="underline hover:text-amber-300">connect Twitter in Settings</a> to go live</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button 
@@ -253,7 +268,7 @@ export default function TrendScanner() {
               ) : (
                 <>
                   <RefreshCw className="w-4 h-4 mr-2" />
-                  Discover Posts
+                  {isLive ? "Search Twitter" : "Simulate Posts"}
                 </>
               )}
             </Button>
@@ -512,15 +527,20 @@ export default function TrendScanner() {
                                       </div>
                                       
                                       {comment.status === 'approved' && (
-                                        <Button 
-                                          size="sm" 
-                                          className="h-8 bg-primary text-white"
-                                          onClick={() => handlePostComment(comment.id)}
-                                          data-testid={`button-post-comment-${comment.id}`}
-                                        >
-                                          <Send className="w-3.5 h-3.5 mr-1.5" />
-                                          Post Now
-                                        </Button>
+                                        <div className="flex items-center gap-2">
+                                          <Button 
+                                            size="sm" 
+                                            className="h-8 bg-primary text-white"
+                                            onClick={() => handlePostComment(comment.id)}
+                                            data-testid={`button-post-comment-${comment.id}`}
+                                          >
+                                            <Send className="w-3.5 h-3.5 mr-1.5" />
+                                            {isLive ? "Post to Twitter" : "Post (Demo)"}
+                                          </Button>
+                                          {!isLive && (
+                                            <span className="text-[10px] text-amber-400/70">Simulated — connect Twitter to post for real</span>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   </>

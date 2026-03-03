@@ -236,6 +236,30 @@ export function useGenerateTweets() {
   });
 }
 
+export function useTwitterStatus() {
+  return useQuery<{
+    connected: boolean;
+    handle?: string;
+    name?: string;
+    followersCount?: number;
+    error?: string;
+  }>({
+    queryKey: ["/api/twitter/status"],
+    staleTime: 30000,
+    retry: false,
+  });
+}
+
+export function useTestTwitterConnection() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/twitter/status");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/twitter/status"] }),
+  });
+}
+
 export function useSeedData() {
   return useMutation({
     mutationFn: async () => {

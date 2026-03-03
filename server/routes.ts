@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
+import { getTwitterClient, testTwitterConnection } from "./twitter";
 import { storage } from "./storage";
 import {
   insertTweetSchema,
@@ -223,7 +224,64 @@ export async function registerRoutes(
       const niche = niches.find(n => n.id === nicheId);
       if (!niche) return res.status(404).json({ message: "Niche not found" });
 
-      const systemPrompt = `You are a trend discovery engine for Twitter/X.
+      const twitterClient = getTwitterClient();
+
+      if (twitterClient) {
+        const keywords = niche.keywords.split(",").map((k: string) => k.trim()).filter(Boolean);
+        const query = `(${keywords.join(" OR ")}) min_faves:100 -is:retweet lang:en`;
+
+        const searchResult = await twitterClient.v2.search(query, {
+          max_results: 10,
+          "tweet.fields": ["public_metrics", "created_at", "attachments"],
+          expansions: ["author_id", "attachments.media_keys"],
+          "user.fields": ["username", "public_metrics"],
+          "media.fields": ["url", "preview_image_url", "type"],
+        });
+
+        const users = searchResult.includes?.users || [];
+        const media = searchResult.includes?.media || [];
+        const discoveredPosts = [];
+
+        for (const tweet of searchResult.data || []) {
+          const author = users.find((u: any) => u.id === tweet.author_id);
+          const tweetMedia = tweet.attachments?.media_keys?.map(
+            (key: string) => media.find((m: any) => m.media_key === key)
+          ).filter(Boolean) || [];
+          const imageMedia = tweetMedia.find((m: any) => m.type === "photo");
+
+          const metrics = tweet.public_metrics || { like_count: 0, reply_count: 0, retweet_count: 0 };
+          const totalEngagement = metrics.like_count + metrics.reply_count + metrics.retweet_count;
+          const hoursAge = tweet.created_at
+            ? Math.max(1, (Date.now() - new Date(tweet.created_at).getTime()) / 3600000)
+            : 1;
+          const velocity = Math.round(totalEngagement / hoursAge);
+          const trendScore = Math.min(100, Math.round(
+            (Math.log10(totalEngagement + 1) / Math.log10(100000)) * 100
+          ));
+          const status = trendScore > 75 ? "viral" : trendScore > 40 ? "trending" : "rising";
+
+          const post = await storage.createTrendingPost({
+            nicheId,
+            authorHandle: author ? `@${author.username}` : "@unknown",
+            authorFollowers: author?.public_metrics?.followers_count || 0,
+            postText: tweet.text,
+            postUrl: `https://twitter.com/i/status/${tweet.id}`,
+            postImageUrl: imageMedia?.url || imageMedia?.preview_image_url || null,
+            tweetId: tweet.id,
+            likes: metrics.like_count,
+            replies: metrics.reply_count,
+            retweets: metrics.retweet_count,
+            trendScore,
+            status,
+            discoveredAt: new Date().toISOString(),
+            engagementVelocity: velocity,
+          });
+          discoveredPosts.push(post);
+        }
+
+        res.status(201).json(discoveredPosts);
+      } else {
+        const systemPrompt = `You are a trend discovery engine for Twitter/X.
 Generate 5-8 realistic trending posts for the niche: "${niche.name}" with keywords: "${niche.keywords}".
 For each post, include:
 - authorHandle: a realistic twitter handle (e.g. @tech_guru, @fitness_junkie)
@@ -240,38 +298,40 @@ For each post, include:
 
 Return ONLY a JSON array of objects. No explanation.`;
 
-      const completion = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "system", content: systemPrompt }],
-        temperature: 0.8,
-        response_format: { type: "json_object" }
-      });
-
-      const raw = completion.choices[0]?.message?.content || "{\"posts\": []}";
-      const data = JSON.parse(raw);
-      const generatedPosts = Array.isArray(data) ? data : (data.posts || []);
-
-      const discoveredPosts = [];
-      for (const p of generatedPosts) {
-        const post = await storage.createTrendingPost({
-          nicheId,
-          authorHandle: p.authorHandle || "@user",
-          authorFollowers: p.authorFollowers || 1000,
-          postText: p.postText || "",
-          postUrl: p.postUrl || "https://twitter.com/status/123",
-          postImageUrl: p.postImageUrl || null,
-          likes: p.likes || 0,
-          replies: p.replies || 0,
-          retweets: p.retweets || 0,
-          trendScore: p.trendScore || 50,
-          status: p.status || "rising",
-          discoveredAt: new Date().toISOString(),
-          engagementVelocity: p.engagementVelocity || 10,
+        const completion = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: [{ role: "system", content: systemPrompt }],
+          temperature: 0.8,
+          response_format: { type: "json_object" }
         });
-        discoveredPosts.push(post);
-      }
 
-      res.status(201).json(discoveredPosts);
+        const raw = completion.choices[0]?.message?.content || "{\"posts\": []}";
+        const data = JSON.parse(raw);
+        const generatedPosts = Array.isArray(data) ? data : (data.posts || []);
+
+        const discoveredPosts = [];
+        for (const p of generatedPosts) {
+          const post = await storage.createTrendingPost({
+            nicheId,
+            authorHandle: p.authorHandle || "@user",
+            authorFollowers: p.authorFollowers || 1000,
+            postText: p.postText || "",
+            postUrl: p.postUrl || "https://twitter.com/status/123",
+            postImageUrl: p.postImageUrl || null,
+            tweetId: null,
+            likes: p.likes || 0,
+            replies: p.replies || 0,
+            retweets: p.retweets || 0,
+            trendScore: p.trendScore || 50,
+            status: p.status || "rising",
+            discoveredAt: new Date().toISOString(),
+            engagementVelocity: p.engagementVelocity || 10,
+          });
+          discoveredPosts.push(post);
+        }
+
+        res.status(201).json(discoveredPosts);
+      }
     } catch (err: any) {
       console.error("Discovery error:", err);
       res.status(500).json({ message: err.message || "Discovery failed" });
@@ -398,16 +458,67 @@ Return ONLY a JSON array of objects with keys: commentText, commentType, riskLev
   });
 
   app.post("/api/comments/:id/post", async (req, res) => {
-    const id = parseInt(req.params.id);
-    const existing = await storage.updateCommentSuggestion(id, { status: "pending" }); // dummy update to get object
-    if (!existing || existing.status !== "approved") {
-      return res.status(400).json({ message: "Only approved comments can be posted" });
+    try {
+      const id = parseInt(req.params.id);
+      const allComments = await storage.getCommentSuggestions();
+      const existing = allComments.find(c => c.id === id);
+      if (!existing) {
+        return res.status(404).json({ message: "Comment not found" });
+      }
+      if (existing.status !== "approved") {
+        return res.status(400).json({ message: "Only approved comments can be posted" });
+      }
+
+      const limits = await storage.getBehaviorLimits();
+      const getLimit = (key: string, fallback: number) => {
+        const l = limits.find(l => l.key === key);
+        return l ? parseInt(l.value) : fallback;
+      };
+      const dailyCap = getLimit("daily_cap", 15);
+      const hourlyLimit = getLimit("hourly_limit", 3);
+      const cooldownMinutes = getLimit("cooldown_minutes", 10);
+
+      const postedComments = allComments.filter(c => c.status === "posted" && c.postedAt);
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const hourAgo = new Date(now.getTime() - 3600000).toISOString();
+      const cooldownAgo = new Date(now.getTime() - cooldownMinutes * 60000).toISOString();
+
+      const todayCount = postedComments.filter(c => c.postedAt! >= todayStart).length;
+      const hourCount = postedComments.filter(c => c.postedAt! >= hourAgo).length;
+      const recentPost = postedComments.find(c => c.postedAt! >= cooldownAgo);
+
+      if (todayCount >= dailyCap) {
+        return res.status(429).json({ message: `Daily cap reached (${dailyCap} comments). Try again tomorrow.` });
+      }
+      if (hourCount >= hourlyLimit) {
+        return res.status(429).json({ message: `Hourly limit reached (${hourlyLimit} comments). Wait a bit.` });
+      }
+      if (recentPost) {
+        return res.status(429).json({ message: `Cooldown active. Wait ${cooldownMinutes} minutes between comments.` });
+      }
+
+      const twitterClient = getTwitterClient();
+      const trendingPost = (await storage.getTrendingPosts()).find(p => p.id === existing.trendingPostId);
+
+      if (twitterClient && trendingPost?.tweetId) {
+        try {
+          await twitterClient.v2.reply(existing.commentText, trendingPost.tweetId);
+        } catch (twitterErr: any) {
+          const errorMsg = twitterErr?.data?.detail || twitterErr?.message || "Twitter API error";
+          return res.status(502).json({ message: `Twitter error: ${errorMsg}` });
+        }
+      }
+
+      const comment = await storage.updateCommentSuggestion(id, {
+        status: "posted",
+        postedAt: new Date().toISOString(),
+      });
+      res.json(comment);
+    } catch (err: any) {
+      console.error("Post comment error:", err);
+      res.status(500).json({ message: err.message || "Failed to post comment" });
     }
-    const comment = await storage.updateCommentSuggestion(id, {
-      status: "posted",
-      postedAt: new Date().toISOString(),
-    });
-    res.json(comment);
   });
 
   // --- Behavior Limits ---
@@ -421,6 +532,16 @@ Return ONLY a JSON array of objects with keys: commentText, commentType, riskLev
     if (!key || value === undefined) return res.status(400).json({ message: "key and value are required" });
     const limit = await storage.upsertBehaviorLimit(key, String(value));
     res.json(limit);
+  });
+
+  // --- Twitter Connection ---
+  app.get("/api/twitter/status", async (_req, res) => {
+    try {
+      const result = await testTwitterConnection();
+      res.json(result);
+    } catch (err: any) {
+      res.json({ connected: false, error: err.message || "Unknown error" });
+    }
   });
 
   // --- Settings ---
