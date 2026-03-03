@@ -39,6 +39,13 @@ const StatCard = ({ title, value, change, icon: Icon, delay }: any) => (
   </motion.div>
 );
 
+const MOCK_LOGS = [
+  { id: 1, action: "Tweet Posted", detail: "can i dm youuuuu?!! 😩", time: "2m ago", status: "success" },
+  { id: 2, action: "Auto-Reply", detail: "to @techbro_99", time: "15m ago", status: "success" },
+  { id: 3, action: "Media Upload", detail: "Summer Dress (Vault #12)", time: "1h ago", status: "success" },
+  { id: 4, action: "Trend Detected", detail: "#AIArtwork (92% fit)", time: "2h ago", status: "info" },
+];
+
 const MOCK_BEST_TIMES = [
   { day: "Mon", time: "10:00 PM", score: 95 },
   { day: "Tue", time: "11:30 PM", score: 88 },
