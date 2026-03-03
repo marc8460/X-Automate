@@ -78,34 +78,39 @@ export default function SettingsPage() {
           </Card>
         </div>
 
-        {/* Sidebar Settings */}
+        {/* Anti-Detection Sidebar */}
         <div className="space-y-6">
-          <Card className="p-6 glass-panel border-border/50">
+          <Card className="p-6 glass-panel border-primary/30 bg-primary/5">
             <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-              <Shield className="w-5 h-5 text-green-400" />
-              Safety & Limits
+              <Shield className="w-5 h-5 text-primary" />
+              Shadowban Protection
             </h2>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-sm">Safety Filter</Label>
-                  <p className="text-xs text-muted-foreground">Maintain professional standards</p>
+                  <Label className="text-sm">Human Typing Simulation</Label>
+                  <p className="text-xs text-muted-foreground">Varies keystroke intervals</p>
                 </div>
                 <Switch defaultChecked />
               </div>
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-sm">Human Simulation</Label>
-                  <p className="text-xs text-muted-foreground">Randomized pauses</p>
+                  <Label className="text-sm">Random Jitter Delay</Label>
+                  <p className="text-xs text-muted-foreground">+/- 15% interval variance</p>
                 </div>
                 <Switch defaultChecked />
               </div>
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-sm">Sleep Mode</Label>
-                  <p className="text-xs text-muted-foreground">Pause during 2AM-8AM</p>
+                  <Label className="text-sm">Browser Fingerprinting</Label>
+                  <p className="text-xs text-muted-foreground">Rotate user agents</p>
                 </div>
                 <Switch defaultChecked />
+              </div>
+              <div className="mt-4 p-3 bg-background/50 rounded-md border border-border/50">
+                <p className="text-[10px] text-muted-foreground leading-tight">
+                  <strong className="text-primary">Note:</strong> Our Anti-Detection Layer uses randomized time windows and engagement caps to ensure your activity patterns never look like a bot's.
+                </p>
               </div>
             </div>
           </Card>

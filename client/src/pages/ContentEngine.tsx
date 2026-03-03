@@ -8,16 +8,17 @@ import { motion } from "framer-motion";
 import { Sparkles, Save, RefreshCw, Send, CheckCircle2 } from "lucide-react";
 
 const TWEET_STYLES = [
-  "Flirty Bait",
-  "Question-based",
-  "Soft Promo",
-  "Viral Meme",
-  "Controversial/Hot Take"
+  "Engagement Bait",
+  "Direct Question",
+  "Soft Tease",
+  "Viral Hook",
+  "Community Love"
 ];
 
 const MOCK_GENERATED_TWEETS = [
-  { id: 1, text: "Is it just me, or do late-night coding sessions hit different? ☕️✨ What's everyone working on?", style: "Question-based", status: "queued" },
-  { id: 2, text: "They said I couldn't build it. So I built it twice as fast. 💅🚀 #buildinpublic", style: "Soft Promo", status: "posted" },
+  { id: 1, text: "tell me honestly, am i your type? 🥺👉👈", style: "Direct Question", status: "queued" },
+  { id: 2, text: "can i dm youuuuu?!! 😩 don't ignore me", style: "Engagement Bait", status: "posted" },
+  { id: 3, text: "free pic if you stop scrolling and say hi 😇", style: "Soft Tease", status: "queued" },
 ];
 
 export default function ContentEngine() {
