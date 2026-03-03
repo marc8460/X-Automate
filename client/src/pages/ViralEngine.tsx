@@ -349,9 +349,11 @@ export default function ViralEngine() {
                 </Button>
 
                 <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                  {trendsData?.source === "ai_generated" && (
+                  {trendsData?.source === "google_trends" ? (
+                    <span className="px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">Google Trends</span>
+                  ) : trendsData?.source === "ai_generated" ? (
                     <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">AI-Powered</span>
-                  )}
+                  ) : null}
                   {trendsData?.fetchedAt && (
                     <span>Updated {new Date(trendsData.fetchedAt).toLocaleTimeString()}</span>
                   )}

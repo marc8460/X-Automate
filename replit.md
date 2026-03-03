@@ -42,7 +42,7 @@ uploads/          - User-uploaded media files (served statically)
 
 ## Viral Comment Engine
 - **3-step workflow**: Discover trending topics → Find post on X → Screenshot scan or manual entry → AI generates viral comments
-- **Trend discovery**: Google Trends API (free) with Groq AI fallback when Google Trends is unavailable
+- **Trend discovery**: Real Google Trends RSS feed (https://trends.google.com/trending/rss) as primary source, with Groq AI fallback. Results cached 5 minutes server-side.
 - **No X API scraping**: User searches X manually — zero X API cost
 - **Screenshot Scan (primary)**: Upload/paste/drag a screenshot of an X post → Groq vision (llama-4-scout) extracts post text, author, metrics, image descriptions automatically → then generates viral comments in one shot
 - **Manual Entry (fallback)**: Paste post text and fill in metrics manually

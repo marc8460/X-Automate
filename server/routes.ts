@@ -1,10 +1,10 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import https from "https";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
-import googleTrends from "google-trends-api";
 import { testTwitterConnection } from "./twitter";
 import { storage } from "./storage";
 import {
@@ -377,8 +377,80 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
     }
   });
 
-  // --- Trending Topics (Google Trends with AI fallback) ---
+  // --- Trending Topics (Real Google Trends RSS + AI fallback) ---
   const trendsCache = new Map<string, { data: any; expiresAt: number }>();
+
+  async function fetchGoogleTrendsRSS(geo: string): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+      const url = `https://trends.google.com/trending/rss?geo=${encodeURIComponent(geo)}`;
+      https.get(url, (res: any) => {
+        let data = "";
+        res.on("data", (chunk: string) => (data += chunk));
+        res.on("end", () => {
+          if (res.statusCode !== 200 || !data.includes("<item>")) {
+            return reject(new Error(`RSS returned status ${res.statusCode}`));
+          }
+          const items = data.match(/<item>[\s\S]*?<\/item>/g) || [];
+          const topics = items.map((item: string, i: number) => {
+            const title = item.match(/<title>(.*?)<\/title>/)?.[1] || "Unknown";
+            const trafficRaw = item.match(/<ht:approx_traffic>(.*?)<\/ht:approx_traffic>/)?.[1] || "100+";
+            const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] || "";
+            const picture = item.match(/<ht:picture>(.*?)<\/ht:picture>/)?.[1] || null;
+
+            const newsItemTitles = (item.match(/<ht:news_item_title>(.*?)<\/ht:news_item_title>/g) || [])
+              .map((n: string) => n.replace(/<[^>]+>/g, ""));
+            const newsItemUrls = (item.match(/<ht:news_item_url>(.*?)<\/ht:news_item_url>/g) || [])
+              .map((n: string) => n.replace(/<[^>]+>/g, ""));
+            const newsItemSources = (item.match(/<ht:news_item_source>(.*?)<\/ht:news_item_source>/g) || [])
+              .map((n: string) => n.replace(/<[^>]+>/g, ""));
+
+            const articles = newsItemTitles.slice(0, 3).map((_: string, idx: number) => ({
+              title: newsItemTitles[idx] || "",
+              url: newsItemUrls[idx] || "",
+              source: newsItemSources[idx] || "",
+            }));
+
+            const relatedQueries = newsItemTitles.slice(0, 5).map((t: string) => {
+              const words = t.split(/\s+/).slice(0, 4).join(" ");
+              return words.length > 30 ? words.substring(0, 30) + "..." : words;
+            });
+
+            let startedAgoMinutes = 60;
+            let startedAgo = "recently";
+            if (pubDate) {
+              const pubTime = new Date(pubDate).getTime();
+              const diff = Date.now() - pubTime;
+              startedAgoMinutes = Math.max(1, Math.round(diff / 60000));
+              if (startedAgoMinutes < 60) {
+                startedAgo = `${startedAgoMinutes} min ago`;
+              } else if (startedAgoMinutes < 1440) {
+                startedAgo = `${Math.round(startedAgoMinutes / 60)} hours ago`;
+              } else {
+                startedAgo = `${Math.round(startedAgoMinutes / 1440)} days ago`;
+              }
+            }
+
+            return {
+              id: i + 1,
+              title,
+              traffic: trafficRaw,
+              trafficNumber: parseTrafficNumber(trafficRaw),
+              growthPercent: "+1,000%",
+              status: "Active",
+              startedAgo,
+              startedAgoMinutes,
+              relatedQueries,
+              articles,
+              searchQuery: title,
+              image: picture,
+            };
+          });
+          resolve(topics);
+        });
+        res.on("error", reject);
+      }).on("error", reject);
+    });
+  }
 
   app.get("/api/trending-topics", async (req, res) => {
     try {
@@ -399,108 +471,55 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
         return res.json({ ...cached.data, topics, sortBy });
       }
 
-      const countryNames: Record<string, string> = {
-        US: "United States", GB: "United Kingdom", CA: "Canada", AU: "Australia",
-        DE: "Germany", FR: "France", BR: "Brazil", IN: "India", JP: "Japan",
-        KR: "South Korea", MX: "Mexico", IT: "Italy", ES: "Spain", NL: "Netherlands",
-        SE: "Sweden", NO: "Norway", DK: "Denmark", FI: "Finland", PL: "Poland",
-        AR: "Argentina", CL: "Chile", CO: "Colombia", PE: "Peru", NG: "Nigeria",
-        ZA: "South Africa", EG: "Egypt", SA: "Saudi Arabia", AE: "UAE",
-        TR: "Turkey", RU: "Russia", UA: "Ukraine", ID: "Indonesia",
-        PH: "Philippines", TH: "Thailand", VN: "Vietnam", MY: "Malaysia",
-        SG: "Singapore", TW: "Taiwan", HK: "Hong Kong", NZ: "New Zealand",
-        IE: "Ireland", PT: "Portugal", CH: "Switzerland", AT: "Austria",
-        BE: "Belgium", CZ: "Czech Republic", RO: "Romania", GR: "Greece",
-        IL: "Israel", PK: "Pakistan", BD: "Bangladesh",
-      };
-      const countryName = countryNames[geo] || geo;
-
-      const categoryLabels: Record<string, string> = {
-        all: "all categories (news, sports, entertainment, tech, business, science, health, politics)",
-        entertainment: "entertainment, celebrities, movies, TV shows, music, gaming",
-        business: "business, finance, stock market, startups, economy",
-        technology: "technology, AI, software, gadgets, crypto, web3",
-        sports: "sports, football, basketball, soccer, MMA, tennis, F1",
-        health: "health, medicine, fitness, mental health, wellness",
-        science: "science, space, climate, research, discoveries",
-        politics: "politics, elections, government, policy, geopolitics",
-      };
-      const categoryContext = categoryLabels[category] || category;
-
-      const timeWindowMap: Record<string, string> = {
-        "1h": "the last 1 hour (very recent, breaking now)",
-        "4h": "the last 4 hours",
-        "12h": "the last 12 hours",
-        "24h": "the last 24 hours",
-        "48h": "the last 2 days",
-        "7d": "the last 7 days (this week)",
-      };
-      const timeContext = timeWindowMap[timeWindow] || "the last 24 hours";
-
       let topics: any[] = [];
+      let source = "google_trends";
 
       try {
-        const dailyResult = await googleTrends.dailyTrends({ geo });
-        const dailyData = JSON.parse(dailyResult);
-        const allSearches: any[] = [];
-        for (const day of (dailyData?.default?.trendingSearchesDays || [])) {
-          for (const t of (day.trendingSearches || [])) {
-            allSearches.push(t);
-          }
-        }
+        topics = await fetchGoogleTrendsRSS(geo);
+        source = "google_trends";
+      } catch (rssErr: any) {
+        console.error("Google Trends RSS failed, using AI fallback:", rssErr.message);
+        source = "ai_generated";
 
-        topics = allSearches.slice(0, 25).map((t: any, i: number) => {
-          const trafficStr = t.formattedTraffic || "10K+";
-          return {
-            id: i + 1,
-            title: t.title?.query || t.query || "Unknown",
-            traffic: trafficStr,
-            trafficNumber: parseTrafficNumber(trafficStr),
-            growthPercent: "+1,000%",
-            status: "Active",
-            startedAgo: "recently",
-            startedAgoMinutes: 60,
-            relatedQueries: (t.relatedQueries || []).map((q: any) => q.query).slice(0, 5),
-            articles: (t.articles || []).slice(0, 3).map((a: any) => ({
-              title: a.title, url: a.url, source: a.source,
-            })),
-            searchQuery: t.title?.query || t.query || "",
-          };
-        });
-      } catch (googleErr: any) {
-        console.error("Google Trends unavailable, using AI:", googleErr.message);
+        const countryNames: Record<string, string> = {
+          US: "United States", GB: "United Kingdom", CA: "Canada", AU: "Australia",
+          DE: "Germany", FR: "France", BR: "Brazil", IN: "India", JP: "Japan",
+          KR: "South Korea", MX: "Mexico", IT: "Italy", ES: "Spain", NL: "Netherlands",
+          SE: "Sweden", NO: "Norway", DK: "Denmark", FI: "Finland", PL: "Poland",
+          AR: "Argentina", CL: "Chile", CO: "Colombia", PE: "Peru", NG: "Nigeria",
+          ZA: "South Africa", EG: "Egypt", SA: "Saudi Arabia", AE: "UAE",
+          TR: "Turkey", RU: "Russia", UA: "Ukraine", ID: "Indonesia",
+          PH: "Philippines", TH: "Thailand", VN: "Vietnam", MY: "Malaysia",
+          SG: "Singapore", TW: "Taiwan", HK: "Hong Kong", NZ: "New Zealand",
+          IE: "Ireland", PT: "Portugal", CH: "Switzerland", AT: "Austria",
+          BE: "Belgium", CZ: "Czech Republic", RO: "Romania", GR: "Greece",
+          IL: "Israel", PK: "Pakistan", BD: "Bangladesh",
+        };
+        const countryName = countryNames[geo] || geo;
+
+        const categoryLabels: Record<string, string> = {
+          all: "all categories",
+          entertainment: "entertainment, celebrities, movies, music, gaming",
+          business: "business, finance, economy",
+          technology: "technology, AI, software, crypto",
+          sports: "sports, football, basketball, soccer, F1",
+          health: "health, medicine, fitness",
+          science: "science, space, climate",
+          politics: "politics, elections, government",
+        };
 
         const completion = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",
-              content: `You are a real-time trend analyst with deep knowledge of what's trending on Google, X/Twitter, and social media globally. Generate trending topics that match what Google Trends "Trending Now" would show.
-
-For each trend, provide realistic data:
-- title: the trending search term/topic (specific names, events, matches — NOT generic categories)
-- traffic: search volume estimate (use format like "500K+", "100K+", "50K+", "20K+", "10K+", "5K+")
-- trafficNumber: numeric estimate for sorting (e.g. 500000, 100000, 50000)
-- growthPercent: growth rate (e.g. "+1,000%", "+500%", "+300%")
-- startedAgo: when it started trending (e.g. "2 hours ago", "30 minutes ago", "5 hours ago")
-- startedAgoMinutes: numeric minutes since started (for sorting)
-- relatedQueries: 3-5 related search terms people also search
-- category: which category this belongs to
-
-Return ONLY a JSON array, 25 items. No markdown.
-[{"title":"...","traffic":"...","trafficNumber":...,"growthPercent":"...","startedAgo":"...","startedAgoMinutes":...,"relatedQueries":[...],"category":"..."}]`
+              content: `Generate trending topics matching Google Trends "Trending Now". Return ONLY a JSON array, 20 items. No markdown.
+[{"title":"...","traffic":"500K+","trafficNumber":500000,"growthPercent":"+1,000%","startedAgo":"2 hours ago","startedAgoMinutes":120,"relatedQueries":["q1","q2","q3"],"category":"..."}]`,
             },
             {
               role: "user",
-              content: `Generate 25 trending topics for ${countryName} (${geo}) within ${timeContext}, focusing on: ${categoryContext}.
-
-Requirements:
-- Topics must be SPECIFIC (real people, events, matches, products — not generic themes)
-- Sorted by search volume (highest first)
-- Include a mix of viral, breaking, and rising topics
-- Traffic estimates should be realistic for the region and time window
-- Each topic should have relevant related search queries for X/Twitter`
-            }
+              content: `Generate 20 trending topics for ${countryName} (${geo}), focusing on: ${categoryLabels[category] || "all categories"}. Topics must be SPECIFIC — real people, events, matches, not generic themes. Sorted by search volume.`,
+            },
           ],
           temperature: 0.85,
           max_tokens: 4096,
@@ -514,7 +533,7 @@ Requirements:
             id: i + 1,
             title: t.title || "Unknown",
             traffic: t.traffic || "10K+",
-            trafficNumber: t.trafficNumber || (25 - i) * 10000,
+            trafficNumber: t.trafficNumber || (20 - i) * 10000,
             growthPercent: t.growthPercent || "+500%",
             status: "Active",
             startedAgo: t.startedAgo || "recently",
@@ -535,7 +554,7 @@ Requirements:
         topics.sort((a, b) => (a.startedAgoMinutes || 999) - (b.startedAgoMinutes || 999));
       }
 
-      const result = { topics, geo, category, timeWindow, sortBy, source: topics[0]?.articles?.length > 0 ? "google_trends" : "ai_generated", fetchedAt: new Date().toISOString() };
+      const result = { topics, geo, category, timeWindow, sortBy, source, fetchedAt: new Date().toISOString() };
       trendsCache.set(cacheKey, { data: result, expiresAt: Date.now() + 5 * 60 * 1000 });
 
       res.json(result);
@@ -545,11 +564,12 @@ Requirements:
     }
   });
 
-  function parseTrafficNumber(traffic: string): number {
+  function parseTrafficNumber(traffic: string | number): number {
+    if (typeof traffic === "number") return traffic;
     if (!traffic) return 0;
     const cleaned = traffic.replace(/[+,]/g, "").trim();
     const match = cleaned.match(/([\d.]+)\s*(M|K)?/i);
-    if (!match) return 0;
+    if (!match) return parseInt(cleaned) || 0;
     const num = parseFloat(match[1]);
     const suffix = (match[2] || "").toUpperCase();
     if (suffix === "M") return num * 1000000;
