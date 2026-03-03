@@ -28,6 +28,7 @@ export default function MediaVault() {
   const [uploadMood, setUploadMood] = useState("Playful");
   const [uploadOutfit, setUploadOutfit] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -78,27 +79,42 @@ export default function MediaVault() {
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const file = files[0];
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "Invalid file", description: "Only image files are allowed.", variant: "destructive" });
+    const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      toast({ title: "Invalid files", description: "Only image files are allowed.", variant: "destructive" });
       return;
     }
-    const compressed = await compressImage(file);
-    const formData = new FormData();
-    formData.append("file", compressed);
-    formData.append("mood", uploadMood);
-    formData.append("outfit", uploadOutfit || "Untagged");
-    uploadMutation.mutate(formData, {
-      onSuccess: () => {
-        toast({ title: "Uploaded", description: "Media added to vault." });
-        setShowUploadForm(false);
-        setUploadOutfit("");
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      },
-      onError: (err: any) => {
-        toast({ title: "Upload failed", description: err.message, variant: "destructive" });
-      },
-    });
+    const total = imageFiles.length;
+    let done = 0;
+    let failed = 0;
+    setUploadProgress({ done: 0, total });
+
+    for (const file of imageFiles) {
+      try {
+        const compressed = await compressImage(file);
+        const formData = new FormData();
+        formData.append("file", compressed);
+        formData.append("mood", uploadMood);
+        formData.append("outfit", uploadOutfit || "Untagged");
+        await uploadMutation.mutateAsync(formData);
+        done++;
+        setUploadProgress({ done, total });
+      } catch {
+        failed++;
+        done++;
+        setUploadProgress({ done, total });
+      }
+    }
+
+    setUploadProgress(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (failed === 0) {
+      toast({ title: "Uploaded", description: `${total} image${total > 1 ? "s" : ""} added to vault.` });
+      setShowUploadForm(false);
+      setUploadOutfit("");
+    } else {
+      toast({ title: "Partial upload", description: `${total - failed} of ${total} uploaded. ${failed} failed.`, variant: "destructive" });
+    }
   }, [uploadMood, uploadOutfit, uploadMutation, toast, compressImage]);
 
   const handleDelete = (id: number) => {
@@ -181,18 +197,19 @@ export default function MediaVault() {
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   onChange={(e) => handleFiles(e.target.files)}
                   data-testid="input-file-upload"
                 />
                 <Button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadMutation.isPending}
+                  disabled={!!uploadProgress}
                   className="bg-gradient-to-r from-primary to-accent text-white border-0"
                   data-testid="button-browse-files"
                 >
-                  {uploadMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-                  {uploadMutation.isPending ? "Uploading..." : "Browse Files"}
+                  {uploadProgress ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                  {uploadProgress ? `Uploading ${uploadProgress.done}/${uploadProgress.total}...` : "Browse Files"}
                 </Button>
               </div>
             </Card>
@@ -246,8 +263,11 @@ export default function MediaVault() {
           }`}
           data-testid="upload-placeholder"
         >
-          {uploadMutation.isPending ? (
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          {uploadProgress ? (
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm font-medium text-primary">{uploadProgress.done}/{uploadProgress.total}</p>
+            </div>
           ) : (
             <>
               <div className="w-12 h-12 rounded-full bg-secondary/50 flex items-center justify-center text-muted-foreground group-hover:text-primary transition-colors">
