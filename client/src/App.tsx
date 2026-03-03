@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout/Layout";
 import Dashboard from "@/pages/Dashboard";
 import ContentEngine from "@/pages/ContentEngine";
+import MediaVault from "@/pages/MediaVault";
 import EngagementEngine from "@/pages/EngagementEngine";
 import TrendScanner from "@/pages/TrendScanner";
 import SettingsPage from "@/pages/Settings";
@@ -16,6 +17,7 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/" component={Dashboard}/>
+        <Route path="/vault" component={MediaVault}/>
         <Route path="/content" component={ContentEngine}/>
         <Route path="/engagement" component={EngagementEngine}/>
         <Route path="/trends" component={TrendScanner}/>

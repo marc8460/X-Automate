@@ -1,0 +1,92 @@
+----------------------------------------
+CONTENT VAULT MODULE (MANUAL MEDIA CONTROL)
+----------------------------------------
+
+Add a secure media vault system.
+
+GOAL:
+The software must NOT automatically upload images or media to Twitter.
+Instead, it must allow me to:
+
+- Upload images manually into the system
+- Organize content in a structured vault
+- Tag and categorize content
+- Link tweets to specific vault items
+- Approve content before posting manually
+
+REQUIREMENTS:
+
+1. Media Upload Interface
+- Web dashboard (simple admin panel)
+- Drag-and-drop upload
+- Support for image formats (jpg, png, webp)
+- Metadata fields:
+  - Mood
+  - Outfit
+  - Pose type
+  - Theme
+  - Suggested caption style
+  - Risk level (safe / spicy / promo)
+  - Platform compatibility
+
+2. Vault Organization
+- Filter by:
+  - Tag
+  - Theme
+  - Date added
+  - Usage count
+- Show usage history
+- Track which images have been posted and when
+- Prevent accidental reposting too frequently
+
+3. Caption Generator Integration
+- When selecting an image:
+  - AI suggests 3 caption variations
+  - Based on:
+      - Image metadata
+      - Current persona mood
+      - Recent tweet history
+  - Captions must not be repetitive
+
+4. Manual Publish Mode
+- The system prepares:
+  - Final tweet text
+  - Attached media file reference
+- But DOES NOT auto-post.
+- User must click “Publish Now” to send.
+- Include preview before publishing.
+
+5. Risk Protection
+- Warning if:
+  - Too many promotional tweets recently
+  - Similar caption used recently
+  - Same image posted within X days
+- Adjustable cooldown rules
+
+6. Database Tables
+Create additional tables:
+- media_vault
+- media_tags
+- media_usage_log
+- caption_suggestions
+- publish_queue
+
+7. Folder Structure
+/media
+  /vault
+  /processed
+  /archived
+
+8. Deployment
+- Local or VPS-hosted admin panel
+- Password-protected
+- Basic authentication middleware
+
+9. Future Expandability
+Design so it can later support:
+- Multi-platform (Instagram, Reddit, etc.)
+- Scheduled manual approval queue
+- Performance tracking per media asset
+
+Code must be clean, modular, and production-ready.
+No placeholders.

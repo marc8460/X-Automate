@@ -5,12 +5,14 @@ import {
   MessageSquareHeart, 
   TrendingUp, 
   Settings,
-  User
+  User,
+  Image
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Overview", icon: Home },
+  { href: "/vault", label: "Media Vault", icon: Image },
   { href: "/content", label: "Content Engine", icon: PenTool },
   { href: "/engagement", label: "Engagement", icon: MessageSquareHeart },
   { href: "/trends", label: "Trend Scanner", icon: TrendingUp },
