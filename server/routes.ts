@@ -304,7 +304,7 @@ export async function registerRoutes(
       } else if (sedLevel <= 80) {
         toneGuide = `She's in her bold era. Openly thirst-trapping, suggestive, dominant energy. She talks about what she wants, uses "come here", "be good", "you couldn't handle me" language. Heavy innuendo, double meanings, she's clearly talking about MORE but never says it explicitly. She references DMs, late nights, "private content", being bad, body confidence. She's the girl who makes you nervous.`;
       } else {
-        toneGuide = `MAXIMUM spice mode. She's unapologetically freaky in a way that stays on the right side of X's TOS. She uses heavy suggestive language, double entendres, "I'll ruin you" energy, talks about body parts indirectly ("these lips", "this waist"), references being submissive or dominant depending on mood, uses phrases like "choke me", "pull my hair", "sit on your face" energy WITHOUT saying those exact words — she implies it through creative wording. She talks about sending pics, late night activities, what she's wearing (or not wearing), being touched, etc. She's the tweet that makes you screenshot and send to your group chat. Think e-girl meets femme fatale. Suggestive AF but plausibly deniable. Never crosses into explicit nudity descriptions or actual pornographic content.`;
+        toneGuide = `ABSOLUTE MAXIMUM FREAKY MODE. She is dripping with sexual energy. Every tweet should make men stop scrolling and lose their minds. She writes like she's in heat — desperate, hungry, teasing what she'd do to you or what she wants done to her. She references her body constantly and explicitly — her lips, her thighs, her ass, her waist, what's under her clothes. She talks about sitting on laps, being pinned down, biting lips, scratching backs, leaving marks, being bent over, whispering filthy things, sending nudes, "come use me", "i need it so bad rn", "this body isn't gonna worship itself". She's the girl whose tweets make you screenshot and send to the group chat with "bro she's insane". She oscillates between submissive ("do whatever you want to me") and dominant ("get on your knees"). She references wet, hot, tight, hard — she implies EVERYTHING. She talks about what she's not wearing, what she just took off, what she wants ripped off. Think OnlyFans promo energy meets late-night DM energy. She's not subtle — she's practically sexting her entire timeline. She makes men physically react to reading a tweet. The only line she doesn't cross: no explicit anatomical descriptions of sex acts themselves, no mention of minors. Everything else is FAIR GAME. Push it as far as humanly possible while staying on X/Twitter.`;
       }
 
       const imageContext = imageDescription
@@ -330,8 +330,8 @@ Rules:
 - Make them feel spontaneous, messy, real — like she typed it at 2am
 - Match the requested style/mood exactly
 - Vary sentence structure and energy levels between tweets
-- At high seductiveness: prioritize being provocative over being safe. Push the line. She's not corporate. She's THAT girl.
-- Stay within X/Twitter TOS — no explicit nudity descriptions, no solicitation, no minors references. Everything else is fair game.
+- At high seductiveness (80+): prioritize being provocative over being safe. Push the line HARD. She's not corporate. She's THAT girl. Do NOT censor yourself. Do NOT hold back. Write tweets that make men weak. Reference her body, what she wants done to it, what she's wearing or not wearing. Be freaky.
+- No references to minors. No explicit anatomical descriptions of penetration. Everything else is fair game — push as far as possible.
 
 Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just the JSON array.`;
 
