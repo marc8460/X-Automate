@@ -391,18 +391,21 @@ No explanation.`;
 
         try {
           const keywords = niche.keywords.split(",").map((k: string) => k.trim()).filter(Boolean);
-          const query = `(${keywords.join(" OR ")}) min_faves:${minFavesVal} -is:retweet lang:${lang}`;
+          const query = `(${keywords.join(" OR ")}) -is:retweet lang:${lang}`;
+          console.log(`Twitter v2 search query: "${query}"`);
 
           const searchResult = await twitterClient.v2.search(query, {
             max_results: 10,
-            "tweet.fields": ["public_metrics", "created_at", "attachments"],
+            "tweet.fields": ["public_metrics", "created_at", "attachments", "lang"],
             expansions: ["author_id", "attachments.media_keys"],
-            "user.fields": ["username", "public_metrics"],
+            "user.fields": ["username", "public_metrics", "profile_image_url"],
             "media.fields": ["url", "preview_image_url", "type"],
           });
 
           const users = searchResult.includes?.users || [];
           const media = searchResult.includes?.media || [];
+
+          console.log(`Twitter v2 search returned ${searchResult.data?.length || 0} tweets`);
 
           const rawPosts = [];
           for (const tweet of searchResult.data || []) {
@@ -413,6 +416,8 @@ No explanation.`;
             const imageMedia = tweetMedia.find((m: any) => m.type === "photo");
 
             const metrics = tweet.public_metrics || { like_count: 0, reply_count: 0, retweet_count: 0 };
+            
+            if (metrics.like_count < minFavesVal) continue;
             const postAgeMinutes = tweet.created_at
               ? Math.max(1, (Date.now() - new Date(tweet.created_at).getTime()) / 60000)
               : 60;
@@ -442,6 +447,9 @@ No explanation.`;
           const discoveredPosts = [];
 
           for (const p of rawPosts) {
+            const existing = await storage.getTrendingPostByTweetId(p.tweet.id);
+            if (existing) continue;
+
             const trendScore = Math.min(100, Math.round((p.rawScore / maxRawScore) * 100));
             const status = trendScore > 70 ? "viral" : trendScore >= 30 ? "trending" : "rising";
 
