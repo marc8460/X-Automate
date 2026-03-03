@@ -29,18 +29,45 @@ export function useDeleteNiche() {
   });
 }
 
-export function useTrendingPosts(nicheId?: number) {
-  const queryKey = nicheId ? [`/api/trending-posts?nicheId=${nicheId}`] : ["/api/trending-posts"];
+export interface TrendingPostFilters {
+  nicheId?: number;
+  minLikes?: number;
+  minScore?: number;
+  lang?: string;
+  hours?: number;
+  sort?: string;
+}
+
+export function useTrendingPosts(filters?: TrendingPostFilters) {
+  const params = new URLSearchParams();
+  if (filters?.nicheId) params.set("nicheId", String(filters.nicheId));
+  if (filters?.minLikes) params.set("minLikes", String(filters.minLikes));
+  if (filters?.minScore) params.set("minScore", String(filters.minScore));
+  if (filters?.lang) params.set("lang", filters.lang);
+  if (filters?.hours) params.set("hours", String(filters.hours));
+  if (filters?.sort) params.set("sort", filters.sort);
+  const qs = params.toString();
+  const queryKey = qs ? [`/api/trending-posts?${qs}`] : ["/api/trending-posts"];
   return useQuery<(TrendingPost & { comments?: CommentSuggestion[] })[]>({ queryKey });
 }
 
 export function useDiscoverTrending() {
   return useMutation({
-    mutationFn: async (nicheId: number) => {
-      const res = await apiRequest("POST", "/api/trending-posts/discover", { nicheId });
+    mutationFn: async (data: { nicheId: number; language?: string; minFaves?: number }) => {
+      const res = await apiRequest("POST", "/api/trending-posts/discover", data);
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
+  });
+}
+
+export function useAutoDetectNiches() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/niches/auto-detect");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
   });
 }
 

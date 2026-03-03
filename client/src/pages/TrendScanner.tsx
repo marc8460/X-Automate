@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { 
   TrendingUp, 
   Activity, 
@@ -25,7 +27,12 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
-  ImageIcon
+  ImageIcon,
+  Filter,
+  Sparkles,
+  Globe,
+  Timer,
+  Brain
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -40,23 +47,79 @@ import {
   useDeleteTrendingPost,
   useBehaviorLimits,
   useUpdateBehaviorLimit,
-  useTwitterStatus
+  useTwitterStatus,
+  useAutoDetectNiches,
+  type TrendingPostFilters
 } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+
+function formatPostAge(minutes: number | null | undefined): string {
+  if (!minutes) return "";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+  return `${Math.round(minutes / 1440)}d ago`;
+}
+
+const LANGUAGES = [
+  { value: "", label: "All Languages" },
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "pt", label: "Portuguese" },
+  { value: "ja", label: "Japanese" },
+  { value: "de", label: "German" },
+  { value: "it", label: "Italian" },
+  { value: "ko", label: "Korean" },
+  { value: "ar", label: "Arabic" },
+  { value: "zh", label: "Chinese" },
+];
+
+const TIME_RANGES = [
+  { value: "0", label: "All Time" },
+  { value: "1", label: "Last 1h" },
+  { value: "3", label: "Last 3h" },
+  { value: "6", label: "Last 6h" },
+  { value: "12", label: "Last 12h" },
+  { value: "24", label: "Last 24h" },
+];
+
+const SORT_OPTIONS = [
+  { value: "score", label: "Trend Score" },
+  { value: "velocity", label: "Engagement Velocity" },
+  { value: "recent", label: "Most Recent" },
+];
 
 export default function TrendScanner() {
   const { toast } = useToast();
   const [selectedNicheId, setSelectedNicheId] = useState<number | null>(null);
   const [showAddNiche, setShowAddNiche] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [newNicheName, setNewNicheName] = useState("");
   const [newNicheKeywords, setNewNicheKeywords] = useState("");
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editedCommentText, setEditedCommentText] = useState("");
   const [expandedPosts, setExpandedPosts] = useState<Record<number, boolean>>({});
 
+  const [filterLang, setFilterLang] = useState("");
+  const [filterHours, setFilterHours] = useState("0");
+  const [filterMinLikes, setFilterMinLikes] = useState(0);
+  const [filterSort, setFilterSort] = useState("score");
+
+  const filters: TrendingPostFilters = useMemo(() => {
+    const f: TrendingPostFilters = {};
+    if (selectedNicheId) f.nicheId = selectedNicheId;
+    if (filterLang) f.lang = filterLang;
+    if (filterHours !== "0") f.hours = parseInt(filterHours);
+    if (filterMinLikes > 0) f.minLikes = filterMinLikes;
+    if (filterSort !== "score") f.sort = filterSort;
+    return f;
+  }, [selectedNicheId, filterLang, filterHours, filterMinLikes, filterSort]);
+
   const { data: niches = [], isLoading: isLoadingNiches } = useNicheProfiles();
-  const { data: posts = [], isLoading: isLoadingPosts, refetch: refetchPosts } = useTrendingPosts(selectedNicheId || undefined);
+  const { data: posts = [], isLoading: isLoadingPosts, refetch: refetchPosts } = useTrendingPosts(
+    Object.keys(filters).length > 0 ? filters : undefined
+  );
   const { data: behaviorLimits = [] } = useBehaviorLimits();
   const { data: twitterStatus } = useTwitterStatus();
   const isLive = twitterStatus?.connected === true;
@@ -69,6 +132,7 @@ export default function TrendScanner() {
   const postCommentMutation = usePostComment();
   const deletePostMutation = useDeleteTrendingPost();
   const updateLimitMutation = useUpdateBehaviorLimit();
+  const autoDetectMutation = useAutoDetectNiches();
 
   const handleAddNiche = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,13 +144,28 @@ export default function TrendScanner() {
     toast({ title: "Niche added", description: `${newNicheName} profile created.` });
   };
 
+  const handleAutoDetect = async () => {
+    try {
+      const result = await autoDetectMutation.mutateAsync();
+      toast({ 
+        title: "Niches detected", 
+        description: `Found ${Array.isArray(result) ? result.length : 0} niches from your feed.` 
+      });
+    } catch (err: any) {
+      toast({ title: "Detection failed", description: err.message, variant: "destructive" });
+    }
+  };
+
   const handleDiscover = async () => {
     if (!selectedNicheId) {
       toast({ title: "Select a niche", description: "Please select a niche to discover posts for.", variant: "destructive" });
       return;
     }
-    await discoverMutation.mutateAsync(selectedNicheId);
-    toast({ title: "Discovery started", description: "Scanning for trending posts..." });
+    await discoverMutation.mutateAsync({ 
+      nicheId: selectedNicheId,
+      language: filterLang || undefined,
+    });
+    toast({ title: "Discovery complete", description: "New trending posts found." });
   };
 
   const handleGenerateComments = async (postId: number) => {
@@ -131,6 +210,13 @@ export default function TrendScanner() {
     return [...posts].sort((a, b) => (b.trendScore || 0) - (a.trendScore || 0));
   }, [posts]);
 
+  const activeFilterCount = [
+    filterLang, 
+    filterHours !== "0" ? filterHours : "", 
+    filterMinLikes > 0 ? "1" : "",
+    filterSort !== "score" ? filterSort : ""
+  ].filter(Boolean).length;
+
   return (
     <div className="space-y-8 pb-12">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -158,7 +244,21 @@ export default function TrendScanner() {
             data-testid="button-refresh-trends"
           >
             <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh Feed
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            className={`border-purple-500/50 text-purple-400 hover:bg-purple-500/10 ${activeFilterCount > 0 ? 'bg-purple-500/10' : ''}`}
+            onClick={() => setShowFilters(!showFilters)}
+            data-testid="button-toggle-filters"
+          >
+            <Filter className="w-4 h-4 mr-2" />
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge className="ml-2 bg-purple-500/30 text-purple-200 text-[10px] px-1.5 py-0" data-testid="badge-filter-count">
+                {activeFilterCount}
+              </Badge>
+            )}
           </Button>
           <Button
             className="bg-primary text-white"
@@ -171,7 +271,6 @@ export default function TrendScanner() {
         </div>
       </div>
 
-      {/* Niche Manager */}
       <section className="space-y-4">
         <AnimatePresence>
           {showAddNiche && (
@@ -210,7 +309,90 @@ export default function TrendScanner() {
           )}
         </AnimatePresence>
 
-        <div className="flex flex-wrap gap-2">
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
+              <Card className="p-4 glass-panel border-purple-500/20" data-testid="panel-filters">
+                <div className="flex items-center gap-2 mb-4">
+                  <Filter className="w-4 h-4 text-purple-400" />
+                  <h3 className="text-sm font-semibold text-purple-300">Discovery Filters</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Time Range</label>
+                    <Select value={filterHours} onValueChange={setFilterHours} data-testid="select-time-range">
+                      <SelectTrigger className="bg-background/50" data-testid="select-time-range-trigger">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TIME_RANGES.map(t => (
+                          <SelectItem key={t.value} value={t.value} data-testid={`option-time-${t.value}`}>{t.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Language</label>
+                    <Select value={filterLang || "all"} onValueChange={v => setFilterLang(v === "all" ? "" : v)}>
+                      <SelectTrigger className="bg-background/50" data-testid="select-language-trigger">
+                        <SelectValue placeholder="All Languages" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LANGUAGES.map(l => (
+                          <SelectItem key={l.value || "all"} value={l.value || "all"} data-testid={`option-lang-${l.value || 'all'}`}>{l.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Min Engagement: {filterMinLikes}
+                    </label>
+                    <Slider
+                      value={[filterMinLikes]}
+                      onValueChange={([v]) => setFilterMinLikes(v)}
+                      max={1000}
+                      step={10}
+                      className="mt-3"
+                      data-testid="slider-min-engagement"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sort By</label>
+                    <Select value={filterSort} onValueChange={setFilterSort}>
+                      <SelectTrigger className="bg-background/50" data-testid="select-sort-trigger">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SORT_OPTIONS.map(s => (
+                          <SelectItem key={s.value} value={s.value} data-testid={`option-sort-${s.value}`}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {activeFilterCount > 0 && (
+                  <div className="mt-3 flex justify-end">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => { setFilterLang(""); setFilterHours("0"); setFilterMinLikes(0); setFilterSort("score"); }}
+                      data-testid="button-clear-filters"
+                    >
+                      Clear All Filters
+                    </Button>
+                  </div>
+                )}
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex flex-wrap gap-2 items-center">
           <Badge 
             variant={selectedNicheId === null ? "default" : "outline"}
             className={`cursor-pointer px-4 py-1.5 text-sm transition-all ${selectedNicheId === null ? 'bg-primary text-primary-foreground' : 'hover:border-primary/50'}`}
@@ -228,6 +410,12 @@ export default function TrendScanner() {
                 data-testid={`badge-niche-${niche.id}`}
               >
                 {niche.name}
+                {(niche as any).source === "auto" && (
+                  <span className="ml-1.5 inline-flex items-center gap-0.5 bg-purple-500/20 text-purple-300 rounded px-1 py-0 text-[9px] font-bold uppercase">
+                    <Brain className="w-2.5 h-2.5" />
+                    AI
+                  </span>
+                )}
               </Badge>
               <button
                 onClick={(e) => { e.stopPropagation(); deleteNicheMutation.mutate(niche.id); }}
@@ -238,11 +426,25 @@ export default function TrendScanner() {
               </button>
             </div>
           ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 text-xs"
+            onClick={handleAutoDetect}
+            disabled={autoDetectMutation.isPending || !isLive}
+            data-testid="button-auto-detect-niches"
+          >
+            {autoDetectMutation.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+            )}
+            {autoDetectMutation.isPending ? "Analyzing Feed..." : "Auto-Detect from Feed"}
+          </Button>
         </div>
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        {/* Main Feed Area */}
         <div className="lg:col-span-3 space-y-6">
           <div className="flex items-center justify-between bg-secondary/10 p-4 rounded-xl border border-border/40">
             <div className="flex items-center gap-3">
@@ -251,7 +453,10 @@ export default function TrendScanner() {
               </div>
               <div>
                 <h3 className="font-semibold">Discovery Engine</h3>
-                <p className="text-xs text-muted-foreground">Scan selected niche for new opportunities</p>
+                <p className="text-xs text-muted-foreground">
+                  Scan selected niche for new opportunities
+                  {filterLang && ` (${LANGUAGES.find(l => l.value === filterLang)?.label})`}
+                </p>
               </div>
             </div>
             <Button 
@@ -295,13 +500,32 @@ export default function TrendScanner() {
                           {post.authorHandle.substring(0, 1).toUpperCase()}
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-foreground" data-testid={`text-post-author-${post.id}`}>@{post.authorHandle}</span>
                             <Badge variant="outline" className="text-[10px] bg-background/50" data-testid={`text-post-followers-${post.id}`}>
                               {post.authorFollowers.toLocaleString()} followers
                             </Badge>
+                            {post.postAge && (
+                              <span className="text-[10px] text-muted-foreground flex items-center gap-1" data-testid={`text-post-age-${post.id}`}>
+                                <Timer className="w-3 h-3" />
+                                {formatPostAge(post.postAge)}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{post.discoveredAt}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {post.language && (
+                              <Badge variant="outline" className="text-[9px] bg-blue-500/10 text-blue-400 border-blue-500/20" data-testid={`badge-post-lang-${post.id}`}>
+                                <Globe className="w-2.5 h-2.5 mr-1" />
+                                {LANGUAGES.find(l => l.value === post.language)?.label || post.language}
+                              </Badge>
+                            )}
+                            {post.nicheMatchScore != null && post.nicheMatchScore > 0 && (
+                              <Badge variant="outline" className="text-[9px] bg-purple-500/10 text-purple-400 border-purple-500/20" data-testid={`badge-niche-match-${post.id}`}>
+                                <Brain className="w-2.5 h-2.5 mr-1" />
+                                {post.nicheMatchScore}% match
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -358,6 +582,10 @@ export default function TrendScanner() {
                           <Activity className="w-4 h-4" />
                           <span className="text-sm">{post.likes}</span>
                         </div>
+                        <div className="flex items-center gap-1.5 text-primary/70" data-testid={`text-post-velocity-${post.id}`}>
+                          <TrendingUp className="w-4 h-4" />
+                          <span className="text-sm font-medium">{post.engagementVelocity}/hr</span>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-4 flex-1 max-w-[200px]">
@@ -411,7 +639,6 @@ export default function TrendScanner() {
                     </div>
                   </div>
 
-                  {/* Comment Suggestions Section */}
                   <AnimatePresence>
                     {(post.comments && post.comments.length > 0) && (
                       <motion.div
@@ -558,7 +785,6 @@ export default function TrendScanner() {
           </div>
         </div>
 
-        {/* Sidebar Settings */}
         <div className="space-y-6">
           <Card className="p-6 glass-panel border-border/40 sticky top-6">
             <h3 className="text-lg font-display font-semibold mb-6 flex items-center gap-2">
@@ -652,11 +878,11 @@ export default function TrendScanner() {
             <div className="space-y-3">
               <div className="flex items-start gap-2 text-[10px]">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1 shrink-0" />
-                <p className="text-muted-foreground"><span className="text-foreground font-medium">Comment posted</span> to @techcrunch post • 12m ago</p>
+                <p className="text-muted-foreground"><span className="text-foreground font-medium">Comment posted</span> to @techcrunch post</p>
               </div>
               <div className="flex items-start gap-2 text-[10px]">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1 shrink-0" />
-                <p className="text-muted-foreground"><span className="text-foreground font-medium">5 new posts</span> discovered in AI SaaS niche • 1h ago</p>
+                <p className="text-muted-foreground"><span className="text-foreground font-medium">5 new posts</span> discovered in AI SaaS niche</p>
               </div>
             </div>
           </Card>

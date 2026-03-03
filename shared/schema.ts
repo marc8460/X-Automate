@@ -106,6 +106,7 @@ export const nicheProfiles = pgTable("niche_profiles", {
   name: text("name").notNull(),
   keywords: text("keywords").notNull(),
   active: boolean("active").notNull().default(true),
+  source: text("source").notNull().default("manual"),
 });
 
 export const insertNicheProfileSchema = createInsertSchema(nicheProfiles).omit({ id: true });
@@ -128,6 +129,9 @@ export const trendingPosts = pgTable("trending_posts", {
   status: text("status").notNull().default("rising"),
   discoveredAt: text("discovered_at").notNull(),
   engagementVelocity: integer("engagement_velocity").notNull().default(0),
+  language: text("language"),
+  postAge: integer("post_age"),
+  nicheMatchScore: integer("niche_match_score"),
 });
 
 export const insertTrendingPostSchema = createInsertSchema(trendingPosts).omit({ id: true });

@@ -1,0 +1,155 @@
+You are a senior backend engineer and data intelligence architect.
+
+Build a Trend Scanner Engine for a creator dashboard.
+
+GOAL:
+Create a system that:
+- Automatically infers the user's niche from their X feed
+- Allows manual niche selection and custom niche profiles
+- Discovers rising and trending posts in selected niches
+- Scores posts based on engagement velocity
+- Displays results in a dashboard
+- Does NOT auto-comment or auto-engage
+- Only provides discovery and insights
+
+TECH STACK:
+- Node.js (TypeScript)
+- X API v2
+- Supabase (database)
+- Server-side processing
+- Rate-limit aware
+
+-----------------------------------------
+1. NICHE DETECTION ENGINE
+-----------------------------------------
+
+When user connects their X account:
+
+- Fetch last 200 tweets from:
+    - Home timeline
+    - User’s own tweets
+    - Accounts frequently interacted with
+- Extract:
+    - Hashtags
+    - Keywords
+    - Topics
+    - Engagement themes
+- Use NLP clustering to detect:
+    - Primary niche
+    - Secondary niches
+    - Emerging topics
+
+Store results in:
+- niche_profiles table
+- niche_keywords table
+
+Allow:
+- Auto-detected niche
+- Manual override
+- Add custom niche
+
+-----------------------------------------
+2. TREND DISCOVERY ENGINE
+-----------------------------------------
+
+When user clicks “Search Twitter”:
+
+For each selected niche:
+
+- Query X API recent search endpoint
+- Use keyword combinations
+- Pull posts from last 1–3 hours
+- Collect:
+    - Likes
+    - Replies
+    - Reposts
+    - Follower count of author
+    - Post age (minutes)
+
+-----------------------------------------
+3. ENGAGEMENT VELOCITY SCORING
+-----------------------------------------
+
+Calculate trend score:
+
+trend_score = 
+  (likes_per_minute * weight1) +
+  (replies_per_minute * weight2) +
+  (reposts_per_minute * weight3) +
+  (engagement_ratio * weight4)
+
+Normalize by:
+- Author follower count
+- Post age
+
+Classify as:
+- Rising
+- Trending
+- Viral Candidate
+
+Store in:
+- trending_posts table
+- trend_score_log table
+
+-----------------------------------------
+4. DASHBOARD DISPLAY
+-----------------------------------------
+
+Return to frontend:
+
+For each post:
+- Author
+- Content preview
+- Engagement stats
+- Trend score
+- Niche match score
+- Age of post
+
+Sort by:
+- Highest engagement velocity
+- Best niche alignment
+- Recent growth spikes
+
+Allow filters:
+- Time range
+- Engagement minimum
+- Niche
+- Language
+
+-----------------------------------------
+5. RATE LIMIT PROTECTION
+-----------------------------------------
+
+Implement:
+- Smart batching
+- Request caching (5–15 min)
+- Background refresh jobs
+- Avoid redundant API calls
+- Limit niche scanning frequency
+
+-----------------------------------------
+6. SAFETY & COMPLIANCE
+-----------------------------------------
+
+The system must:
+- Not scrape
+- Not bypass API limits
+- Not automate engagement
+- Only provide analytics and discovery
+
+-----------------------------------------
+7. FUTURE EXPANSION
+-----------------------------------------
+
+Design architecture to support:
+- Cross-platform trend scanning
+- AI-powered comment suggestions (human approval required)
+- Performance tracking of discovered trends
+
+Provide:
+- Folder structure
+- Full TypeScript backend logic
+- DB schema
+- API usage optimization
+- Scoring algorithm implementation
+- Clean modular design

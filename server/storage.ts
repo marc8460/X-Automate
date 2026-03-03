@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, gte, desc, and, sql, asc } from "drizzle-orm";
 import { db } from "./db";
 import {
   tweets, type Tweet, type InsertTweet,
@@ -15,6 +15,15 @@ import {
   behaviorLimits, type BehaviorLimit,
   settings, type Setting, type InsertSetting,
 } from "@shared/schema";
+
+export interface TrendingPostFilters {
+  nicheId?: number;
+  minLikes?: number;
+  minTrendScore?: number;
+  language?: string;
+  hoursAgo?: number;
+  sortBy?: "score" | "velocity" | "recent";
+}
 
 export interface IStorage {
   getTweets(): Promise<Tweet[]>;
@@ -53,6 +62,7 @@ export interface IStorage {
 
   getTrendingPosts(): Promise<TrendingPost[]>;
   getTrendingPostsByNiche(nicheId: number): Promise<TrendingPost[]>;
+  getTrendingPostsFiltered(filters: TrendingPostFilters): Promise<TrendingPost[]>;
   getTrendingPost(id: number): Promise<TrendingPost | undefined>;
   createTrendingPost(post: InsertTrendingPost): Promise<TrendingPost>;
   deleteTrendingPost(id: number): Promise<void>;
@@ -209,6 +219,44 @@ export class DatabaseStorage implements IStorage {
 
   async getTrendingPostsByNiche(nicheId: number): Promise<TrendingPost[]> {
     return db.select().from(trendingPosts).where(eq(trendingPosts.nicheId, nicheId));
+  }
+
+  async getTrendingPostsFiltered(filters: TrendingPostFilters): Promise<TrendingPost[]> {
+    const conditions = [];
+    if (filters.nicheId) {
+      conditions.push(eq(trendingPosts.nicheId, filters.nicheId));
+    }
+    if (filters.minLikes) {
+      conditions.push(gte(trendingPosts.likes, filters.minLikes));
+    }
+    if (filters.minTrendScore) {
+      conditions.push(gte(trendingPosts.trendScore, filters.minTrendScore));
+    }
+    if (filters.language) {
+      conditions.push(eq(trendingPosts.language, filters.language));
+    }
+    if (filters.hoursAgo) {
+      const cutoff = new Date(Date.now() - filters.hoursAgo * 60 * 60 * 1000).toISOString();
+      conditions.push(gte(trendingPosts.discoveredAt, cutoff));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    let orderBy;
+    switch (filters.sortBy) {
+      case "velocity":
+        orderBy = desc(trendingPosts.engagementVelocity);
+        break;
+      case "recent":
+        orderBy = desc(trendingPosts.discoveredAt);
+        break;
+      case "score":
+      default:
+        orderBy = desc(trendingPosts.trendScore);
+        break;
+    }
+
+    return db.select().from(trendingPosts).where(where).orderBy(orderBy);
   }
 
   async getTrendingPost(id: number): Promise<TrendingPost | undefined> {

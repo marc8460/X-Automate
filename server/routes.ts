@@ -4,8 +4,9 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
-import { getTwitterClient, testTwitterConnection } from "./twitter";
+import { getTwitterClient, testTwitterConnection, analyzeUserFeed, getCached, setCache } from "./twitter";
 import { storage } from "./storage";
+import type { TrendingPostFilters } from "./storage";
 import {
   insertTweetSchema,
   insertMediaItemSchema,
@@ -203,11 +204,45 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  app.post("/api/niches/auto-detect", async (_req, res) => {
+    try {
+      const twitterClient = getTwitterClient();
+      if (!twitterClient) {
+        return res.status(400).json({ message: "Twitter not connected. Connect in Settings to auto-detect niches from your feed." });
+      }
+      const suggestions = await analyzeUserFeed(twitterClient);
+      const created = [];
+      for (const s of suggestions) {
+        const niche = await storage.createNicheProfile({
+          name: s.name,
+          keywords: s.keywords,
+          source: "auto",
+          active: true,
+        });
+        created.push({ ...niche, confidence: s.confidence });
+      }
+      res.status(201).json(created);
+    } catch (err: any) {
+      console.error("Auto-detect error:", err);
+      res.status(500).json({ message: err.message || "Failed to auto-detect niches" });
+    }
+  });
+
   // --- Trending Posts ---
   app.get("/api/trending-posts", async (req, res) => {
-    const nicheId = req.query.nicheId ? parseInt(req.query.nicheId as string) : undefined;
-    const posts = nicheId ? await storage.getTrendingPostsByNiche(nicheId) : await storage.getTrendingPosts();
-    // For each post, get its comments
+    const filters: TrendingPostFilters = {};
+    if (req.query.nicheId) filters.nicheId = parseInt(req.query.nicheId as string);
+    if (req.query.minLikes) filters.minLikes = parseInt(req.query.minLikes as string);
+    if (req.query.minScore) filters.minTrendScore = parseInt(req.query.minScore as string);
+    if (req.query.lang) filters.language = req.query.lang as string;
+    if (req.query.hours) filters.hoursAgo = parseInt(req.query.hours as string);
+    if (req.query.sort) filters.sortBy = req.query.sort as "score" | "velocity" | "recent";
+
+    const hasFilters = Object.keys(filters).length > 0;
+    const posts = hasFilters
+      ? await storage.getTrendingPostsFiltered(filters)
+      : await storage.getTrendingPosts();
+
     const postsWithComments = await Promise.all(posts.map(async (post) => {
       const comments = await storage.getCommentsByPost(post.id);
       return { ...post, comments };
@@ -217,7 +252,7 @@ export async function registerRoutes(
 
   app.post("/api/trending-posts/discover", async (req, res) => {
     try {
-      const { nicheId } = req.body;
+      const { nicheId, language, minFaves, hoursBack } = req.body;
       if (!nicheId) return res.status(400).json({ message: "nicheId is required" });
 
       const niches = await storage.getNicheProfiles();
@@ -225,10 +260,18 @@ export async function registerRoutes(
       if (!niche) return res.status(404).json({ message: "Niche not found" });
 
       const twitterClient = getTwitterClient();
+      const lang = language || "en";
+      const minFavesVal = minFaves || 50;
 
       if (twitterClient) {
+        const cacheKey = `discover:${nicheId}:${lang}`;
+        const cachedPosts = getCached(cacheKey);
+        if (cachedPosts) {
+          return res.status(200).json(cachedPosts);
+        }
+
         const keywords = niche.keywords.split(",").map((k: string) => k.trim()).filter(Boolean);
-        const query = `(${keywords.join(" OR ")}) min_faves:100 -is:retweet lang:en`;
+        const query = `(${keywords.join(" OR ")}) min_faves:${minFavesVal} -is:retweet lang:${lang}`;
 
         const searchResult = await twitterClient.v2.search(query, {
           max_results: 10,
@@ -240,8 +283,8 @@ export async function registerRoutes(
 
         const users = searchResult.includes?.users || [];
         const media = searchResult.includes?.media || [];
-        const discoveredPosts = [];
 
+        const rawPosts = [];
         for (const tweet of searchResult.data || []) {
           const author = users.find((u: any) => u.id === tweet.author_id);
           const tweetMedia = tweet.attachments?.media_keys?.map(
@@ -250,50 +293,76 @@ export async function registerRoutes(
           const imageMedia = tweetMedia.find((m: any) => m.type === "photo");
 
           const metrics = tweet.public_metrics || { like_count: 0, reply_count: 0, retweet_count: 0 };
+          const postAgeMinutes = tweet.created_at
+            ? Math.max(1, (Date.now() - new Date(tweet.created_at).getTime()) / 60000)
+            : 60;
+          const authorFollowers = author?.public_metrics?.followers_count || 1;
+
+          const likesPerMin = metrics.like_count / postAgeMinutes;
+          const repliesPerMin = metrics.reply_count / postAgeMinutes;
+          const retweetsPerMin = metrics.retweet_count / postAgeMinutes;
           const totalEngagement = metrics.like_count + metrics.reply_count + metrics.retweet_count;
-          const hoursAge = tweet.created_at
-            ? Math.max(1, (Date.now() - new Date(tweet.created_at).getTime()) / 3600000)
-            : 1;
-          const velocity = Math.round(totalEngagement / hoursAge);
-          const trendScore = Math.min(100, Math.round(
-            (Math.log10(totalEngagement + 1) / Math.log10(100000)) * 100
-          ));
-          const status = trendScore > 75 ? "viral" : trendScore > 40 ? "trending" : "rising";
+          const engagementRatio = totalEngagement / Math.max(authorFollowers, 1);
+
+          const rawScore = (likesPerMin * 3) + (repliesPerMin * 5) + (retweetsPerMin * 4) + (engagementRatio * 100);
+          const velocity = Math.round(totalEngagement / Math.max(1, postAgeMinutes / 60));
+
+          rawPosts.push({
+            tweet,
+            author,
+            imageMedia,
+            metrics,
+            rawScore,
+            velocity,
+            postAgeMinutes: Math.round(postAgeMinutes),
+          });
+        }
+
+        const maxRawScore = Math.max(...rawPosts.map(p => p.rawScore), 1);
+        const discoveredPosts = [];
+
+        for (const p of rawPosts) {
+          const trendScore = Math.min(100, Math.round((p.rawScore / maxRawScore) * 100));
+          const status = trendScore > 70 ? "viral" : trendScore >= 30 ? "trending" : "rising";
 
           const post = await storage.createTrendingPost({
             nicheId,
-            authorHandle: author ? `@${author.username}` : "@unknown",
-            authorFollowers: author?.public_metrics?.followers_count || 0,
-            postText: tweet.text,
-            postUrl: `https://twitter.com/i/status/${tweet.id}`,
-            postImageUrl: imageMedia?.url || imageMedia?.preview_image_url || null,
-            tweetId: tweet.id,
-            likes: metrics.like_count,
-            replies: metrics.reply_count,
-            retweets: metrics.retweet_count,
+            authorHandle: p.author ? `@${p.author.username}` : "@unknown",
+            authorFollowers: p.author?.public_metrics?.followers_count || 0,
+            postText: p.tweet.text,
+            postUrl: `https://twitter.com/i/status/${p.tweet.id}`,
+            postImageUrl: p.imageMedia?.url || p.imageMedia?.preview_image_url || null,
+            tweetId: p.tweet.id,
+            likes: p.metrics.like_count,
+            replies: p.metrics.reply_count,
+            retweets: p.metrics.retweet_count,
             trendScore,
             status,
             discoveredAt: new Date().toISOString(),
-            engagementVelocity: velocity,
+            engagementVelocity: p.velocity,
+            language: lang,
+            postAge: p.postAgeMinutes,
+            nicheMatchScore: null,
           });
           discoveredPosts.push(post);
         }
 
+        setCache(cacheKey, discoveredPosts, 600);
         res.status(201).json(discoveredPosts);
       } else {
         const systemPrompt = `You are a trend discovery engine for Twitter/X.
 Generate 5-8 realistic trending posts for the niche: "${niche.name}" with keywords: "${niche.keywords}".
+Language preference: ${lang}.
 For each post, include:
-- authorHandle: a realistic twitter handle (e.g. @tech_guru, @fitness_junkie)
+- authorHandle: a realistic twitter handle
 - authorFollowers: realistic follower count (10k to 500k)
 - postText: high-engagement tweet content relevant to the niche
 - postUrl: a dummy twitter URL
-- postImageUrl: For about 60% of posts, include a realistic Unsplash image URL that matches the post content. Use format: "https://images.unsplash.com/photo-{id}?w=600&h=400&fit=crop". Use real Unsplash photo IDs for common topics (fitness: photo-1571019613454-1cb2f99b2d8b, beach: photo-1507525428034-b723cf961d3e, food: photo-1504674900247-0877df9cc836, fashion: photo-1515886657613-9f3515b0c78f, city: photo-1449824913935-59a10b8d2000, gym: photo-1534438327276-14e5300c3a48, crypto: photo-1639762681485-074b7f938ba0, dating: photo-1516589178581-6cd7833ae3b2, memes: photo-1533738363-b7f9aef128ce). For the remaining ~40% of posts, set postImageUrl to null (text-only tweets).
+- postImageUrl: For about 60% of posts, include a realistic Unsplash image URL. For the remaining ~40%, set to null.
 - likes: realistic engagement (500 to 50000)
 - replies: realistic engagement (50 to 5000)
 - retweets: realistic engagement (100 to 10000)
-- trendScore: 0-100
-- status: "rising", "trending", or "viral"
+- postAge: minutes since posted (5 to 720)
 - engagementVelocity: points per hour (10 to 1000)
 
 Return ONLY a JSON array of objects. No explanation.`;
@@ -309,8 +378,21 @@ Return ONLY a JSON array of objects. No explanation.`;
         const data = JSON.parse(raw);
         const generatedPosts = Array.isArray(data) ? data : (data.posts || []);
 
+        const maxRawScore = Math.max(...generatedPosts.map((p: any) => {
+          const ageMin = Math.max(1, p.postAge || 60);
+          const total = (p.likes || 0) + (p.replies || 0) + (p.retweets || 0);
+          return ((p.likes || 0) / ageMin * 3) + ((p.replies || 0) / ageMin * 5) + ((p.retweets || 0) / ageMin * 4) + (total / Math.max(p.authorFollowers || 1, 1) * 100);
+        }), 1);
+
         const discoveredPosts = [];
         for (const p of generatedPosts) {
+          const ageMin = Math.max(1, p.postAge || 60);
+          const total = (p.likes || 0) + (p.replies || 0) + (p.retweets || 0);
+          const rawScore = ((p.likes || 0) / ageMin * 3) + ((p.replies || 0) / ageMin * 5) + ((p.retweets || 0) / ageMin * 4) + (total / Math.max(p.authorFollowers || 1, 1) * 100);
+          const trendScore = Math.min(100, Math.round((rawScore / maxRawScore) * 100));
+          const status = trendScore > 70 ? "viral" : trendScore >= 30 ? "trending" : "rising";
+          const velocity = Math.round(total / Math.max(1, ageMin / 60));
+
           const post = await storage.createTrendingPost({
             nicheId,
             authorHandle: p.authorHandle || "@user",
@@ -322,10 +404,13 @@ Return ONLY a JSON array of objects. No explanation.`;
             likes: p.likes || 0,
             replies: p.replies || 0,
             retweets: p.retweets || 0,
-            trendScore: p.trendScore || 50,
-            status: p.status || "rising",
+            trendScore,
+            status,
             discoveredAt: new Date().toISOString(),
-            engagementVelocity: p.engagementVelocity || 10,
+            engagementVelocity: velocity,
+            language: lang,
+            postAge: Math.round(ageMin),
+            nicheMatchScore: null,
           });
           discoveredPosts.push(post);
         }
