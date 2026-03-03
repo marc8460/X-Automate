@@ -42,7 +42,7 @@ uploads/          - User-uploaded media files (served statically)
 
 ## Viral Comment Engine
 - **3-step workflow**: Discover trending topics → Find post on X → Screenshot scan or manual entry → AI generates viral comments
-- **Trend discovery**: Real Google Trends RSS feed (https://trends.google.com/trending/rss) as primary source, with Groq AI fallback. Results cached 5 minutes server-side.
+- **Trend discovery**: Real Google Trends RSS feed (https://trends.google.com/trending/rss?geo=XX) as primary source, with Groq AI fallback. RSS cached 3 minutes per country. Category filtering via keyword matching on titles. Time window filtering via pubDate. The RSS returns exactly 10 daily trending topics per country — this is Google's hard limit.
 - **No X API scraping**: User searches X manually — zero X API cost
 - **Screenshot Scan (primary)**: Upload/paste/drag a screenshot of an X post → Groq vision (llama-4-scout) extracts post text, author, metrics, image descriptions automatically → then generates viral comments in one shot
 - **Manual Entry (fallback)**: Paste post text and fill in metrics manually
@@ -62,7 +62,7 @@ uploads/          - User-uploaded media files (served statically)
 - POST: /api/generate (AI tweet generation via Groq: { style, topic?, seductiveness?, imageUrl? })
 - POST: /api/seed (idempotent - checks if data exists first)
 - GET: /api/twitter/status (connection check + handle)
-- GET: /api/trending-topics?geo=US (Google Trends + AI fallback)
+- GET: /api/trending-topics?geo=US&category=all&timeWindow=24h&sortBy=volume (Google Trends RSS + category/time filtering + AI fallback)
 - POST: /api/analyze-post (AI post analysis + viral comment generation with vision support)
 - POST: /api/scan-screenshot (multipart: screenshot file → vision extraction + comment generation)
 

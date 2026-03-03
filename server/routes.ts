@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
-import { testTwitterConnection, getTwitterClient, analyzeUserFeed, getCached, setCache } from "./twitter";
+import { testTwitterConnection } from "./twitter";
 import { storage } from "./storage";
 import {
   insertTweetSchema,
@@ -16,8 +16,6 @@ import {
   insertActivityLogSchema,
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
-  insertNicheProfileSchema,
-  insertTrendingPostSchema,
 } from "@shared/schema";
 
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -380,9 +378,18 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
   });
 
   // --- Trending Topics (Real Google Trends RSS + AI fallback) ---
-  const trendsCache = new Map<string, { data: any; expiresAt: number }>();
+  const trendsRssCache = new Map<string, { topics: any[]; fetchedAt: number }>();
 
   async function fetchGoogleTrendsRSS(geo: string): Promise<any[]> {
+    const cached = trendsRssCache.get(geo);
+    if (cached && Date.now() - cached.fetchedAt < 3 * 60 * 1000) {
+      return cached.topics.map(t => ({
+        ...t,
+        startedAgoMinutes: Math.max(1, Math.round((Date.now() - t._pubTimestamp) / 60000)),
+        startedAgo: formatAgo(Math.max(1, Math.round((Date.now() - t._pubTimestamp) / 60000))),
+      }));
+    }
+
     return new Promise((resolve, reject) => {
       const url = `https://trends.google.com/trending/rss?geo=${encodeURIComponent(geo)}`;
       https.get(url, (res: any) => {
@@ -417,20 +424,8 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
               return words.length > 30 ? words.substring(0, 30) + "..." : words;
             });
 
-            let startedAgoMinutes = 60;
-            let startedAgo = "recently";
-            if (pubDate) {
-              const pubTime = new Date(pubDate).getTime();
-              const diff = Date.now() - pubTime;
-              startedAgoMinutes = Math.max(1, Math.round(diff / 60000));
-              if (startedAgoMinutes < 60) {
-                startedAgo = `${startedAgoMinutes} min ago`;
-              } else if (startedAgoMinutes < 1440) {
-                startedAgo = `${Math.round(startedAgoMinutes / 60)} hours ago`;
-              } else {
-                startedAgo = `${Math.round(startedAgoMinutes / 1440)} days ago`;
-              }
-            }
+            const pubTimestamp = pubDate ? new Date(pubDate).getTime() : Date.now() - 3600000;
+            const startedAgoMinutes = Math.max(1, Math.round((Date.now() - pubTimestamp) / 60000));
 
             return {
               id: i + 1,
@@ -439,19 +434,78 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
               trafficNumber: parseTrafficNumber(trafficRaw),
               growthPercent: "+1,000%",
               status: "Active",
-              startedAgo,
+              startedAgo: formatAgo(startedAgoMinutes),
               startedAgoMinutes,
               relatedQueries,
               articles,
               searchQuery: title,
               image: picture,
+              _pubTimestamp: pubTimestamp,
             };
           });
+          trendsRssCache.set(geo, { topics, fetchedAt: Date.now() });
           resolve(topics);
         });
         res.on("error", reject);
       }).on("error", reject);
     });
+  }
+
+  function formatAgo(minutes: number): string {
+    if (minutes < 60) return `${minutes} min ago`;
+    if (minutes < 1440) return `${Math.round(minutes / 60)} hours ago`;
+    return `${Math.round(minutes / 1440)} days ago`;
+  }
+
+  function parseTrafficNumber(traffic: string | number): number {
+    if (typeof traffic === "number") return traffic;
+    if (!traffic) return 0;
+    const cleaned = String(traffic).replace(/[+,]/g, "").trim();
+    const match = cleaned.match(/([\d.]+)\s*(M|K)?/i);
+    if (!match) return parseInt(cleaned) || 0;
+    const num = parseFloat(match[1]);
+    const suffix = (match[2] || "").toUpperCase();
+    if (suffix === "M") return num * 1000000;
+    if (suffix === "K") return num * 1000;
+    return num;
+  }
+
+  const categoryKeywords: Record<string, string[]> = {
+    entertainment: ["movie", "film", "music", "album", "song", "actor", "actress", "netflix", "disney", "show", "tv", "series", "concert", "celebrity", "star", "award", "grammy", "oscar", "emmy", "anime", "game", "gaming", "playstation", "xbox", "nintendo", "marvel", "dc", "kardashian", "klum", "maischberger", "ronzheimer", "tiktok", "youtube", "spotify", "drake", "taylor swift", "beyonce"],
+    business: ["stock", "market", "economy", "trade", "ceo", "company", "corp", "amazon", "tesla", "apple", "google", "microsoft", "bank", "finance", "invest", "business", "deal", "merger", "acquisition", "ipo", "layoff", "revenue"],
+    technology: ["ai", "tech", "software", "app", "xiaomi", "samsung", "iphone", "android", "crypto", "bitcoin", "blockchain", "hack", "cyber", "robot", "startup", "chip", "nvidia", "openai", "chatgpt", "meta", "x.com"],
+    sports: ["league", "cup", "match", "vs", "game", "score", "team", "player", "coach", "championship", "tournament", "soccer", "football", "basketball", "tennis", "f1", "nba", "nfl", "mlb", "nhl", "premier", "champions", "world cup", "olympic", "goal", "transfer", "ronaldo", "messi", "sporting", "inter", "porto", "cavaliers", "pistons", "mavericks", "hornets", "wizards", "magic", "baseball"],
+    health: ["health", "covid", "vaccine", "virus", "disease", "hospital", "doctor", "cancer", "fda", "drug", "treatment", "outbreak", "pandemic", "symptom", "diet", "fitness"],
+    science: ["nasa", "space", "climate", "earthquake", "volcano", "hurricane", "storm", "weather", "research", "study", "discovery", "planet", "moon", "mars", "satellite"],
+    politics: ["president", "election", "vote", "senate", "congress", "law", "policy", "democrat", "republican", "trump", "biden", "minister", "parliament", "government", "protest", "war", "sanction", "diplomat", "nato", "kurds", "iran"],
+  };
+
+  function matchesCategory(topic: any, category: string): boolean {
+    if (category === "all") return true;
+    const keywords = categoryKeywords[category];
+    if (!keywords) return true;
+    const titleLower = topic.title.toLowerCase();
+    return keywords.some(kw => {
+      if (kw.length <= 3) {
+        const regex = new RegExp(`\\b${kw}\\b`, "i");
+        return regex.test(titleLower);
+      }
+      return titleLower.includes(kw);
+    });
+  }
+
+  function matchesTimeWindow(topic: any, timeWindow: string): boolean {
+    const minutes = topic.startedAgoMinutes || 0;
+    switch (timeWindow) {
+      case "1h": return minutes <= 60;
+      case "3h": return minutes <= 180;
+      case "6h": return minutes <= 360;
+      case "12h": return minutes <= 720;
+      case "24h": return minutes <= 1440;
+      case "2d": return minutes <= 2880;
+      case "7d": return minutes <= 10080;
+      default: return true;
+    }
   }
 
   app.get("/api/trending-topics", async (req, res) => {
@@ -461,23 +515,11 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
       const timeWindow = (req.query.timeWindow as string) || "24h";
       const sortBy = (req.query.sortBy as string) || "volume";
 
-      const cacheKey = `trends:${geo}:${category}:${timeWindow}`;
-      const cached = trendsCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        let topics = [...cached.data.topics];
-        if (sortBy === "volume") {
-          topics.sort((a: any, b: any) => parseTrafficNumber(b.trafficNumber) - parseTrafficNumber(a.trafficNumber));
-        } else if (sortBy === "recent") {
-          topics.sort((a: any, b: any) => (a.startedAgoMinutes || 999) - (b.startedAgoMinutes || 999));
-        }
-        return res.json({ ...cached.data, topics, sortBy });
-      }
-
-      let topics: any[] = [];
+      let allTopics: any[] = [];
       let source = "google_trends";
 
       try {
-        topics = await fetchGoogleTrendsRSS(geo);
+        allTopics = await fetchGoogleTrendsRSS(geo);
         source = "google_trends";
       } catch (rssErr: any) {
         console.error("Google Trends RSS failed, using AI fallback:", rssErr.message);
@@ -515,12 +557,12 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
           messages: [
             {
               role: "system",
-              content: `Generate trending topics matching Google Trends "Trending Now". Return ONLY a JSON array, 20 items. No markdown.
+              content: `Generate trending topics matching Google Trends "Trending Now". Return ONLY a JSON array, 10 items. No markdown.
 [{"title":"...","traffic":"500K+","trafficNumber":500000,"growthPercent":"+1,000%","startedAgo":"2 hours ago","startedAgoMinutes":120,"relatedQueries":["q1","q2","q3"],"category":"..."}]`,
             },
             {
               role: "user",
-              content: `Generate 20 trending topics for ${countryName} (${geo}), focusing on: ${categoryLabels[category] || "all categories"}. Topics must be SPECIFIC — real people, events, matches, not generic themes. Sorted by search volume.`,
+              content: `Generate 10 trending topics for ${countryName} (${geo}), focusing on: ${categoryLabels[category] || "all categories"}. Topics must be SPECIFIC — real people, events, matches, not generic themes. Sorted by search volume.`,
             },
           ],
           temperature: 0.85,
@@ -531,7 +573,7 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
         try {
           const jsonMatch = raw.match(/\[[\s\S]*\]/);
           const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-          topics = parsed.map((t: any, i: number) => ({
+          allTopics = parsed.map((t: any, i: number) => ({
             id: i + 1,
             title: t.title || "Unknown",
             traffic: t.traffic || "10K+",
@@ -546,9 +588,13 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
             category: t.category || "general",
           }));
         } catch {
-          topics = [];
+          allTopics = [];
         }
       }
+
+      let topics = allTopics
+        .filter(t => matchesCategory(t, category))
+        .filter(t => matchesTimeWindow(t, timeWindow));
 
       if (sortBy === "volume") {
         topics.sort((a, b) => (b.trafficNumber || 0) - (a.trafficNumber || 0));
@@ -556,8 +602,21 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
         topics.sort((a, b) => (a.startedAgoMinutes || 999) - (b.startedAgoMinutes || 999));
       }
 
-      const result = { topics, geo, category, timeWindow, sortBy, source, fetchedAt: new Date().toISOString() };
-      trendsCache.set(cacheKey, { data: result, expiresAt: Date.now() + 5 * 60 * 1000 });
+      topics = topics.map((t, i) => {
+        const { _pubTimestamp, ...clean } = t;
+        return { ...clean, id: i + 1 };
+      });
+
+      const result = {
+        topics,
+        totalAvailable: allTopics.length,
+        geo,
+        category,
+        timeWindow,
+        sortBy,
+        source,
+        fetchedAt: new Date().toISOString(),
+      };
 
       res.json(result);
     } catch (err: any) {
@@ -565,19 +624,6 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
       res.status(500).json({ message: err.message || "Failed to fetch trends" });
     }
   });
-
-  function parseTrafficNumber(traffic: string | number): number {
-    if (typeof traffic === "number") return traffic;
-    if (!traffic) return 0;
-    const cleaned = traffic.replace(/[+,]/g, "").trim();
-    const match = cleaned.match(/([\d.]+)\s*(M|K)?/i);
-    if (!match) return parseInt(cleaned) || 0;
-    const num = parseFloat(match[1]);
-    const suffix = (match[2] || "").toUpperCase();
-    if (suffix === "M") return num * 1000000;
-    if (suffix === "K") return num * 1000;
-    return num;
-  }
 
   // --- Analyze Post & Generate Viral Comments (Groq AI) ---
   app.post("/api/analyze-post", async (req, res) => {
