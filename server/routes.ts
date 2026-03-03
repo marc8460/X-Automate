@@ -367,6 +367,7 @@ No explanation.`;
               likes: p.metrics.like_count,
               replies: p.metrics.reply_count,
               retweets: p.metrics.retweet_count,
+              views: p.metrics.impression_count || 0,
               trendScore,
               status,
               discoveredAt: new Date().toISOString(),
@@ -400,10 +401,11 @@ For each post, include:
 - likes: realistic engagement (500 to 50000)
 - replies: realistic engagement (50 to 5000)
 - retweets: realistic engagement (100 to 10000)
+- views: realistic view count (likes * 10 to likes * 50)
 - postAge: minutes since posted (5 to 720)
 - engagementVelocity: points per hour (10 to 1000)
 
-Return ONLY a JSON array of objects. No explanation.`;
+Return ONLY a JSON array wrapped in a "posts" key. No explanation.`;
 
         const completion = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
@@ -414,7 +416,9 @@ Return ONLY a JSON array of objects. No explanation.`;
 
         const raw = completion.choices[0]?.message?.content || "{\"posts\": []}";
         const data = JSON.parse(raw);
-        const generatedPosts = Array.isArray(data) ? data : (data.posts || []);
+        const generatedPosts = Array.isArray(data) 
+          ? data 
+          : (data.posts || data.trending_posts || data.results || data.tweets || Object.values(data).find(v => Array.isArray(v)) || []);
 
         const maxRawScore = Math.max(...generatedPosts.map((p: any) => {
           const ageMin = Math.max(1, p.postAge || 60);
@@ -442,6 +446,7 @@ Return ONLY a JSON array of objects. No explanation.`;
             likes: p.likes || 0,
             replies: p.replies || 0,
             retweets: p.retweets || 0,
+            views: p.views || Math.round((p.likes || 500) * (15 + Math.random() * 35)),
             trendScore,
             status,
             discoveredAt: new Date().toISOString(),

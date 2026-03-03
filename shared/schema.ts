@@ -125,6 +125,7 @@ export const trendingPosts = pgTable("trending_posts", {
   likes: integer("likes").notNull().default(0),
   replies: integer("replies").notNull().default(0),
   retweets: integer("retweets").notNull().default(0),
+  views: integer("views").default(0),
   trendScore: integer("trend_score").notNull().default(0),
   status: text("status").notNull().default("rising"),
   discoveredAt: text("discovered_at").notNull(),

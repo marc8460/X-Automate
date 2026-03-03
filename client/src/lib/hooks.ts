@@ -57,7 +57,12 @@ export function useDiscoverTrending() {
       const res = await apiRequest("POST", "/api/trending-posts/discover", data);
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
+    onSuccess: () => queryClient.invalidateQueries({ 
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith("/api/trending-posts");
+      }
+    }),
   });
 }
 
@@ -78,7 +83,7 @@ export function useGenerateComments() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] });
+      queryClient.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/trending-posts") });
       queryClient.invalidateQueries({ queryKey: ["/api/comments"] });
     },
   });
@@ -96,7 +101,7 @@ export function useUpdateComment() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] });
+      queryClient.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/trending-posts") });
       queryClient.invalidateQueries({ queryKey: ["/api/comments"] });
     },
   });
@@ -109,7 +114,7 @@ export function usePostComment() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] });
+      queryClient.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/trending-posts") });
       queryClient.invalidateQueries({ queryKey: ["/api/comments"] });
     },
   });
@@ -120,7 +125,7 @@ export function useDeleteTrendingPost() {
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/trending-posts/${id}`);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
+    onSuccess: () => queryClient.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/trending-posts") }),
   });
 }
 

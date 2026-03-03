@@ -32,7 +32,9 @@ import {
   Sparkles,
   Globe,
   Timer,
-  Brain
+  Brain,
+  Eye,
+  Heart
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -59,6 +61,13 @@ function formatPostAge(minutes: number | null | undefined): string {
   if (minutes < 60) return `${minutes}m ago`;
   if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
   return `${Math.round(minutes / 1440)}d ago`;
+}
+
+function formatNumber(n: number | null | undefined): string {
+  if (!n) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toString();
 }
 
 const LANGUAGES = [
@@ -161,11 +170,19 @@ export default function TrendScanner() {
       toast({ title: "Select a niche", description: "Please select a niche to discover posts for.", variant: "destructive" });
       return;
     }
-    await discoverMutation.mutateAsync({ 
-      nicheId: selectedNicheId,
-      language: filterLang || undefined,
-    });
-    toast({ title: "Discovery complete", description: "New trending posts found." });
+    try {
+      const result = await discoverMutation.mutateAsync({ 
+        nicheId: selectedNicheId,
+        language: filterLang || undefined,
+      });
+      const count = Array.isArray(result) ? result.length : 0;
+      toast({ 
+        title: "Discovery complete", 
+        description: count > 0 ? `${count} new trending posts found!` : "No new posts found. Try different keywords." 
+      });
+    } catch (err: any) {
+      toast({ title: "Discovery failed", description: err.message || "Something went wrong", variant: "destructive" });
+    }
   };
 
   const handleGenerateComments = async (postId: number) => {
@@ -569,22 +586,26 @@ export default function TrendScanner() {
                     )}
 
                     <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-border/10">
-                      <div className="flex items-center gap-6">
+                      <div className="flex items-center gap-5">
+                        <div className="flex items-center gap-1.5 text-muted-foreground" data-testid={`text-post-views-${post.id}`}>
+                          <Eye className="w-4 h-4" />
+                          <span className="text-sm">{formatNumber(post.views)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-pink-400/80" data-testid={`text-post-likes-${post.id}`}>
+                          <Heart className="w-4 h-4" />
+                          <span className="text-sm">{formatNumber(post.likes)}</span>
+                        </div>
                         <div className="flex items-center gap-1.5 text-muted-foreground" data-testid={`text-post-replies-${post.id}`}>
                           <MessageSquare className="w-4 h-4" />
-                          <span className="text-sm">{post.replies}</span>
+                          <span className="text-sm">{formatNumber(post.replies)}</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-muted-foreground" data-testid={`text-post-retweets-${post.id}`}>
                           <RefreshCw className="w-4 h-4" />
-                          <span className="text-sm">{post.retweets}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-muted-foreground" data-testid={`text-post-likes-${post.id}`}>
-                          <Activity className="w-4 h-4" />
-                          <span className="text-sm">{post.likes}</span>
+                          <span className="text-sm">{formatNumber(post.retweets)}</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-primary/70" data-testid={`text-post-velocity-${post.id}`}>
                           <TrendingUp className="w-4 h-4" />
-                          <span className="text-sm font-medium">{post.engagementVelocity}/hr</span>
+                          <span className="text-sm font-medium">{formatNumber(post.engagementVelocity)}/hr</span>
                         </div>
                       </div>
 
