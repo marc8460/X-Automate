@@ -88,8 +88,8 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-sm">Safe Mode</Label>
-                  <p className="text-xs text-muted-foreground">Filter explicit terms</p>
+                  <Label className="text-sm">Safety Filter</Label>
+                  <p className="text-xs text-muted-foreground">Maintain professional standards</p>
                 </div>
                 <Switch defaultChecked />
               </div>

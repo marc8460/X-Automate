@@ -44,14 +44,14 @@ export default function ContentEngine() {
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent" />
             <h2 className="text-xl font-display font-semibold mb-4 flex items-center gap-2">
               <Sparkles className="text-primary w-5 h-5" />
-              AI Prompt Studio
+              Content Studio
             </h2>
             
             <div className="space-y-6">
               <div>
-                <label className="text-sm font-medium text-muted-foreground mb-2 block">Context / Topic</label>
+                <label className="text-sm font-medium text-muted-foreground mb-2 block">What's happening?</label>
                 <Textarea 
-                  placeholder="What's on your mind today? (e.g. 'Coffee, coding, and crypto')"
+                  placeholder="Share a thought, a vibe, or a life update..."
                   className="bg-background/50 border-border/50 resize-none h-24"
                 />
               </div>
@@ -90,14 +90,14 @@ export default function ContentEngine() {
                 ) : (
                   <Sparkles className="w-4 h-4 mr-2" />
                 )}
-                {isGenerating ? "Synthesizing..." : "Generate Tweets"}
+                {isGenerating ? "Drafting..." : "Draft Tweets"}
               </Button>
             </div>
           </Card>
 
           {/* Results */}
           <div className="space-y-4">
-            <h3 className="text-lg font-display font-medium">Recent Outputs</h3>
+            <h3 className="text-lg font-display font-medium">Recently Drafted</h3>
             {MOCK_GENERATED_TWEETS.map((tweet, i) => (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -157,9 +157,9 @@ export default function ContentEngine() {
           </Card>
           
           <Card className="p-5 glass-panel border-accent/20">
-            <h3 className="font-display font-medium mb-2 text-sm uppercase tracking-wider text-accent">Safe Mode Active</h3>
+            <h3 className="font-display font-medium mb-2 text-sm uppercase tracking-wider text-accent">Safety Filter Active</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Explicit terms are currently being filtered. The AI will rely on suggestion, soft dominance, and playful teasing rather than explicit vocabulary to protect account health.
+              Inappropriate terms are currently being filtered. The system will rely on suggestion, soft dominance, and playful teasing to maintain a professional yet engaging presence.
             </p>
           </Card>
         </div>

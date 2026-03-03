@@ -38,11 +38,11 @@ export default function EngagementEngine() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-display font-semibold flex items-center gap-2">
               <Search className="w-5 h-5 text-accent" />
-              Live Targets
+              Influencer Feed
             </h2>
             <div className="text-sm text-muted-foreground flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-              Scanning for keywords...
+              Scanning for conversations...
             </div>
           </div>
 

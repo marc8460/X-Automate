@@ -5,7 +5,7 @@ import {
   MessageSquareHeart, 
   TrendingUp, 
   Settings,
-  Bot
+  User
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +25,7 @@ export function Sidebar() {
       <div className="h-16 flex items-center px-6 border-b border-border/50">
         <div className="flex items-center gap-3 text-primary font-display font-bold text-xl tracking-tight">
           <div className="p-1.5 rounded-lg bg-primary/10 text-primary glow-primary">
-            <Bot size={24} />
+            <User size={24} />
           </div>
           Aura
         </div>
