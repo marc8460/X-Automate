@@ -11,6 +11,11 @@ const MOCK_ENGAGEMENTS = [
   { id: 3, user: "@crypto_king", text: "Markets are bleeding today...", sentiment: "negative", suggestedReply: "Perfect time to look away from the charts and focus on building... or other things. 💅", time: "1h ago" },
 ];
 
+const MOCK_FOLLOWER_INTERACTIONS = [
+  { id: 1, user: "@new_fan_1", action: "Followed you", time: "5m ago" },
+  { id: 2, user: "@loyal_supporter", action: "Liked 3 posts", time: "1h ago" },
+];
+
 export default function EngagementEngine() {
   const [isActive, setIsActive] = useState(true);
 
@@ -45,7 +50,8 @@ export default function EngagementEngine() {
               Scanning for conversations...
             </div>
           </div>
-
+          
+          {/* ... existing feed ... */}
           <div className="space-y-4">
             {MOCK_ENGAGEMENTS.map((item, i) => (
               <motion.div
@@ -103,8 +109,27 @@ export default function EngagementEngine() {
           </div>
         </div>
 
-        {/* Settings Sidebar */}
+        {/* Sidebar info */}
         <div className="space-y-6">
+          <Card className="p-5 glass-panel bg-primary/5 border-primary/20">
+            <h3 className="font-display font-medium mb-4 text-sm uppercase tracking-wider text-primary flex items-center gap-2">
+              <Heart className="w-4 h-4" />
+              Follower Interactions
+            </h3>
+            <div className="space-y-4">
+              {MOCK_FOLLOWER_INTERACTIONS.map((interaction) => (
+                <div key={interaction.id} className="flex justify-between items-center text-xs">
+                  <div>
+                    <span className="font-medium text-foreground">{interaction.user}</span>
+                    <span className="text-muted-foreground ml-2">{interaction.action}</span>
+                  </div>
+                  <span className="text-muted-foreground/60">{interaction.time}</span>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" className="w-full text-[10px] h-7 border-dashed">Set Auto-Response</Button>
+            </div>
+          </Card>
+
           <Card className="p-5 glass-panel bg-secondary/10">
             <h3 className="font-display font-medium mb-4 text-sm uppercase tracking-wider text-muted-foreground">Target Keywords</h3>
             <div className="flex flex-wrap gap-2 mb-4">
@@ -113,9 +138,6 @@ export default function EngagementEngine() {
                   {kw}
                 </Badge>
               ))}
-              <Badge variant="outline" className="border-dashed cursor-pointer hover:bg-secondary">
-                + Add
-              </Badge>
             </div>
             
             <div className="space-y-3 mt-6 border-t border-border/50 pt-4">
@@ -123,21 +145,7 @@ export default function EngagementEngine() {
                 <span className="text-sm text-muted-foreground">Daily Cap</span>
                 <span className="font-mono text-sm">45 / 100</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Delay Range</span>
-                <span className="font-mono text-sm">2 - 15 min</span>
-              </div>
             </div>
-          </Card>
-
-          <Card className="p-5 glass-panel border-yellow-500/20 bg-yellow-500/5">
-            <h3 className="font-display font-medium mb-2 text-sm uppercase tracking-wider text-yellow-500 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" />
-              Rate Limit Protection
-            </h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              System is currently inserting artificial delays between interactions to simulate human behavior and prevent API rate limiting or shadowbans.
-            </p>
           </Card>
         </div>
       </div>

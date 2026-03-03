@@ -37,6 +37,13 @@ const StatCard = ({ title, value, change, icon: Icon, delay }: any) => (
   </motion.div>
 );
 
+const MOCK_LOGS = [
+  { id: 1, action: "Tweet Posted", detail: "can i dm youuuuu?!! 😩", time: "2m ago", status: "success" },
+  { id: 2, action: "Auto-Reply", detail: "to @techbro_99", time: "15m ago", status: "success" },
+  { id: 3, action: "Media Upload", detail: "Summer Dress (Vault #12)", time: "1h ago", status: "success" },
+  { id: 4, action: "Trend Detected", detail: "#AIArtwork (92% fit)", time: "2h ago", status: "info" },
+];
+
 export default function Dashboard() {
   return (
     <div className="space-y-8 pb-12">
@@ -61,42 +68,69 @@ export default function Dashboard() {
         <StatCard title="Retweets" value="12.4K" change="+5.4%" icon={Repeat} delay={0.4} />
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.5 }}
-        className="glass-panel p-6 rounded-xl"
-      >
-        <div className="mb-6">
-          <h2 className="text-xl font-bold font-display">Performance Metrics</h2>
-          <p className="text-sm text-muted-foreground">Engagement and follower growth over time</p>
-        </div>
-        <div className="h-[300px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorEngagement" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="colorFollowers" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                itemStyle={{ color: 'hsl(var(--foreground))' }}
-              />
-              <Area type="monotone" dataKey="engagement" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorEngagement)" />
-              <Area type="monotone" dataKey="followers" stroke="hsl(var(--accent))" strokeWidth={2} fillOpacity={1} fill="url(#colorFollowers)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </motion.div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.5 }}
+          className="lg:col-span-2 glass-panel p-6 rounded-xl"
+        >
+          <div className="mb-6">
+            <h2 className="text-xl font-bold font-display">Performance Metrics</h2>
+            <p className="text-sm text-muted-foreground">Engagement and follower growth over time</p>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorEngagement" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorFollowers" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                  itemStyle={{ color: 'hsl(var(--foreground))' }}
+                />
+                <Area type="monotone" dataKey="engagement" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorEngagement)" />
+                <Area type="monotone" dataKey="followers" stroke="hsl(var(--accent))" strokeWidth={2} fillOpacity={1} fill="url(#colorFollowers)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.4, delay: 0.6 }}
+          className="glass-panel p-6 rounded-xl space-y-6"
+        >
+          <div>
+            <h2 className="text-xl font-bold font-display">System Logs</h2>
+            <p className="text-sm text-muted-foreground">Real-time activity feed</p>
+          </div>
+          <div className="space-y-4">
+            {MOCK_LOGS.map((log) => (
+              <div key={log.id} className="flex gap-3 text-sm">
+                <div className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${log.status === 'success' ? 'bg-green-500' : 'bg-primary'}`} />
+                <div className="space-y-1">
+                  <p className="font-medium leading-none">{log.action}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-1">{log.detail}</p>
+                  <p className="text-[10px] text-muted-foreground/60">{log.time}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Button variant="ghost" className="w-full text-xs text-muted-foreground hover:text-primary">View Full Logs</Button>
+        </motion.div>
+      </div>
     </div>
   );
 }
