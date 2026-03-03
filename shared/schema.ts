@@ -9,6 +9,7 @@ export const tweets = pgTable("tweets", {
   style: text("style").notNull(),
   status: text("status").notNull().default("queued"),
   imageUrl: text("image_url"),
+  scheduledAt: text("scheduled_at"),
 });
 
 export const insertTweetSchema = createInsertSchema(tweets).omit({ id: true });

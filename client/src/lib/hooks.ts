@@ -29,6 +29,15 @@ export function useUpdateTweet() {
   });
 }
 
+export function useDeleteTweet() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/tweets/${id}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/tweets"] }),
+  });
+}
+
 export function useMediaItems() {
   return useQuery<MediaItem[]>({ queryKey: ["/api/media"] });
 }
