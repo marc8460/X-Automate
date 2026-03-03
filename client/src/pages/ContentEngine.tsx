@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import ReactDOM from "react-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -58,6 +59,9 @@ function getQuickTimes() {
 
 function SchedulePicker({ value, onChange, size = "sm" }: { value: string; onChange: (v: string) => void; size?: "sm" | "md" }) {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const quickTimes = getQuickTimes();
   const isSm = size === "sm";
 
@@ -65,9 +69,31 @@ function SchedulePicker({ value, onChange, size = "sm" }: { value: string; onCha
     ? new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
     : null;
 
+  useEffect(() => {
+    if (open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const dropH = 320;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const top = spaceBelow < dropH ? rect.top - dropH : rect.bottom + 4;
+      setPos({ top, left: rect.left });
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (btnRef.current?.contains(e.target as Node)) return;
+      if (dropRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
   return (
-    <div className="relative">
+    <>
       <button
+        ref={btnRef}
         onClick={() => setOpen(!open)}
         className={`flex items-center gap-1.5 rounded-md border border-border/50 bg-background/50 hover:border-primary/40 transition-colors ${isSm ? "px-2 py-1 text-xs" : "px-3 py-1.5 text-sm"}`}
         data-testid="button-schedule-picker"
@@ -75,8 +101,12 @@ function SchedulePicker({ value, onChange, size = "sm" }: { value: string; onCha
         <Clock className={isSm ? "w-3 h-3" : "w-4 h-4"} />
         {displayLabel || (isSm ? "Schedule" : "Set post time")}
       </button>
-      {open && (
-        <div className="absolute z-50 mt-1 left-0 w-56 bg-card border border-border/50 rounded-lg shadow-xl p-2 space-y-1 max-h-72 overflow-y-auto">
+      {open && ReactDOM.createPortal(
+        <div
+          ref={dropRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999 }}
+          className="w-56 bg-card border border-border/50 rounded-lg shadow-2xl p-2 space-y-1 max-h-80 overflow-y-auto"
+        >
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 pt-1 pb-1">Quick pick</p>
           {quickTimes.map((slot) => (
             <button
@@ -104,9 +134,10 @@ function SchedulePicker({ value, onChange, size = "sm" }: { value: string; onCha
               Clear schedule
             </button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
 
