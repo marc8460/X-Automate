@@ -55,22 +55,8 @@ export async function testTwitterConnection(): Promise<{
       throw meErr;
     }
   } catch (err: any) {
-    console.error("Twitter auth error details:", JSON.stringify({
-      message: err.message,
-      code: err.code,
-      data: err.data,
-      errors: err.errors,
-      rateLimit: err.rateLimit,
-      hasAppKey: !!process.env.TWITTER_APP_KEY,
-      appKeyLength: process.env.TWITTER_APP_KEY?.length,
-      hasAppSecret: !!process.env.TWITTER_APP_SECRET,
-      appSecretLength: process.env.TWITTER_APP_SECRET?.length,
-      hasAccessToken: !!process.env.TWITTER_ACCESS_TOKEN,
-      accessTokenLength: process.env.TWITTER_ACCESS_TOKEN?.length,
-      hasAccessSecret: !!process.env.TWITTER_ACCESS_SECRET,
-      accessSecretLength: process.env.TWITTER_ACCESS_SECRET?.length,
-    }, null, 2));
     const detail = err.data?.detail || err.data?.errors?.[0]?.message || err.message || "Failed to connect to Twitter";
+    console.error("Twitter connection error:", detail);
     return {
       connected: false,
       error: detail,
