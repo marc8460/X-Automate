@@ -1,0 +1,101 @@
+I want you to build a production-ready Twitter (X) automation system for my AI influencer brand.
+
+GOAL:
+Create a semi-autonomous content + engagement engine that:
+- Posts daily viral-optimized tweets
+- Finds trending tweets in my niche
+- Generates high-converting replies
+- Engages naturally with followers
+- Grows traffic toward my subscription platform (OnlyFans style funnel)
+- Avoids bot-like behavior and minimizes suspension risk
+
+TECH STACK:
+- Node.js (TypeScript)
+- Twitter API v2
+- OpenAI API (for text generation)
+- Supabase (database + logs)
+- Cron jobs for scheduling
+- Proxy support
+- Rate limiting protection
+- Human-like delay simulation
+
+SYSTEM ARCHITECTURE REQUIREMENTS:
+
+1. Content Engine
+- Generate 2–3 tweets daily
+- Mix of:
+  - Flirty bait tweets
+  - Question-based engagement tweets
+  - Soft promotional tweets
+  - Viral meme-style tweets
+- Tone: seductive, playful, confident, slightly dominant, not explicit
+- Avoid explicit adult terms to prevent shadowban
+- Use rotating style templates
+- Store generated tweets in database
+
+2. Engagement Engine
+- Search trending tweets based on niche keywords
+- Score tweets based on engagement velocity
+- Generate contextual replies (NOT generic spam)
+- Randomized delay (2–15 minutes)
+- Daily reply cap (configurable)
+- Avoid replying to the same account repeatedly
+- Human-like typing pattern simulation
+
+3. Follower Interaction Module
+- Detect new followers
+- Send soft engagement reply (not DM spam)
+- Like selected follower tweets naturally
+- Random engagement behavior
+
+4. Viral Trend Scanner
+- Pull trending hashtags
+- Analyze which trends match influencer persona
+- Generate 1 adaptive viral tweet daily
+
+5. Anti-Detection Layer
+- Random time windows for posting
+- Random pauses
+- Engagement caps per hour
+- Avoid duplicate sentence structures
+- Maintain language variability
+- Configurable safe-mode
+
+6. Configuration File
+Create a config file with:
+- Posting frequency
+- Reply limits
+- Keyword list
+- Persona tone sliders
+- Risk level (low / medium / aggressive)
+
+7. Database Schema
+Design Supabase tables:
+- tweets_generated
+- tweets_posted
+- engagements
+- reply_history
+- trend_logs
+- follower_log
+
+8. Logging & Monitoring
+- Log every API action
+- Track engagement metrics
+- Track which tweet styles perform best
+- Auto-adjust style weighting
+
+9. Provide:
+- Folder structure
+- Full TypeScript code
+- Setup instructions
+- Environment variable list
+- Deployment guide (VPS or Railway)
+- Instructions for safe scaling
+
+Make the system modular and expandable.
+
+Write clean, production-level code.
+Comment important sections.
+Avoid placeholders — implement real logic.
+
+Output everything structured and organized.
