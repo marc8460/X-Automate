@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   tweets, type Tweet, type InsertTweet,
@@ -9,6 +9,8 @@ import {
   activityLogs, type ActivityLog, type InsertActivityLog,
   analyticsData, type AnalyticsData, type InsertAnalyticsData,
   peakTimes, type PeakTime, type InsertPeakTime,
+  nicheProfiles, type NicheProfile, type InsertNicheProfile,
+  trendingPosts, type TrendingPost, type InsertTrendingPost,
   settings, type Setting, type InsertSetting,
 } from "@shared/schema";
 
@@ -42,6 +44,24 @@ export interface IStorage {
 
   getPeakTimes(): Promise<PeakTime[]>;
   createPeakTime(time: InsertPeakTime): Promise<PeakTime>;
+
+  getNicheProfiles(): Promise<NicheProfile[]>;
+  createNicheProfile(niche: InsertNicheProfile): Promise<NicheProfile>;
+  updateNicheProfile(id: number, data: Partial<InsertNicheProfile>): Promise<NicheProfile | undefined>;
+  deleteNicheProfile(id: number): Promise<void>;
+
+  getTrendingPosts(): Promise<TrendingPost[]>;
+  createTrendingPost(post: InsertTrendingPost): Promise<TrendingPost>;
+  deleteTrendingPost(id: number): Promise<void>;
+  deleteAllTrendingPosts(): Promise<void>;
+  getTrendingPostsFiltered(filters: {
+    nicheId?: number;
+    minLikes?: number;
+    minTrendScore?: number;
+    language?: string;
+    hoursAgo?: number;
+    sortBy?: "velocity" | "score" | "recent";
+  }): Promise<TrendingPost[]>;
 
   getSettings(): Promise<Setting[]>;
   getSetting(key: string): Promise<Setting | undefined>;
@@ -146,6 +166,79 @@ export class DatabaseStorage implements IStorage {
   async createPeakTime(time: InsertPeakTime): Promise<PeakTime> {
     const [result] = await db.insert(peakTimes).values(time).returning();
     return result;
+  }
+
+  async getNicheProfiles(): Promise<NicheProfile[]> {
+    return db.select().from(nicheProfiles);
+  }
+
+  async createNicheProfile(niche: InsertNicheProfile): Promise<NicheProfile> {
+    const [result] = await db.insert(nicheProfiles).values(niche).returning();
+    return result;
+  }
+
+  async updateNicheProfile(id: number, data: Partial<InsertNicheProfile>): Promise<NicheProfile | undefined> {
+    const [result] = await db.update(nicheProfiles).set(data).where(eq(nicheProfiles.id, id)).returning();
+    return result;
+  }
+
+  async deleteNicheProfile(id: number): Promise<void> {
+    await db.delete(nicheProfiles).where(eq(nicheProfiles.id, id));
+  }
+
+  async getTrendingPosts(): Promise<TrendingPost[]> {
+    return db.select().from(trendingPosts).orderBy(desc(trendingPosts.trendScore));
+  }
+
+  async createTrendingPost(post: InsertTrendingPost): Promise<TrendingPost> {
+    const [result] = await db.insert(trendingPosts).values(post).returning();
+    return result;
+  }
+
+  async deleteTrendingPost(id: number): Promise<void> {
+    await db.delete(trendingPosts).where(eq(trendingPosts.id, id));
+  }
+
+  async deleteAllTrendingPosts(): Promise<void> {
+    await db.delete(trendingPosts);
+  }
+
+  async getTrendingPostsFiltered(filters: {
+    nicheId?: number;
+    minLikes?: number;
+    minTrendScore?: number;
+    language?: string;
+    hoursAgo?: number;
+    sortBy?: "velocity" | "score" | "recent";
+  }): Promise<TrendingPost[]> {
+    const conditions = [];
+
+    if (filters.nicheId) {
+      conditions.push(eq(trendingPosts.nicheId, filters.nicheId));
+    }
+    if (filters.minLikes) {
+      conditions.push(gte(trendingPosts.likes, filters.minLikes));
+    }
+    if (filters.minTrendScore) {
+      conditions.push(gte(trendingPosts.trendScore, filters.minTrendScore));
+    }
+    if (filters.language) {
+      conditions.push(eq(trendingPosts.language, filters.language));
+    }
+    if (filters.hoursAgo) {
+      const cutoff = new Date(Date.now() - filters.hoursAgo * 60 * 60 * 1000).toISOString();
+      conditions.push(gte(trendingPosts.discoveredAt, cutoff));
+    }
+
+    const orderCol = filters.sortBy === "recent"
+      ? desc(trendingPosts.discoveredAt)
+      : desc(trendingPosts.trendScore);
+
+    const query = conditions.length > 0
+      ? db.select().from(trendingPosts).where(and(...conditions)).orderBy(orderCol)
+      : db.select().from(trendingPosts).orderBy(orderCol);
+
+    return query;
   }
 
   async getSettings(): Promise<Setting[]> {

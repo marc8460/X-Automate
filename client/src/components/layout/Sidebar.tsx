@@ -6,7 +6,8 @@ import {
   Settings,
   User,
   Image,
-  Flame
+  Flame,
+  Radar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,7 @@ const navItems = [
   { href: "/content", label: "Content Engine", icon: PenTool },
   { href: "/engagement", label: "Engagement", icon: MessageSquareHeart },
   { href: "/viral", label: "Viral Engine", icon: Flame },
+  { href: "/scanner", label: "Trend Scanner", icon: Radar },
   { href: "/settings", label: "Configuration", icon: Settings },
 ];
 

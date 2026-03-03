@@ -3,6 +3,7 @@ import { queryClient, apiRequest } from "./queryClient";
 import type {
   Tweet, MediaItem, Engagement, FollowerInteraction,
   Trend, ActivityLog, AnalyticsData, PeakTime, Setting,
+  NicheProfile, TrendingPost,
 } from "@shared/schema";
 
 export function useTweets() {
@@ -154,24 +155,47 @@ export function useTestTwitterConnection() {
   });
 }
 
-export function useTrendingTopics(geo: string = "US") {
+export type TrendTopic = {
+  id: number;
+  title: string;
+  traffic: string;
+  trafficNumber: number;
+  growthPercent: string;
+  status: string;
+  startedAgo: string;
+  startedAgoMinutes: number;
+  relatedQueries: string[];
+  articles: Array<{ title: string; url: string; source: string }>;
+  searchQuery: string;
+  category?: string;
+};
+
+export type TrendsFilters = {
+  geo: string;
+  category: string;
+  timeWindow: string;
+  sortBy: string;
+};
+
+export function useTrendingTopics(filters: TrendsFilters) {
   return useQuery<{
-    topics: Array<{
-      id: number;
-      title: string;
-      traffic: string;
-      relatedQueries: string[];
-      articles: Array<{ title: string; url: string; source: string; snippet: string }>;
-      image: string | null;
-      searchQuery: string;
-    }>;
+    topics: TrendTopic[];
     geo: string;
+    category: string;
+    timeWindow: string;
+    sortBy: string;
     source?: string;
     fetchedAt: string;
   }>({
-    queryKey: ["/api/trending-topics", geo],
+    queryKey: ["/api/trending-topics", filters],
     queryFn: async () => {
-      const res = await fetch(`/api/trending-topics?geo=${geo}`);
+      const params = new URLSearchParams({
+        geo: filters.geo,
+        category: filters.category,
+        timeWindow: filters.timeWindow,
+        sortBy: filters.sortBy,
+      });
+      const res = await fetch(`/api/trending-topics?${params}`);
       if (!res.ok) throw new Error("Failed to fetch trends");
       return res.json();
     },
@@ -212,6 +236,88 @@ export function useScanScreenshot() {
       }
       return res.json();
     },
+  });
+}
+
+export function useNicheProfiles() {
+  return useQuery<NicheProfile[]>({ queryKey: ["/api/niches"] });
+}
+
+export function useCreateNiche() {
+  return useMutation({
+    mutationFn: async (data: { name: string; keywords: string; source?: string }) => {
+      const res = await apiRequest("POST", "/api/niches", data);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
+  });
+}
+
+export function useDeleteNiche() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/niches/${id}`);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
+  });
+}
+
+export function useAutoDetectNiches() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/niches/auto-detect");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/niches"] }),
+  });
+}
+
+export type TrendingPostFilters = {
+  nicheId?: number;
+  minLikes?: number;
+  minScore?: number;
+  lang?: string;
+  hours?: number;
+  sort?: string;
+};
+
+export function useTrendingPosts(filters: TrendingPostFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.nicheId) params.set("nicheId", String(filters.nicheId));
+  if (filters.minLikes) params.set("minLikes", String(filters.minLikes));
+  if (filters.minScore) params.set("minScore", String(filters.minScore));
+  if (filters.lang) params.set("lang", filters.lang);
+  if (filters.hours) params.set("hours", String(filters.hours));
+  if (filters.sort) params.set("sort", filters.sort);
+
+  return useQuery<TrendingPost[]>({
+    queryKey: ["/api/trending-posts", filters],
+    queryFn: async () => {
+      const res = await fetch(`/api/trending-posts?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch trending posts");
+      return res.json();
+    },
+  });
+}
+
+export function useDiscoverTrendingPosts() {
+  return useMutation({
+    mutationFn: async (data: { nicheId?: number; language?: string; minFaves?: number; hoursBack?: number }) => {
+      const res = await apiRequest("POST", "/api/trending-posts/discover", data);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
+  });
+}
+
+export function useClearTrendingPosts() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/trending-posts");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trending-posts"] }),
   });
 }
 

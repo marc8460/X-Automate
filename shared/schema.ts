@@ -101,6 +101,41 @@ export const insertPeakTimeSchema = createInsertSchema(peakTimes).omit({ id: tru
 export type InsertPeakTime = z.infer<typeof insertPeakTimeSchema>;
 export type PeakTime = typeof peakTimes.$inferSelect;
 
+export const nicheProfiles = pgTable("niche_profiles", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  keywords: text("keywords").notNull(),
+  isActive: integer("is_active").notNull().default(1),
+  source: text("source").notNull().default("manual"),
+});
+
+export const insertNicheProfileSchema = createInsertSchema(nicheProfiles).omit({ id: true });
+export type InsertNicheProfile = z.infer<typeof insertNicheProfileSchema>;
+export type NicheProfile = typeof nicheProfiles.$inferSelect;
+
+export const trendingPosts = pgTable("trending_posts", {
+  id: serial("id").primaryKey(),
+  tweetId: text("tweet_id").notNull(),
+  authorHandle: text("author_handle").notNull(),
+  authorFollowers: integer("author_followers"),
+  text: text("text").notNull(),
+  likes: integer("likes").notNull().default(0),
+  replies: integer("replies").notNull().default(0),
+  retweets: integer("retweets").notNull().default(0),
+  views: integer("views"),
+  trendScore: integer("trend_score").notNull().default(0),
+  velocityLabel: text("velocity_label").notNull().default("rising"),
+  nicheId: integer("niche_id"),
+  discoveredAt: text("discovered_at").notNull(),
+  language: text("language"),
+  postAge: integer("post_age"),
+  nicheMatchScore: integer("niche_match_score"),
+});
+
+export const insertTrendingPostSchema = createInsertSchema(trendingPosts).omit({ id: true });
+export type InsertTrendingPost = z.infer<typeof insertTrendingPostSchema>;
+export type TrendingPost = typeof trendingPosts.$inferSelect;
+
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
   key: text("key").notNull().unique(),

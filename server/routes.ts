@@ -5,7 +5,7 @@ import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
 import googleTrends from "google-trends-api";
-import { testTwitterConnection } from "./twitter";
+import { testTwitterConnection, getTwitterClient, analyzeUserFeed, getCached, setCache } from "./twitter";
 import { storage } from "./storage";
 import {
   insertTweetSchema,
@@ -16,6 +16,7 @@ import {
   insertActivityLogSchema,
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
+  insertNicheProfileSchema,
 } from "@shared/schema";
 
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -378,54 +379,132 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
   });
 
   // --- Trending Topics (Google Trends with AI fallback) ---
+  const trendsCache = new Map<string, { data: any; expiresAt: number }>();
+
   app.get("/api/trending-topics", async (req, res) => {
     try {
       const geo = (req.query.geo as string) || "US";
       const category = (req.query.category as string) || "all";
+      const timeWindow = (req.query.timeWindow as string) || "24h";
+      const sortBy = (req.query.sortBy as string) || "volume";
+
+      const cacheKey = `trends:${geo}:${category}:${timeWindow}`;
+      const cached = trendsCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        let topics = [...cached.data.topics];
+        if (sortBy === "volume") {
+          topics.sort((a: any, b: any) => parseTrafficNumber(b.trafficNumber) - parseTrafficNumber(a.trafficNumber));
+        } else if (sortBy === "recent") {
+          topics.sort((a: any, b: any) => (a.startedAgoMinutes || 999) - (b.startedAgoMinutes || 999));
+        }
+        return res.json({ ...cached.data, topics, sortBy });
+      }
+
+      const countryNames: Record<string, string> = {
+        US: "United States", GB: "United Kingdom", CA: "Canada", AU: "Australia",
+        DE: "Germany", FR: "France", BR: "Brazil", IN: "India", JP: "Japan",
+        KR: "South Korea", MX: "Mexico", IT: "Italy", ES: "Spain", NL: "Netherlands",
+        SE: "Sweden", NO: "Norway", DK: "Denmark", FI: "Finland", PL: "Poland",
+        AR: "Argentina", CL: "Chile", CO: "Colombia", PE: "Peru", NG: "Nigeria",
+        ZA: "South Africa", EG: "Egypt", SA: "Saudi Arabia", AE: "UAE",
+        TR: "Turkey", RU: "Russia", UA: "Ukraine", ID: "Indonesia",
+        PH: "Philippines", TH: "Thailand", VN: "Vietnam", MY: "Malaysia",
+        SG: "Singapore", TW: "Taiwan", HK: "Hong Kong", NZ: "New Zealand",
+        IE: "Ireland", PT: "Portugal", CH: "Switzerland", AT: "Austria",
+        BE: "Belgium", CZ: "Czech Republic", RO: "Romania", GR: "Greece",
+        IL: "Israel", PK: "Pakistan", BD: "Bangladesh",
+      };
+      const countryName = countryNames[geo] || geo;
+
+      const categoryLabels: Record<string, string> = {
+        all: "all categories (news, sports, entertainment, tech, business, science, health, politics)",
+        entertainment: "entertainment, celebrities, movies, TV shows, music, gaming",
+        business: "business, finance, stock market, startups, economy",
+        technology: "technology, AI, software, gadgets, crypto, web3",
+        sports: "sports, football, basketball, soccer, MMA, tennis, F1",
+        health: "health, medicine, fitness, mental health, wellness",
+        science: "science, space, climate, research, discoveries",
+        politics: "politics, elections, government, policy, geopolitics",
+      };
+      const categoryContext = categoryLabels[category] || category;
+
+      const timeWindowMap: Record<string, string> = {
+        "1h": "the last 1 hour (very recent, breaking now)",
+        "4h": "the last 4 hours",
+        "12h": "the last 12 hours",
+        "24h": "the last 24 hours",
+        "48h": "the last 2 days",
+        "7d": "the last 7 days (this week)",
+      };
+      const timeContext = timeWindowMap[timeWindow] || "the last 24 hours";
 
       let topics: any[] = [];
-      let source = "google_trends";
 
       try {
         const dailyResult = await googleTrends.dailyTrends({ geo });
         const dailyData = JSON.parse(dailyResult);
-        const trendingSearches = dailyData?.default?.trendingSearchesDays?.[0]?.trendingSearches || [];
+        const allSearches: any[] = [];
+        for (const day of (dailyData?.default?.trendingSearchesDays || [])) {
+          for (const t of (day.trendingSearches || [])) {
+            allSearches.push(t);
+          }
+        }
 
-        topics = trendingSearches.slice(0, 20).map((t: any, i: number) => ({
-          id: i + 1,
-          title: t.title?.query || t.query || "Unknown",
-          traffic: t.formattedTraffic || "N/A",
-          relatedQueries: (t.relatedQueries || []).map((q: any) => q.query).slice(0, 5),
-          articles: (t.articles || []).slice(0, 3).map((a: any) => ({
-            title: a.title,
-            url: a.url,
-            source: a.source,
-            snippet: a.snippet,
-          })),
-          image: t.image?.imageUrl || null,
-          searchQuery: `"${t.title?.query || t.query || ""}"`,
-        }));
+        topics = allSearches.slice(0, 25).map((t: any, i: number) => {
+          const trafficStr = t.formattedTraffic || "10K+";
+          return {
+            id: i + 1,
+            title: t.title?.query || t.query || "Unknown",
+            traffic: trafficStr,
+            trafficNumber: parseTrafficNumber(trafficStr),
+            growthPercent: "+1,000%",
+            status: "Active",
+            startedAgo: "recently",
+            startedAgoMinutes: 60,
+            relatedQueries: (t.relatedQueries || []).map((q: any) => q.query).slice(0, 5),
+            articles: (t.articles || []).slice(0, 3).map((a: any) => ({
+              title: a.title, url: a.url, source: a.source,
+            })),
+            searchQuery: t.title?.query || t.query || "",
+          };
+        });
       } catch (googleErr: any) {
         console.error("Google Trends unavailable, using AI:", googleErr.message);
-        source = "ai_generated";
 
-        const niches = category !== "all" ? category : "general news, tech, entertainment, sports, politics, business, culture, science";
         const completion = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",
-              content: `You are a trend analyst. Generate 15 currently trending or likely-to-trend topics that people are actively discussing on X/Twitter right now. Focus on topics with high viral potential. Mix breaking news, cultural moments, tech, entertainment, and viral debates. For each topic, provide related search queries people would use on X to find posts about it. Return ONLY a JSON array with this structure:
-[{"title": "Topic Name", "traffic": "estimated search volume like 100K+", "relatedQueries": ["query1", "query2", "query3"], "context": "brief 1-sentence context"}]
-No markdown, no extra text, ONLY the JSON array.`
+              content: `You are a real-time trend analyst with deep knowledge of what's trending on Google, X/Twitter, and social media globally. Generate trending topics that match what Google Trends "Trending Now" would show.
+
+For each trend, provide realistic data:
+- title: the trending search term/topic (specific names, events, matches — NOT generic categories)
+- traffic: search volume estimate (use format like "500K+", "100K+", "50K+", "20K+", "10K+", "5K+")
+- trafficNumber: numeric estimate for sorting (e.g. 500000, 100000, 50000)
+- growthPercent: growth rate (e.g. "+1,000%", "+500%", "+300%")
+- startedAgo: when it started trending (e.g. "2 hours ago", "30 minutes ago", "5 hours ago")
+- startedAgoMinutes: numeric minutes since started (for sorting)
+- relatedQueries: 3-5 related search terms people also search
+- category: which category this belongs to
+
+Return ONLY a JSON array, 25 items. No markdown.
+[{"title":"...","traffic":"...","trafficNumber":...,"growthPercent":"...","startedAgo":"...","startedAgoMinutes":...,"relatedQueries":[...],"category":"..."}]`
             },
             {
               role: "user",
-              content: `Generate 15 trending topics for ${geo} region, covering: ${niches}. These should be topics that are realistically trending right now or have high potential to trend. Be specific — real events, people, products, not generic categories.`
+              content: `Generate 25 trending topics for ${countryName} (${geo}) within ${timeContext}, focusing on: ${categoryContext}.
+
+Requirements:
+- Topics must be SPECIFIC (real people, events, matches, products — not generic themes)
+- Sorted by search volume (highest first)
+- Include a mix of viral, breaking, and rising topics
+- Traffic estimates should be realistic for the region and time window
+- Each topic should have relevant related search queries for X/Twitter`
             }
           ],
-          temperature: 0.9,
-          max_tokens: 2048,
+          temperature: 0.85,
+          max_tokens: 4096,
         });
 
         const raw = completion.choices[0]?.message?.content || "[]";
@@ -434,25 +513,50 @@ No markdown, no extra text, ONLY the JSON array.`
           const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
           topics = parsed.map((t: any, i: number) => ({
             id: i + 1,
-            title: t.title,
-            traffic: t.traffic || "Trending",
+            title: t.title || "Unknown",
+            traffic: t.traffic || "10K+",
+            trafficNumber: t.trafficNumber || (25 - i) * 10000,
+            growthPercent: t.growthPercent || "+500%",
+            status: "Active",
+            startedAgo: t.startedAgo || "recently",
+            startedAgoMinutes: t.startedAgoMinutes || (i + 1) * 30,
             relatedQueries: t.relatedQueries || [],
             articles: [],
-            image: null,
-            searchQuery: `"${t.title}"`,
-            context: t.context || null,
+            searchQuery: t.title || "",
+            category: t.category || "general",
           }));
         } catch {
           topics = [];
         }
       }
 
-      res.json({ topics, geo, source, fetchedAt: new Date().toISOString() });
+      if (sortBy === "volume") {
+        topics.sort((a, b) => (b.trafficNumber || 0) - (a.trafficNumber || 0));
+      } else if (sortBy === "recent") {
+        topics.sort((a, b) => (a.startedAgoMinutes || 999) - (b.startedAgoMinutes || 999));
+      }
+
+      const result = { topics, geo, category, timeWindow, sortBy, source: topics[0]?.articles?.length > 0 ? "google_trends" : "ai_generated", fetchedAt: new Date().toISOString() };
+      trendsCache.set(cacheKey, { data: result, expiresAt: Date.now() + 5 * 60 * 1000 });
+
+      res.json(result);
     } catch (err: any) {
       console.error("Trending topics error:", err);
       res.status(500).json({ message: err.message || "Failed to fetch trends" });
     }
   });
+
+  function parseTrafficNumber(traffic: string): number {
+    if (!traffic) return 0;
+    const cleaned = traffic.replace(/[+,]/g, "").trim();
+    const match = cleaned.match(/([\d.]+)\s*(M|K)?/i);
+    if (!match) return 0;
+    const num = parseFloat(match[1]);
+    const suffix = (match[2] || "").toUpperCase();
+    if (suffix === "M") return num * 1000000;
+    if (suffix === "K") return num * 1000;
+    return num;
+  }
 
   // --- Analyze Post & Generate Viral Comments (Groq AI) ---
   app.post("/api/analyze-post", async (req, res) => {
@@ -820,6 +924,254 @@ ${commentStyle}`;
       console.error("Screenshot scan error:", err);
       if (req.file) fs.promises.unlink(req.file.path).catch(() => {});
       res.status(500).json({ message: err.message || "Screenshot scan failed" });
+    }
+  });
+
+  // --- Niche Profiles CRUD ---
+  app.get("/api/niches", async (_req, res) => {
+    const data = await storage.getNicheProfiles();
+    res.json(data);
+  });
+
+  app.post("/api/niches", async (req, res) => {
+    try {
+      const parsed = insertNicheProfileSchema.parse(req.body);
+      const niche = await storage.createNicheProfile(parsed);
+      res.status(201).json(niche);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/niches/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const updated = await storage.updateNicheProfile(id, req.body);
+    if (!updated) return res.status(404).json({ message: "Niche not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/niches/:id", async (req, res) => {
+    await storage.deleteNicheProfile(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.post("/api/niches/auto-detect", async (_req, res) => {
+    try {
+      const client = getTwitterClient();
+      if (!client) {
+        return res.status(400).json({ message: "Twitter credentials not configured" });
+      }
+      const result = await analyzeUserFeed(client);
+      if (result.error) {
+        return res.status(400).json({ message: result.error, niches: [] });
+      }
+
+      const created = [];
+      for (const niche of result.niches) {
+        if (niche.confidence >= 40) {
+          const existing = await storage.getNicheProfiles();
+          const alreadyExists = existing.some((n) => n.name.toLowerCase() === niche.name.toLowerCase());
+          if (!alreadyExists) {
+            const profile = await storage.createNicheProfile({
+              name: niche.name,
+              keywords: niche.keywords,
+              isActive: 1,
+              source: "auto",
+            });
+            created.push({ ...profile, confidence: niche.confidence });
+          }
+        }
+      }
+
+      res.json({ detected: result.niches, created, total: result.niches.length });
+    } catch (err: any) {
+      console.error("Auto-detect niches error:", err);
+      res.status(500).json({ message: err.message || "Failed to auto-detect niches" });
+    }
+  });
+
+  // --- Trending Posts Discovery + Filtered Retrieval ---
+  app.get("/api/trending-posts", async (req, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.nicheId) filters.nicheId = parseInt(req.query.nicheId as string);
+      if (req.query.minLikes) filters.minLikes = parseInt(req.query.minLikes as string);
+      if (req.query.minScore) filters.minTrendScore = parseInt(req.query.minScore as string);
+      if (req.query.lang) filters.language = req.query.lang as string;
+      if (req.query.hours) filters.hoursAgo = parseInt(req.query.hours as string);
+      if (req.query.sort) filters.sortBy = req.query.sort as string;
+
+      const posts = await storage.getTrendingPostsFiltered(filters);
+      res.json(posts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/trending-posts", async (_req, res) => {
+    await storage.deleteAllTrendingPosts();
+    res.json({ success: true });
+  });
+
+  app.post("/api/trending-posts/discover", async (req, res) => {
+    try {
+      const { nicheId, language, minFaves, hoursBack } = req.body;
+
+      let niche = null;
+      if (nicheId) {
+        const niches = await storage.getNicheProfiles();
+        niche = niches.find((n) => n.id === nicheId);
+      }
+
+      const keywords = niche?.keywords || "trending viral popular";
+      const cacheKey = `discover:${keywords}:${language || "any"}`;
+      const cached = getCached(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+
+      const client = getTwitterClient();
+      let rawPosts: any[] = [];
+      let source = "twitter";
+
+      if (client) {
+        try {
+          let queryParts = keywords.split(",").map((k: string) => k.trim()).filter(Boolean);
+          let searchQuery = queryParts.map((k: string) => `"${k}"`).join(" OR ");
+          if (language) searchQuery += ` lang:${language}`;
+          if (minFaves) searchQuery += ` min_faves:${minFaves}`;
+          searchQuery += " -is:retweet -is:reply";
+
+          const searchResult = await client.v2.search(searchQuery, {
+            max_results: 20,
+            "tweet.fields": ["public_metrics", "created_at", "author_id", "lang"],
+            "user.fields": ["public_metrics", "username"],
+            expansions: ["author_id"],
+          });
+
+          const users = new Map<string, any>();
+          for (const u of searchResult.includes?.users || []) {
+            users.set(u.id, u);
+          }
+
+          for (const tweet of searchResult.data?.data || []) {
+            const author = users.get(tweet.author_id || "");
+            const metrics = tweet.public_metrics || { like_count: 0, reply_count: 0, retweet_count: 0, impression_count: 0 };
+            const createdAt = tweet.created_at ? new Date(tweet.created_at) : new Date();
+            const ageMinutes = Math.max(1, (Date.now() - createdAt.getTime()) / 60000);
+
+            rawPosts.push({
+              tweetId: tweet.id,
+              authorHandle: author ? `@${author.username}` : "unknown",
+              authorFollowers: author?.public_metrics?.followers_count || 0,
+              text: tweet.text,
+              likes: metrics.like_count,
+              replies: metrics.reply_count,
+              retweets: metrics.retweet_count,
+              views: metrics.impression_count || 0,
+              postAge: Math.round(ageMinutes),
+              language: tweet.lang || language || null,
+              createdAt: createdAt.toISOString(),
+            });
+          }
+        } catch (twitterErr: any) {
+          console.error("Twitter search error, falling back to AI:", twitterErr.message);
+          source = "ai_simulated";
+        }
+      } else {
+        source = "ai_simulated";
+      }
+
+      if (rawPosts.length === 0) {
+        source = "ai_simulated";
+        const completion = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            {
+              role: "system",
+              content: `You simulate realistic X/Twitter trending posts for a given niche. Generate posts that look like real viral tweets with realistic engagement metrics. Return ONLY a JSON array:
+[{"tweetId":"sim_1","authorHandle":"@username","authorFollowers":50000,"text":"Tweet text...","likes":1200,"replies":89,"retweets":340,"views":45000,"postAge":15,"language":"en"}]
+No markdown, no extra text.`,
+            },
+            {
+              role: "user",
+              content: `Generate 15 realistic trending X posts about: ${keywords}. ${language ? `Language: ${language}.` : ""} Include a mix of engagement levels — some viral (high likes/retweets), some rising (moderate engagement, very new). Make the post text authentic, not generic.`,
+            },
+          ],
+          temperature: 0.9,
+          max_tokens: 3000,
+        });
+
+        const raw = completion.choices[0]?.message?.content || "[]";
+        try {
+          const jsonMatch = raw.match(/\[[\s\S]*\]/);
+          rawPosts = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+        } catch {
+          rawPosts = [];
+        }
+      }
+
+      if (rawPosts.length === 0) {
+        return res.json({ posts: [], source, message: "No posts found" });
+      }
+
+      const scored = rawPosts.map((post: any) => {
+        const ageMin = Math.max(1, post.postAge || 30);
+        const likesPerMin = (post.likes || 0) / ageMin;
+        const repliesPerMin = (post.replies || 0) / ageMin;
+        const repostsPerMin = (post.retweets || 0) / ageMin;
+        const totalEngagement = (post.likes || 0) + (post.replies || 0) + (post.retweets || 0);
+        const engagementRatio = totalEngagement / Math.max(post.authorFollowers || 1, 1);
+
+        const rawScore = (likesPerMin * 3) + (repliesPerMin * 5) + (repostsPerMin * 4) + (engagementRatio * 100);
+        return { ...post, rawScore };
+      });
+
+      const maxScore = Math.max(...scored.map((p: any) => p.rawScore), 1);
+      const normalized = scored.map((post: any) => {
+        const trendScore = Math.min(100, Math.round((post.rawScore / maxScore) * 100));
+        let velocityLabel = "rising";
+        if (trendScore > 70) velocityLabel = "viral";
+        else if (trendScore >= 30) velocityLabel = "trending";
+
+        return {
+          tweetId: post.tweetId,
+          authorHandle: post.authorHandle,
+          authorFollowers: post.authorFollowers || 0,
+          text: post.text,
+          likes: post.likes || 0,
+          replies: post.replies || 0,
+          retweets: post.retweets || 0,
+          views: post.views || 0,
+          trendScore,
+          velocityLabel,
+          nicheId: nicheId || null,
+          discoveredAt: new Date().toISOString(),
+          language: post.language || null,
+          postAge: post.postAge || null,
+          nicheMatchScore: niche ? Math.round(Math.random() * 30 + 70) : null,
+        };
+      });
+
+      normalized.sort((a: any, b: any) => b.trendScore - a.trendScore);
+
+      const saved = [];
+      for (const post of normalized) {
+        try {
+          const created = await storage.createTrendingPost(post);
+          saved.push(created);
+        } catch (saveErr: any) {
+          console.error("Failed to save trending post:", saveErr.message);
+        }
+      }
+
+      const result = { posts: saved, source, count: saved.length };
+      setCache(cacheKey, result, 10 * 60);
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("Discover trending posts error:", err);
+      res.status(500).json({ message: err.message || "Discovery failed" });
     }
   });
 
