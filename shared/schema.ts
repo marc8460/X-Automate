@@ -128,6 +128,7 @@ export const trendingPosts = pgTable("trending_posts", {
   views: integer("views").default(0),
   trendScore: integer("trend_score").notNull().default(0),
   status: text("status").notNull().default("rising"),
+  source: text("source").default("live"),
   discoveredAt: text("discovered_at").notNull(),
   engagementVelocity: integer("engagement_velocity").notNull().default(0),
   language: text("language"),

@@ -508,19 +508,34 @@ export default function TrendScanner() {
                 </div>
               </Card>
             ) : (
-              sortedPosts.map((post) => (
-                <Card key={post.id} className="overflow-hidden glass-panel border-border/40 hover:border-primary/20 transition-all" data-testid={`card-trending-post-${post.id}`}>
+              sortedPosts.map((post) => {
+                const handle = post.authorHandle.startsWith("@") ? post.authorHandle : `@${post.authorHandle}`;
+                const isSimulated = post.source === "simulated" || !post.tweetId;
+                return (
+                <Card key={post.id} className={`overflow-hidden glass-panel border-border/40 hover:border-primary/20 transition-all ${isSimulated ? 'border-l-2 border-l-amber-500/40' : ''}`} data-testid={`card-trending-post-${post.id}`}>
+                  {isSimulated && (
+                    <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-1.5 flex items-center gap-2" data-testid={`banner-simulated-${post.id}`}>
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-[11px] text-amber-400 font-medium">AI Simulated — not a real post. Upgrade to Twitter API Basic ($100/mo) for real data.</span>
+                    </div>
+                  )}
                   <div className="p-6">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center font-bold text-primary">
-                          {post.authorHandle.substring(0, 1).toUpperCase()}
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${isSimulated ? 'bg-amber-500/10 text-amber-400' : 'bg-secondary text-primary'}`}>
+                          {handle.substring(1, 2).toUpperCase()}
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-foreground" data-testid={`text-post-author-${post.id}`}>@{post.authorHandle}</span>
+                            <span className="font-bold text-foreground" data-testid={`text-post-author-${post.id}`}>{handle}</span>
+                            {isSimulated && (
+                              <Badge className="text-[9px] bg-amber-500/15 text-amber-400 border-amber-500/25" data-testid={`badge-simulated-${post.id}`}>
+                                <Sparkles className="w-2.5 h-2.5 mr-1" />
+                                Simulated
+                              </Badge>
+                            )}
                             <Badge variant="outline" className="text-[10px] bg-background/50" data-testid={`text-post-followers-${post.id}`}>
-                              {post.authorFollowers.toLocaleString()} followers
+                              {formatNumber(post.authorFollowers)} followers
                             </Badge>
                             {post.postAge && (
                               <span className="text-[10px] text-muted-foreground flex items-center gap-1" data-testid={`text-post-age-${post.id}`}>
@@ -801,7 +816,7 @@ export default function TrendScanner() {
                     )}
                   </AnimatePresence>
                 </Card>
-              ))
+              );})
             )}
           </div>
         </div>
