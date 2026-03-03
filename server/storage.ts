@@ -64,6 +64,7 @@ export interface IStorage {
   getTrendingPostsByNiche(nicheId: number): Promise<TrendingPost[]>;
   getTrendingPostsFiltered(filters: TrendingPostFilters): Promise<TrendingPost[]>;
   getTrendingPost(id: number): Promise<TrendingPost | undefined>;
+  getTrendingPostByTweetId(tweetId: string): Promise<TrendingPost | undefined>;
   createTrendingPost(post: InsertTrendingPost): Promise<TrendingPost>;
   deleteTrendingPost(id: number): Promise<void>;
 
@@ -261,6 +262,11 @@ export class DatabaseStorage implements IStorage {
 
   async getTrendingPost(id: number): Promise<TrendingPost | undefined> {
     const [result] = await db.select().from(trendingPosts).where(eq(trendingPosts.id, id));
+    return result;
+  }
+
+  async getTrendingPostByTweetId(tweetId: string): Promise<TrendingPost | undefined> {
+    const [result] = await db.select().from(trendingPosts).where(eq(trendingPosts.tweetId, tweetId));
     return result;
   }
 

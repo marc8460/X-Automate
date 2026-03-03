@@ -67,6 +67,7 @@ uploads/          - User-uploaded media files (served statically)
   - POST: /api/niches/auto-detect (feed analysis + AI fallback for niche detection)
   - GET: /api/trending-posts (with filters: ?nicheId, ?minLikes, ?minScore, ?lang, ?hours, ?sort)
   - POST: /api/trending-posts/discover (accepts { nicheId, language?, minFaves? }; real Twitter search with fallback to AI)
+  - POST: /api/trending-posts/import (n8n webhook: accepts { posts: [...], nicheId? }; flexible field mapping, dedup by tweetId)
   - POST: /api/trending-posts/:id/generate-comments (AI comment suggestions with vision analysis)
   - DELETE: /api/trending-posts/:id
   - PATCH: /api/comments/:id (approve/reject/edit)
@@ -101,3 +102,4 @@ App.tsx includes a `SeedOnMount` component that calls POST /api/seed on first lo
 - Real Twitter replies when connected, DB-only when in demo
 - Anti-bot behavior limits: daily cap, hourly limit, cooldown, enforced on every post attempt
 - In-memory API cache (Map with TTL) to reduce redundant Twitter API calls
+- **n8n Integration**: `POST /api/trending-posts/import` webhook accepts scraped tweets from n8n workflows. Flexible field mapping (supports twitter_api_v2, v1.1, and custom field names). Deduplicates by tweetId. Posts tagged with `source: "n8n"` and shown with green badge in UI.

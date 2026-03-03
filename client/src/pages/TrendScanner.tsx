@@ -510,7 +510,7 @@ export default function TrendScanner() {
             ) : (
               sortedPosts.map((post) => {
                 const handle = post.authorHandle.startsWith("@") ? post.authorHandle : `@${post.authorHandle}`;
-                const isSimulated = post.source === "simulated" || !post.tweetId;
+                const isSimulated = post.source === "simulated" && !post.tweetId;
                 return (
                 <Card key={post.id} className={`overflow-hidden glass-panel border-border/40 hover:border-primary/20 transition-all ${isSimulated ? 'border-l-2 border-l-amber-500/40' : ''}`} data-testid={`card-trending-post-${post.id}`}>
                   {isSimulated && (
@@ -528,10 +528,15 @@ export default function TrendScanner() {
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-foreground" data-testid={`text-post-author-${post.id}`}>{handle}</span>
-                            {isSimulated && (
+                            {isSimulated ? (
                               <Badge className="text-[9px] bg-amber-500/15 text-amber-400 border-amber-500/25" data-testid={`badge-simulated-${post.id}`}>
                                 <Sparkles className="w-2.5 h-2.5 mr-1" />
                                 Simulated
+                              </Badge>
+                            ) : (
+                              <Badge className="text-[9px] bg-emerald-500/15 text-emerald-400 border-emerald-500/25" data-testid={`badge-live-${post.id}`}>
+                                <CheckCircle2 className="w-2.5 h-2.5 mr-1" />
+                                {post.source === "n8n" ? "n8n" : "Live"}
                               </Badge>
                             )}
                             <Badge variant="outline" className="text-[10px] bg-background/50" data-testid={`text-post-followers-${post.id}`}>

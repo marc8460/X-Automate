@@ -468,6 +468,86 @@ Return ONLY a JSON array wrapped in a "posts" key. No explanation.`;
     }
   });
 
+  app.post("/api/trending-posts/import", async (req, res) => {
+    try {
+      const { posts, nicheId } = req.body;
+      if (!Array.isArray(posts) || posts.length === 0) {
+        return res.status(400).json({ message: "Expected an array of posts" });
+      }
+
+      const allNiches = await storage.getNicheProfiles();
+      const niche = nicheId ? allNiches.find(n => n.id === nicheId) : null;
+      const targetNicheId = niche?.id || nicheId || 0;
+
+      const imported = [];
+      const now = new Date();
+
+      const maxRawScore = Math.max(...posts.map((p: any) => {
+        const ageMin = Math.max(1, p.postAge || p.post_age || 60);
+        const likes = p.likes || p.favorite_count || p.like_count || 0;
+        const replies = p.replies || p.reply_count || 0;
+        const retweets = p.retweets || p.retweet_count || 0;
+        const followers = p.authorFollowers || p.author_followers || p.followers_count || 1;
+        const total = likes + replies + retweets;
+        return (likes / ageMin * 3) + (replies / ageMin * 5) + (retweets / ageMin * 4) + (total / Math.max(followers, 1) * 100);
+      }), 1);
+
+      for (const p of posts) {
+        const handle = p.authorHandle || p.author_handle || p.username || p.screen_name || p.user?.screen_name || "@unknown";
+        const tweetId = p.tweetId || p.tweet_id || p.id_str || p.id?.toString() || null;
+        const likes = p.likes || p.favorite_count || p.like_count || 0;
+        const replies = p.replies || p.reply_count || 0;
+        const retweets = p.retweets || p.retweet_count || 0;
+        const views = p.views || p.impression_count || p.impressions || 0;
+        const followers = p.authorFollowers || p.author_followers || p.followers_count || p.user?.followers_count || 0;
+        const text = p.postText || p.post_text || p.text || p.full_text || "";
+        const ageMin = Math.max(1, p.postAge || p.post_age || 60);
+        const total = likes + replies + retweets;
+
+        const url = p.postUrl || p.post_url || p.url || (tweetId ? `https://x.com/i/status/${tweetId}` : "");
+        const imageUrl = p.postImageUrl || p.post_image_url || p.image_url || p.media_url || null;
+        const lang = p.language || p.lang || "en";
+
+        const rawScore = (likes / ageMin * 3) + (replies / ageMin * 5) + (retweets / ageMin * 4) + (total / Math.max(followers, 1) * 100);
+        const trendScore = Math.min(100, Math.round((rawScore / maxRawScore) * 100));
+        const status = trendScore > 70 ? "viral" : trendScore >= 30 ? "trending" : "rising";
+        const velocity = Math.round(total / Math.max(1, ageMin / 60));
+
+        const existing = tweetId ? await storage.getTrendingPostByTweetId(tweetId) : null;
+        if (existing) continue;
+
+        const post = await storage.createTrendingPost({
+          nicheId: targetNicheId,
+          authorHandle: handle.startsWith("@") ? handle : `@${handle}`,
+          authorFollowers: followers,
+          postText: text,
+          postUrl: url,
+          postImageUrl: imageUrl,
+          tweetId,
+          likes,
+          replies,
+          retweets,
+          views,
+          trendScore,
+          status,
+          source: "n8n",
+          discoveredAt: now.toISOString(),
+          engagementVelocity: velocity,
+          language: lang,
+          postAge: Math.round(ageMin),
+          nicheMatchScore: null,
+        });
+        imported.push(post);
+      }
+
+      console.log(`n8n import: ${imported.length} posts imported, ${posts.length - imported.length} skipped (duplicates)`);
+      res.status(201).json({ imported: imported.length, skipped: posts.length - imported.length, posts: imported });
+    } catch (err: any) {
+      console.error("n8n import error:", err);
+      res.status(500).json({ message: err.message || "Import failed" });
+    }
+  });
+
   app.post("/api/trending-posts/:id/generate-comments", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
