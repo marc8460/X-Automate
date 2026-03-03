@@ -38,27 +38,37 @@ const StatCard = ({ title, value, change, icon: Icon, delay }: any) => (
   </motion.div>
 );
 
-const MOCK_LOGS = [
-  { id: 1, action: "Tweet Posted", detail: "can i dm youuuuu?!! 😩", time: "2m ago", status: "success" },
-  { id: 2, action: "Auto-Reply", detail: "to @techbro_99", time: "15m ago", status: "success" },
-  { id: 3, action: "Media Upload", detail: "Summer Dress (Vault #12)", time: "1h ago", status: "success" },
-  { id: 4, action: "Trend Detected", detail: "#AIArtwork (92% fit)", time: "2h ago", status: "info" },
+const MOCK_BEST_TIMES = [
+  { day: "Mon", time: "10:00 PM", score: 95 },
+  { day: "Tue", time: "11:30 PM", score: 88 },
+  { day: "Wed", time: "09:15 PM", score: 92 },
+  { day: "Thu", time: "10:45 PM", score: 98 },
+  { day: "Fri", time: "12:00 AM", score: 85 },
+  { day: "Sat", time: "01:30 AM", score: 78 },
+  { day: "Sun", time: "10:00 PM", score: 82 },
 ];
 
 export default function Dashboard() {
   return (
     <div className="space-y-8 pb-12">
+      {/* ... header ... */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold font-display tracking-tight">Overview</h1>
           <p className="text-muted-foreground mt-1">System performance and audience growth.</p>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary border border-primary/20 rounded-full text-sm font-medium">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-          </span>
-          Engaging Active (24/7)
+        <div className="flex items-center gap-2">
+          <div className="px-4 py-2 bg-accent/10 text-accent border border-accent/20 rounded-full text-sm font-medium flex items-center gap-2">
+            <Zap size={14} className="fill-accent" />
+            Peak Engagement: 10:45 PM
+          </div>
+          <div className="px-4 py-2 bg-primary/10 text-primary border border-primary/20 rounded-full text-sm font-medium flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+            </span>
+            Engaging Active (24/7)
+          </div>
         </div>
       </div>
 
@@ -74,37 +84,77 @@ export default function Dashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.5 }}
-          className="lg:col-span-2 glass-panel p-6 rounded-xl"
+          className="lg:col-span-2 space-y-8"
         >
-          <div className="mb-6">
-            <h2 className="text-xl font-bold font-display">Performance Metrics</h2>
-            <p className="text-sm text-muted-foreground">Engagement and follower growth over time</p>
-          </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorEngagement" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorFollowers" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                />
-                <Area type="monotone" dataKey="engagement" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorEngagement)" />
-                <Area type="monotone" dataKey="followers" stroke="hsl(var(--accent))" strokeWidth={2} fillOpacity={1} fill="url(#colorFollowers)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {/* Main Chart */}
+          <Card className="glass-panel p-6 rounded-xl">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold font-display">Performance Metrics</h2>
+              <p className="text-sm text-muted-foreground">Engagement and follower growth over time</p>
+            </div>
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorEngagement" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorFollowers" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                    itemStyle={{ color: 'hsl(var(--foreground))' }}
+                  />
+                  <Area type="monotone" dataKey="engagement" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorEngagement)" />
+                  <Area type="monotone" dataKey="followers" stroke="hsl(var(--accent))" strokeWidth={2} fillOpacity={1} fill="url(#colorFollowers)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+
+          {/* Posting Strategy Chart */}
+          <Card className="glass-panel p-6 rounded-xl">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-xl font-bold font-display">Audience Activity Peak</h2>
+                <p className="text-sm text-muted-foreground">Recommended posting times based on follower heatmaps</p>
+              </div>
+              <Badge className="bg-accent text-white border-0">Highly Optimized</Badge>
+            </div>
+            <div className="h-[200px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={MOCK_BEST_TIMES} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                    labelStyle={{ color: 'hsl(var(--primary))', fontWeight: 'bold' }}
+                  />
+                  <Area type="monotone" dataKey="score" stroke="hsl(var(--accent))" strokeWidth={3} fillOpacity={1} fill="url(#colorScore)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-7 gap-2 mt-4 text-center">
+              {MOCK_BEST_TIMES.map((t, idx) => (
+                <div key={idx} className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground uppercase">{t.day}</p>
+                  <p className={`text-[10px] font-bold ${t.score > 90 ? 'text-accent' : 'text-foreground'}`}>{t.time}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
         </motion.div>
 
         <motion.div
@@ -128,6 +178,15 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
+            {/* Added heatmap calculation log */}
+            <div className="flex gap-3 text-sm border-l-2 border-accent/20 pl-3">
+              <div className="mt-1 w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+              <div className="space-y-1">
+                <p className="font-medium leading-none text-accent">Heatmap Sync</p>
+                <p className="text-xs text-muted-foreground">Updating best times based on last 24h engagement...</p>
+                <p className="text-[10px] text-muted-foreground/60">Just now</p>
+              </div>
+            </div>
           </div>
           <Button variant="ghost" className="w-full text-xs text-muted-foreground hover:text-primary">View Full Logs</Button>
         </motion.div>
