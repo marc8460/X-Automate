@@ -24,7 +24,8 @@ import {
   Clock,
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ImageIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -309,9 +310,24 @@ export default function TrendScanner() {
                       </div>
                     </div>
 
-                    <p className="text-lg leading-relaxed mb-6" data-testid={`text-post-content-${post.id}`}>
+                    <p className="text-lg leading-relaxed mb-4" data-testid={`text-post-content-${post.id}`}>
                       {post.postText}
                     </p>
+
+                    {post.postImageUrl && (
+                      <div className="relative mb-4 rounded-xl overflow-hidden border border-border/20 group" data-testid={`img-post-image-${post.id}`}>
+                        <img 
+                          src={post.postImageUrl} 
+                          alt="Post attachment"
+                          className="w-full max-h-[300px] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                        <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+                          <ImageIcon className="w-3 h-3 text-purple-400" />
+                          <span className="text-[10px] text-purple-300 font-medium">AI Vision</span>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-border/10">
                       <div className="flex items-center gap-6">

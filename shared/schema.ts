@@ -119,6 +119,7 @@ export const trendingPosts = pgTable("trending_posts", {
   authorFollowers: integer("author_followers").notNull(),
   postText: text("post_text").notNull(),
   postUrl: text("post_url").notNull(),
+  postImageUrl: text("post_image_url"),
   likes: integer("likes").notNull().default(0),
   replies: integer("replies").notNull().default(0),
   retweets: integer("retweets").notNull().default(0),

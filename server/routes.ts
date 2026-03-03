@@ -230,6 +230,7 @@ For each post, include:
 - authorFollowers: realistic follower count (10k to 500k)
 - postText: high-engagement tweet content relevant to the niche
 - postUrl: a dummy twitter URL
+- postImageUrl: For about 60% of posts, include a realistic Unsplash image URL that matches the post content. Use format: "https://images.unsplash.com/photo-{id}?w=600&h=400&fit=crop". Use real Unsplash photo IDs for common topics (fitness: photo-1571019613454-1cb2f99b2d8b, beach: photo-1507525428034-b723cf961d3e, food: photo-1504674900247-0877df9cc836, fashion: photo-1515886657613-9f3515b0c78f, city: photo-1449824913935-59a10b8d2000, gym: photo-1534438327276-14e5300c3a48, crypto: photo-1639762681485-074b7f938ba0, dating: photo-1516589178581-6cd7833ae3b2, memes: photo-1533738363-b7f9aef128ce). For the remaining ~40% of posts, set postImageUrl to null (text-only tweets).
 - likes: realistic engagement (500 to 50000)
 - replies: realistic engagement (50 to 5000)
 - retweets: realistic engagement (100 to 10000)
@@ -258,6 +259,7 @@ Return ONLY a JSON array of objects. No explanation.`;
           authorFollowers: p.authorFollowers || 1000,
           postText: p.postText || "",
           postUrl: p.postUrl || "https://twitter.com/status/123",
+          postImageUrl: p.postImageUrl || null,
           likes: p.likes || 0,
           replies: p.replies || 0,
           retweets: p.retweets || 0,
@@ -291,12 +293,44 @@ Return ONLY a JSON array of objects. No explanation.`;
       const playfulness = getSetting("playfulness", "85");
       const dominance = getSetting("dominance", "35");
 
+      let imageContext = "";
+      if (post.postImageUrl) {
+        try {
+          const imageResponse = await fetch(post.postImageUrl);
+          if (imageResponse.ok) {
+            const imageBuffer = await imageResponse.arrayBuffer();
+            const base64Image = Buffer.from(imageBuffer).toString("base64");
+            const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+
+            const visionCompletion = await groq.chat.completions.create({
+              model: "meta-llama/llama-4-scout-17b-16e-instruct",
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "text", text: "Describe this image in detail for social media context. What is shown — subject, setting, mood, style, colors, any notable elements. Be specific and concise. 2-3 sentences max." },
+                  { type: "image_url", image_url: { url: `data:${contentType};base64,${base64Image}` } }
+                ]
+              }],
+              temperature: 0.4,
+              max_tokens: 200,
+            });
+            imageContext = visionCompletion.choices[0]?.message?.content || "";
+          }
+        } catch (imgErr) {
+          console.error("Image analysis failed for trending post, continuing without:", imgErr);
+        }
+      }
+
+      const imageInstruction = imageContext
+        ? `\n\nIMAGE CONTEXT: The post includes a photo showing: ${imageContext}\nYour comments should reference or react to what's in the image when relevant. This is critical — many viral comments engage with the visual content, not just the caption.`
+        : "";
+
       const systemPrompt = `You are the ghost-writer for a popular female influencer on Twitter/X. She is confident, magnetic, and human.
 Her persona dials: Seductiveness ${seductiveness}/100, Playfulness ${playfulness}/100, Dominance ${dominance}/100.
 Voice: lowercase casual twitter voice, natural emojis, spontaneous, real.
 
 Analyze this trending post:
-"${post.postText}" by ${post.authorHandle}
+"${post.postText}" by ${post.authorHandle}${imageInstruction}
 
 Generate 5 different contextual comments she would leave on this post.
 Generate exactly one of each type:
@@ -310,6 +344,7 @@ Rules:
 - Blend naturally, no spam, no self-promo, no links.
 - Human variability, slight imperfections.
 - Match her persona dials.
+- If the post has an image, at least 2-3 comments should engage with the visual content.
 - For each comment, assign a "riskLevel": "low", "medium", or "high".
 
 Return ONLY a JSON array of objects with keys: commentText, commentType, riskLevel. No explanation.`;
