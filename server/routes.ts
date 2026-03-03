@@ -1,5 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import path from "path";
+import fs from "fs";
+import multer from "multer";
+import Groq from "groq-sdk";
 import { storage } from "./storage";
 import {
   insertTweetSchema,
@@ -11,6 +15,27 @@ import {
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
 } from "@shared/schema";
+
+const uploadDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const uploadStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+  },
+});
+const upload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed"));
+  },
+});
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -166,6 +191,104 @@ export async function registerRoutes(
     if (!value && value !== "") return res.status(400).json({ message: "value is required" });
     const setting = await storage.upsertSetting(key, value);
     res.json(setting);
+  });
+
+  // --- Media Upload ---
+  app.post("/api/media/upload", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const url = `/uploads/${req.file.filename}`;
+      const mood = (req.body.mood as string) || "Neutral";
+      const outfit = (req.body.outfit as string) || "Untagged";
+      const item = await storage.createMediaItem({
+        url,
+        mood,
+        outfit,
+        usageCount: 0,
+        lastUsed: "Never",
+        risk: "safe",
+      });
+      res.status(201).json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Upload failed" });
+    }
+  });
+
+  // --- Media Delete (with file cleanup) ---
+  app.delete("/api/media/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const items = await storage.getMediaItems();
+    const item = items.find((m) => m.id === id);
+    if (item && item.url.startsWith("/uploads/")) {
+      const filePath = path.join(process.cwd(), item.url);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
+    await storage.deleteMediaItem(id);
+    res.status(204).send();
+  });
+
+  // --- AI Content Generation (Groq) ---
+  app.post("/api/generate", async (req, res) => {
+    try {
+      const { style, topic } = req.body;
+      if (!style) return res.status(400).json({ message: "style is required" });
+
+      const settingsData = await storage.getSettings();
+      const getSetting = (key: string, fallback: string) => {
+        const s = settingsData.find((s) => s.key === key);
+        return s ? s.value : fallback;
+      };
+      const seductiveness = getSetting("seductiveness", "60");
+      const playfulness = getSetting("playfulness", "85");
+      const dominance = getSetting("dominance", "35");
+
+      const systemPrompt = `You are the ghost-writer for a popular female influencer on Twitter/X. She is a real human woman — confident, playful, magnetic, and deeply online. She never reveals or hints that she is AI or that anyone writes for her.
+
+Her personality dials (0-100):
+- Seductiveness: ${seductiveness}/100
+- Playfulness: ${playfulness}/100  
+- Dominance: ${dominance}/100
+
+Rules:
+- Write as HER, first person, lowercase casual twitter voice
+- Use emojis naturally but don't overdo it
+- Never mention AI, bots, algorithms, or being automated
+- Mix vulnerability with confidence
+- Keep tweets under 280 characters
+- Make them feel spontaneous and authentic
+- Match the requested style/mood exactly
+- Vary sentence structure and energy levels
+
+Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just the JSON array.`;
+
+      const userPrompt = topic
+        ? `Generate 5 "${style}" style tweets about: ${topic}`
+        : `Generate 5 "${style}" style tweets`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.9,
+        max_tokens: 1024,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "[]";
+      let tweets: string[];
+      try {
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        tweets = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      } catch {
+        tweets = raw.split("\n").filter((l) => l.trim().length > 0).slice(0, 5);
+      }
+
+      res.json({ tweets });
+    } catch (err: any) {
+      console.error("Groq generation error:", err);
+      res.status(500).json({ message: err.message || "Generation failed" });
+    }
   });
 
   // --- Seed endpoint (populate initial data if empty) ---

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,23 +11,73 @@ import {
   Tag, 
   History, 
   Plus, 
-  MoreVertical,
+  Trash2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  X
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useMediaItems } from "@/lib/hooks";
+import { useMediaItems, useUploadMedia, useDeleteMediaItem } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 
 export default function MediaVault() {
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [uploadMood, setUploadMood] = useState("Playful");
+  const [uploadOutfit, setUploadOutfit] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
   const { data: mediaItems, isLoading } = useMediaItems();
+  const uploadMutation = useUploadMedia();
+  const deleteMutation = useDeleteMediaItem();
+
+  const handleFiles = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Only image files are allowed.", variant: "destructive" });
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("mood", uploadMood);
+    formData.append("outfit", uploadOutfit || "Untagged");
+    uploadMutation.mutate(formData, {
+      onSuccess: () => {
+        toast({ title: "Uploaded", description: "Media added to vault." });
+        setShowUploadForm(false);
+        setUploadOutfit("");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      },
+      onError: (err: any) => {
+        toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      },
+    });
+  }, [uploadMood, uploadOutfit, uploadMutation, toast]);
+
+  const handleDelete = (id: number) => {
+    deleteMutation.mutate(id, {
+      onSuccess: () => toast({ title: "Deleted", description: "Media removed from vault." }),
+    });
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFiles(e.dataTransfer.files);
+  }, [handleFiles]);
+
+  const MOODS = ["Playful", "Confident", "Seductive", "Casual", "Mysterious", "Neutral"];
 
   return (
     <div className="space-y-8 pb-12">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold font-display tracking-tight">Media Vault</h1>
+          <h1 className="text-3xl font-bold font-display tracking-tight" data-testid="text-vault-title">Media Vault</h1>
           <p className="text-muted-foreground mt-1">Securely manage and categorize your content library.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -35,14 +85,79 @@ export default function MediaVault() {
             <History className="w-4 h-4 mr-2" />
             History
           </Button>
-          <Button className="bg-primary text-white hover:bg-primary/90" data-testid="button-upload">
+          <Button
+            className="bg-primary text-white hover:bg-primary/90"
+            onClick={() => setShowUploadForm(!showUploadForm)}
+            data-testid="button-upload"
+          >
             <Plus className="w-4 h-4 mr-2" />
             Upload Media
           </Button>
         </div>
       </div>
 
-      {/* Filters & Controls */}
+      <AnimatePresence>
+        {showUploadForm && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
+            <Card className="p-6 glass-panel border-primary/30 space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="font-display font-semibold">Upload New Media</h3>
+                <Button variant="ghost" size="icon" onClick={() => setShowUploadForm(false)} data-testid="button-close-upload">
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">Mood / Vibe</label>
+                  <div className="flex flex-wrap gap-2">
+                    {MOODS.map((m) => (
+                      <Badge
+                        key={m}
+                        variant={uploadMood === m ? "default" : "outline"}
+                        className={`cursor-pointer transition-all ${uploadMood === m ? "bg-primary text-white" : "hover:border-primary/50"}`}
+                        onClick={() => setUploadMood(m)}
+                        data-testid={`badge-mood-${m.toLowerCase()}`}
+                      >
+                        {m}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">Outfit / Tag</label>
+                  <Input
+                    placeholder="e.g. Summer Dress, Streetwear..."
+                    value={uploadOutfit}
+                    onChange={(e) => setUploadOutfit(e.target.value)}
+                    className="bg-background/50"
+                    data-testid="input-outfit-tag"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleFiles(e.target.files)}
+                  data-testid="input-file-upload"
+                />
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadMutation.isPending}
+                  className="bg-gradient-to-r from-primary to-accent text-white border-0"
+                  data-testid="button-browse-files"
+                >
+                  {uploadMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                  {uploadMutation.isPending ? "Uploading..." : "Browse Files"}
+                </Button>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <Card className="p-4 glass-panel border-border/50 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
@@ -50,18 +165,18 @@ export default function MediaVault() {
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           </div>
           <div className="flex items-center border border-border/50 rounded-lg p-1 bg-background/30">
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               className={view === 'grid' ? 'bg-secondary text-primary' : 'text-muted-foreground'}
               onClick={() => setView('grid')}
               data-testid="button-view-grid"
             >
               <Grid className="w-4 h-4" />
             </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               className={view === 'list' ? 'bg-secondary text-primary' : 'text-muted-foreground'}
               onClick={() => setView('list')}
               data-testid="button-view-list"
@@ -70,7 +185,6 @@ export default function MediaVault() {
             </Button>
           </div>
         </div>
-        
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="cursor-pointer hover:bg-secondary transition-colors" data-testid="badge-filter-safe">Safe</Badge>
           <Badge variant="outline" className="cursor-pointer hover:bg-secondary transition-colors" data-testid="badge-filter-spicy">Spicy</Badge>
@@ -78,18 +192,28 @@ export default function MediaVault() {
         </div>
       </Card>
 
-      {/* Vault Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {/* Upload Placeholder */}
         <motion.div
           whileHover={{ scale: 1.02 }}
-          className="aspect-[3/4] rounded-xl border-2 border-dashed border-border/50 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all group"
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => { if (!showUploadForm) setShowUploadForm(true); }}
+          className={`aspect-[3/4] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-3 cursor-pointer transition-all group ${
+            dragOver ? 'border-primary bg-primary/10' : 'border-border/50 hover:border-primary/50 hover:bg-primary/5'
+          }`}
           data-testid="upload-placeholder"
         >
-          <div className="w-12 h-12 rounded-full bg-secondary/50 flex items-center justify-center text-muted-foreground group-hover:text-primary transition-colors">
-            <Upload className="w-6 h-6" />
-          </div>
-          <p className="text-sm font-medium text-muted-foreground group-hover:text-primary">Drag & Drop</p>
+          {uploadMutation.isPending ? (
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          ) : (
+            <>
+              <div className="w-12 h-12 rounded-full bg-secondary/50 flex items-center justify-center text-muted-foreground group-hover:text-primary transition-colors">
+                <Upload className="w-6 h-6" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground group-hover:text-primary">Drag & Drop</p>
+            </>
+          )}
         </motion.div>
 
         {isLoading ? (
@@ -97,10 +221,7 @@ export default function MediaVault() {
             <Card key={i} className="overflow-hidden glass-panel border-border/50 h-full">
               <Skeleton className="aspect-[3/4] w-full" />
               <div className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <Skeleton className="h-4 w-16" />
-                  <Skeleton className="h-4 w-20" />
-                </div>
+                <Skeleton className="h-4 w-16" />
                 <Skeleton className="h-4 w-24" />
               </div>
             </Card>
@@ -117,16 +238,22 @@ export default function MediaVault() {
             >
               <Card className="overflow-hidden glass-panel border-border/50 hover:border-primary/30 transition-all duration-300 h-full">
                 <div className="aspect-[3/4] relative overflow-hidden">
-                  <img 
-                    src={item.url} 
-                    alt="Vault content" 
+                  <img
+                    src={item.url}
+                    alt="Vault content"
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                  
-                  <div className="absolute top-2 right-2">
-                    <Button variant="secondary" size="icon" className="w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border-white/10 hover:bg-black/60" data-testid={`button-media-options-${item.id}`}>
-                      <MoreVertical className="w-4 h-4" />
+
+                  <div className="absolute top-2 right-2 flex gap-1">
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="w-8 h-8 rounded-full bg-red-500/60 backdrop-blur-md border-white/10 hover:bg-red-600/80 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => handleDelete(item.id)}
+                      data-testid={`button-delete-media-${item.id}`}
+                    >
+                      <Trash2 className="w-4 h-4 text-white" />
                     </Button>
                   </div>
 
@@ -142,7 +269,7 @@ export default function MediaVault() {
                     </Badge>
                   )}
                 </div>
-                
+
                 <div className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <Badge variant="secondary" className="text-[10px] uppercase tracking-wider" data-testid={`text-mood-${item.id}`}>{item.mood}</Badge>
@@ -161,7 +288,6 @@ export default function MediaVault() {
         )}
       </div>
 
-      {/* Risk Alert */}
       <AnimatePresence>
         <motion.div
           initial={{ opacity: 0, y: 20 }}

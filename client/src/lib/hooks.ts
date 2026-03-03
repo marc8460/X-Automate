@@ -91,6 +91,36 @@ export function useUpdateSetting() {
   });
 }
 
+export function useUploadMedia() {
+  return useMutation({
+    mutationFn: async (formData: FormData) => {
+      const res = await fetch("/api/media/upload", { method: "POST", body: formData });
+      if (!res.ok) throw new Error((await res.json()).message || "Upload failed");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/media"] }),
+  });
+}
+
+export function useDeleteMediaItem() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/media/${id}`);
+      return res;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/media"] }),
+  });
+}
+
+export function useGenerateTweets() {
+  return useMutation({
+    mutationFn: async (data: { style: string; topic?: string }) => {
+      const res = await apiRequest("POST", "/api/generate", data);
+      return res.json() as Promise<{ tweets: string[] }>;
+    },
+  });
+}
+
 export function useSeedData() {
   return useMutation({
     mutationFn: async () => {
