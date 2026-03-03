@@ -240,7 +240,7 @@ export async function registerRoutes(
   // --- AI Content Generation (Groq) ---
   app.post("/api/generate", async (req, res) => {
     try {
-      const { style, topic, seductiveness: sliderValue } = req.body;
+      const { style, topic, seductiveness: sliderValue, imageUrl } = req.body;
       if (!style) return res.status(400).json({ message: "style is required" });
 
       const settingsData = await storage.getSettings();
@@ -251,6 +251,48 @@ export async function registerRoutes(
       const seductiveness = sliderValue !== undefined ? String(sliderValue) : getSetting("seductiveness", "60");
       const playfulness = getSetting("playfulness", "85");
       const dominance = getSetting("dominance", "35");
+
+      let imageDescription = "";
+      if (imageUrl) {
+        try {
+          let fullImageUrl = imageUrl;
+          if (imageUrl.startsWith("/uploads/")) {
+            const host = req.headers.host || "localhost:5000";
+            const protocol = req.headers["x-forwarded-proto"] || "http";
+            fullImageUrl = `${protocol}://${host}${imageUrl}`;
+          }
+
+          const imageData = await fs.promises.readFile(path.join(process.cwd(), imageUrl));
+          const base64Image = imageData.toString("base64");
+          const ext = path.extname(imageUrl).toLowerCase();
+          const mimeMap: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif" };
+          const mimeType = mimeMap[ext] || "image/webp";
+
+          const visionResult = await groq.chat.completions.create({
+            model: "llama-3.2-90b-vision-preview",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image_url",
+                    image_url: { url: `data:${mimeType};base64,${base64Image}` },
+                  },
+                  {
+                    type: "text",
+                    text: "Describe this image in detail for a social media caption writer. Focus on: the setting/location, what the person is wearing, their pose/mood/vibe, colors, and overall aesthetic. Be specific and vivid. Keep it to 2-3 sentences.",
+                  },
+                ],
+              },
+            ],
+            temperature: 0.5,
+            max_tokens: 300,
+          });
+          imageDescription = visionResult.choices[0]?.message?.content || "";
+        } catch (visionErr: any) {
+          console.error("Vision analysis failed, falling back to text-only:", visionErr.message);
+        }
+      }
 
       const sedLevel = parseInt(seductiveness);
       let toneGuide = "";
@@ -264,6 +306,10 @@ export async function registerRoutes(
         toneGuide = `MAXIMUM spice mode. She's unapologetically freaky in a way that stays on the right side of X's TOS. She uses heavy suggestive language, double entendres, "I'll ruin you" energy, talks about body parts indirectly ("these lips", "this waist"), references being submissive or dominant depending on mood, uses phrases like "choke me", "pull my hair", "sit on your face" energy WITHOUT saying those exact words — she implies it through creative wording. She talks about sending pics, late night activities, what she's wearing (or not wearing), being touched, etc. She's the tweet that makes you screenshot and send to your group chat. Think e-girl meets femme fatale. Suggestive AF but plausibly deniable. Never crosses into explicit nudity descriptions or actual pornographic content.`;
       }
 
+      const imageContext = imageDescription
+        ? `\n\nIMAGE CONTEXT (the tweet will be posted alongside this photo):\n${imageDescription}\n\nIMPORTANT: The captions MUST directly reference or relate to what's in the photo. Comment on the outfit, setting, pose, vibe — make it feel like SHE took this photo and is captioning it herself.`
+        : "";
+
       const systemPrompt = `You are the ghost-writer for a popular female influencer on Twitter/X. She is a real human woman — confident, magnetic, and deeply online. She never reveals or hints that she is AI or that anyone writes for her.
 
 Personality intensity dials (0-100):
@@ -272,7 +318,7 @@ Personality intensity dials (0-100):
 - Dominance: ${dominance}/100
 
 TONE DIRECTIVE (this is the most important instruction):
-${toneGuide}
+${toneGuide}${imageContext}
 
 Rules:
 - Write as HER, first person, lowercase casual twitter voice
