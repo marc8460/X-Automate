@@ -1,23 +1,25 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import { Search, Heart, MessageSquare, Play, Pause, AlertTriangle } from "lucide-react";
 import { useState } from "react";
-
-const MOCK_ENGAGEMENTS = [
-  { id: 1, user: "@techbro_99", text: "AI is completely overhyped right now.", sentiment: "neutral", suggestedReply: "Is it? Or are you just not using the right prompts? 😉", time: "2m ago" },
-  { id: 2, user: "@founder_x", text: "Just deployed my first Next.js app! So exhausted but worth it.", sentiment: "positive", suggestedReply: "Love that energy. Rest up, you earned it. ☕️🖤", time: "15m ago" },
-  { id: 3, user: "@crypto_king", text: "Markets are bleeding today...", sentiment: "negative", suggestedReply: "Perfect time to look away from the charts and focus on building... or other things. 💅", time: "1h ago" },
-];
-
-const MOCK_FOLLOWER_INTERACTIONS = [
-  { id: 1, user: "@new_fan_1", action: "Followed you", time: "5m ago" },
-  { id: 2, user: "@loyal_supporter", action: "Liked 3 posts", time: "1h ago" },
-];
+import { useEngagements, useFollowerInteractions, useUpdateEngagement } from "@/lib/hooks";
 
 export default function EngagementEngine() {
   const [isActive, setIsActive] = useState(true);
+  const { data: engagements, isLoading: loadingEngagements } = useEngagements();
+  const { data: interactions, isLoading: loadingInteractions } = useFollowerInteractions();
+  const updateEngagement = useUpdateEngagement();
+
+  const handleApprove = (id: number) => {
+    updateEngagement.mutate({ id, status: "approved" });
+  };
+
+  const handleSkip = (id: number) => {
+    updateEngagement.mutate({ id, status: "skipped" });
+  };
 
   return (
     <div className="space-y-8 pb-12">
@@ -30,6 +32,7 @@ export default function EngagementEngine() {
           variant={isActive ? "outline" : "default"}
           className={isActive ? "border-primary text-primary hover:bg-primary/10" : "bg-primary text-white"}
           onClick={() => setIsActive(!isActive)}
+          data-testid="button-toggle-engine"
         >
           {isActive ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
           {isActive ? "Pause Engine" : "Start Engine"}
@@ -51,61 +54,98 @@ export default function EngagementEngine() {
             </div>
           </div>
           
-          {/* ... existing feed ... */}
           <div className="space-y-4">
-            {MOCK_ENGAGEMENTS.map((item, i) => (
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.15 }}
-                key={item.id}
-              >
-                <Card className="p-5 glass-panel border-border/40 hover:border-accent/30 transition-colors group">
+            {loadingEngagements ? (
+              Array(3).fill(0).map((_, i) => (
+                <Card key={i} className="p-5 glass-panel border-border/40">
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold">
-                        {item.user.charAt(1).toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{item.user}</p>
-                        <p className="text-xs text-muted-foreground">{item.time}</p>
+                      <Skeleton className="w-8 h-8 rounded-full" />
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-3 w-16" />
                       </div>
                     </div>
-                    <Badge variant="outline" className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {item.sentiment}
-                    </Badge>
+                    <Skeleton className="h-5 w-16" />
                   </div>
-                  
                   <div className="pl-10 mb-4">
-                    <p className="text-sm text-foreground/80 border-l-2 border-border/50 pl-3 py-1">
-                      {item.text}
-                    </p>
+                    <Skeleton className="h-4 w-full mb-1" />
+                    <Skeleton className="h-4 w-3/4" />
                   </div>
-
-                  <div className="pl-10 space-y-3">
-                    <div className="p-3 bg-primary/5 rounded-lg border border-primary/10 relative">
-                      <div className="absolute -left-2 top-4 w-2 h-2 bg-primary rotate-45" />
-                      <p className="text-sm text-primary-foreground font-medium flex items-start gap-2">
-                        <MessageSquare className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                        {item.suggestedReply}
-                      </p>
-                    </div>
-                    
-                    <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground">
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-8 border-border/50 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20">
-                        Skip
-                      </Button>
-                      <Button size="sm" className="h-8 bg-accent/20 text-accent hover:bg-accent/30">
-                        Approve & Send
-                      </Button>
-                    </div>
+                  <div className="pl-10">
+                    <Skeleton className="h-16 w-full rounded-lg" />
                   </div>
                 </Card>
-              </motion.div>
-            ))}
+              ))
+            ) : (
+              engagements?.filter(e => e.status === "pending").map((item, i) => (
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.15 }}
+                  key={item.id}
+                >
+                  <Card className="p-5 glass-panel border-border/40 hover:border-accent/30 transition-colors group">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold">
+                          {item.user.charAt(1).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm" data-testid={`text-user-${item.id}`}>{item.user}</p>
+                          <p className="text-xs text-muted-foreground">{item.time}</p>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {item.sentiment}
+                      </Badge>
+                    </div>
+                    
+                    <div className="pl-10 mb-4">
+                      <p className="text-sm text-foreground/80 border-l-2 border-border/50 pl-3 py-1" data-testid={`text-engagement-content-${item.id}`}>
+                        {item.text}
+                      </p>
+                    </div>
+
+                    <div className="pl-10 space-y-3">
+                      <div className="p-3 bg-primary/5 rounded-lg border border-primary/10 relative">
+                        <div className="absolute -left-2 top-4 w-2 h-2 bg-primary rotate-45" />
+                        <p className="text-sm text-primary-foreground font-medium flex items-start gap-2" data-testid={`text-suggested-reply-${item.id}`}>
+                          <MessageSquare className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                          {item.suggestedReply}
+                        </p>
+                      </div>
+                      
+                      <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" data-testid={`button-edit-${item.id}`}>
+                          Edit
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 border-border/50 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20"
+                          onClick={() => handleSkip(item.id)}
+                          data-testid={`button-skip-${item.id}`}
+                        >
+                          Skip
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          className="h-8 bg-accent/20 text-accent hover:bg-accent/30"
+                          onClick={() => handleApprove(item.id)}
+                          data-testid={`button-approve-${item.id}`}
+                        >
+                          Approve & Send
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                </motion.div>
+              ))
+            )}
+            {!loadingEngagements && engagements?.filter(e => e.status === "pending").length === 0 && (
+              <p className="text-center py-12 text-muted-foreground">No pending engagements.</p>
+            )}
           </div>
         </div>
 
@@ -117,16 +157,25 @@ export default function EngagementEngine() {
               Follower Interactions
             </h3>
             <div className="space-y-4">
-              {MOCK_FOLLOWER_INTERACTIONS.map((interaction) => (
-                <div key={interaction.id} className="flex justify-between items-center text-xs">
-                  <div>
-                    <span className="font-medium text-foreground">{interaction.user}</span>
-                    <span className="text-muted-foreground ml-2">{interaction.action}</span>
+              {loadingInteractions ? (
+                Array(2).fill(0).map((_, i) => (
+                  <div key={i} className="flex justify-between items-center">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-3 w-12" />
                   </div>
-                  <span className="text-muted-foreground/60">{interaction.time}</span>
-                </div>
-              ))}
-              <Button variant="outline" size="sm" className="w-full text-[10px] h-7 border-dashed">Set Auto-Response</Button>
+                ))
+              ) : (
+                interactions?.map((interaction) => (
+                  <div key={interaction.id} className="flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-medium text-foreground" data-testid={`text-interaction-user-${interaction.id}`}>{interaction.user}</span>
+                      <span className="text-muted-foreground ml-2" data-testid={`text-interaction-action-${interaction.id}`}>{interaction.action}</span>
+                    </div>
+                    <span className="text-muted-foreground/60">{interaction.time}</span>
+                  </div>
+                ))
+              )}
+              <Button variant="outline" size="sm" className="w-full text-[10px] h-7 border-dashed" data-testid="button-set-auto-response">Set Auto-Response</Button>
             </div>
           </Card>
 
