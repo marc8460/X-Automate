@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
-import { testTwitterConnection } from "./twitter";
+import { testTwitterConnection, getTwitterClient } from "./twitter";
 import { storage } from "./storage";
 import {
   insertTweetSchema,
@@ -70,6 +70,23 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  app.post("/api/content/post-now", async (req, res) => {
+    const twitterClient = getTwitterClient();
+    if (!twitterClient) {
+      return res.status(400).json({ message: "Twitter credentials not configured" });
+    }
+    const { text } = req.body;
+    if (!text?.trim()) return res.status(400).json({ message: "text is required" });
+    if (text.length > 280) return res.status(400).json({ message: "Tweet exceeds 280 character limit" });
+    try {
+      const result = await twitterClient.v2.tweet(text.trim());
+      res.json({ success: true, tweetId: result.data.id });
+    } catch (err: any) {
+      console.error("Post now error:", err);
+      res.status(500).json({ message: err.message || "Failed to post tweet" });
+    }
+  });
+
   // --- Media Items ---
   app.get("/api/media", async (_req, res) => {
     const data = await storage.getMediaItems();
@@ -114,6 +131,125 @@ export async function registerRoutes(
     const engagement = await storage.updateEngagement(id, req.body);
     if (!engagement) return res.status(404).json({ message: "Engagement not found" });
     res.json(engagement);
+  });
+
+  // --- Live X Engagement Endpoints ---
+
+  app.get("/api/engagement/comments", async (_req, res) => {
+    const twitterClient = getTwitterClient();
+    if (!twitterClient) {
+      return res.status(400).json({ message: "Twitter credentials not configured" });
+    }
+    try {
+      const me = await twitterClient.v2.me();
+      const userId = me.data.id;
+
+      const timeline = await twitterClient.v2.userMentionTimeline(userId, {
+        max_results: 20,
+        "tweet.fields": ["conversation_id", "in_reply_to_user_id", "created_at", "referenced_tweets", "author_id"],
+        "expansions": ["author_id", "referenced_tweets.id"],
+        "user.fields": ["name", "username"],
+      });
+
+      const tweets = timeline.data?.data ?? [];
+      const users = (timeline.data?.includes as any)?.users ?? [];
+      const refTweets = (timeline.data?.includes as any)?.tweets ?? [];
+
+      const userMap: Record<string, { name: string; username: string }> = {};
+      for (const u of users) userMap[u.id] = { name: u.name, username: u.username };
+
+      const refTweetMap: Record<string, string> = {};
+      for (const t of refTweets) refTweetMap[t.id] = t.text;
+
+      const comments = tweets
+        .filter((t: any) => t.in_reply_to_user_id === userId)
+        .map((t: any) => {
+          const author = userMap[t.author_id ?? ""] ?? { name: "Unknown", username: "unknown" };
+          const parentRef = t.referenced_tweets?.find((r: any) => r.type === "replied_to");
+          const parentTweetId = parentRef?.id ?? t.conversation_id ?? "";
+          return {
+            commentId: t.id,
+            commentAuthor: `@${author.username}`,
+            commentAuthorName: author.name,
+            commentText: t.text,
+            parentTweetId,
+            parentTweetText: refTweetMap[parentTweetId] ?? "",
+            createdAt: t.created_at ?? "",
+          };
+        });
+
+      res.json({ comments });
+    } catch (err: any) {
+      console.error("Fetch X comments error:", err);
+      res.status(500).json({ message: err.message || "Failed to fetch comments from X" });
+    }
+  });
+
+  app.post("/api/engagement/generate-reply", async (req, res) => {
+    try {
+      const { parentTweetText, commentText, customPrompt } = req.body;
+      if (!commentText) return res.status(400).json({ message: "commentText is required" });
+
+      const styleBlock = customPrompt?.trim()
+        ? `\n⚠️ CRITICAL STYLE INSTRUCTION — MANDATORY:\nWrite the reply in this exact style: "${customPrompt.trim()}"\nApply tone, vocabulary, energy, length, slang, emojis, and personality from this instruction.\nDo NOT fall back to generic or safe defaults. This overrides everything.\n`
+        : `\nStyle guidelines:\n- Feel 100% human-written\n- Encourage further engagement\n- Context-aware, not generic\n- No bot-like enthusiasm\n`;
+
+      const systemPrompt = `You are an expert social media engagement strategist.
+Generate a single concise reply to a comment on an X (Twitter) post.
+${styleBlock}
+Also classify the comment sentiment as positive, negative, or neutral.
+
+Return ONLY valid JSON with no markdown:
+{"reply":"<the reply text>","sentiment":"positive"}`;
+
+      const userPrompt = `Original Post:\n${parentTweetText || "Unknown"}\n\nComment to reply to:\n${commentText}`;
+
+      console.log("[generate-reply] customPrompt:", JSON.stringify(customPrompt || ""));
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: 300,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{}";
+      let result: { reply: string; sentiment: string };
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        result = jsonMatch ? JSON.parse(jsonMatch[0]) : { reply: raw.trim(), sentiment: "neutral" };
+      } catch {
+        result = { reply: raw.trim(), sentiment: "neutral" };
+      }
+      if (!result.reply) result.reply = raw.trim();
+      if (!result.sentiment) result.sentiment = "neutral";
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("Generate reply error:", err);
+      res.status(500).json({ message: err.message || "Failed to generate reply" });
+    }
+  });
+
+  app.post("/api/engagement/send-reply", async (req, res) => {
+    const twitterClient = getTwitterClient();
+    if (!twitterClient) {
+      return res.status(400).json({ message: "Twitter credentials not configured" });
+    }
+    const { commentId, replyText } = req.body;
+    if (!commentId || !replyText) {
+      return res.status(400).json({ message: "commentId and replyText are required" });
+    }
+    try {
+      const result = await twitterClient.v2.reply(replyText, commentId);
+      res.json({ success: true, tweetId: result.data.id });
+    } catch (err: any) {
+      console.error("Send reply error:", err);
+      res.status(500).json({ message: err.message || "Failed to send reply" });
+    }
   });
 
   // --- Follower Interactions ---
@@ -1039,6 +1175,32 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
 
     res.status(201).json({ message: "Seed data created successfully" });
   });
+
+  // Scheduled post runner — checks every 60 seconds for due tweets
+  setInterval(async () => {
+    try {
+      const now = new Date().toISOString();
+      const allTweets = await storage.getTweets();
+      const due = allTweets.filter(
+        t => t.scheduledAt && t.status === "queued" && t.scheduledAt <= now
+      );
+      if (due.length === 0) return;
+      const twitterClient = getTwitterClient();
+      if (!twitterClient) return;
+      for (const tweet of due) {
+        try {
+          await twitterClient.v2.tweet(tweet.text);
+          await storage.updateTweet(tweet.id, { status: "posted" });
+          console.log(`[scheduler] Posted tweet ${tweet.id}`);
+        } catch (err: any) {
+          console.error(`[scheduler] Failed tweet ${tweet.id}:`, err.message);
+          await storage.updateTweet(tweet.id, { status: "failed" });
+        }
+      }
+    } catch (err) {
+      console.error("[scheduler] Tick error:", err);
+    }
+  }, 60_000);
 
   return httpServer;
 }

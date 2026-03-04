@@ -250,3 +250,56 @@ export function useSeedData() {
     },
   });
 }
+
+export type XComment = {
+  commentId: string;
+  commentAuthor: string;
+  commentAuthorName: string;
+  commentText: string;
+  parentTweetId: string;
+  parentTweetText: string;
+  createdAt: string;
+};
+
+export function useFetchXComments(enabled: boolean) {
+  return useQuery<{ comments: XComment[] }>({
+    queryKey: ["/api/engagement/comments"],
+    queryFn: async () => {
+      const res = await fetch("/api/engagement/comments");
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to fetch comments");
+      return res.json();
+    },
+    enabled,
+    staleTime: 2 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+export function useGenerateEngagementReply() {
+  return useMutation({
+    mutationFn: async (data: { parentTweetText: string; commentText: string; customPrompt?: string }) => {
+      const res = await apiRequest("POST", "/api/engagement/generate-reply", data);
+      return res.json() as Promise<{ reply: string; sentiment: string }>;
+    },
+  });
+}
+
+export function useSendEngagementReply() {
+  return useMutation({
+    mutationFn: async (data: { commentId: string; replyText: string }) => {
+      const res = await apiRequest("POST", "/api/engagement/send-reply", data);
+      return res.json() as Promise<{ success: boolean; tweetId: string }>;
+    },
+  });
+}
+
+export function usePostNow() {
+  return useMutation({
+    mutationFn: async (text: string) => {
+      const res = await apiRequest("POST", "/api/content/post-now", { text });
+      if (!res.ok) throw new Error((await res.json()).message || "Post failed");
+      return res.json() as Promise<{ success: boolean; tweetId: string }>;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/tweets"] }),
+  });
+}
