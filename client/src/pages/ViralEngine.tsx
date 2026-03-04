@@ -1,8 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useTrendingTopics, useAnalyzePost, useScanScreenshot } from "@/lib/hooks";
-import type { TrendTopic } from "@/lib/hooks";
-import { GoogleTrendsPanel } from "@/components/GoogleTrendsPanel";
+import { useAnalyzePost, useScanScreenshot } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +8,6 @@ import { useToast } from "@/hooks/use-toast";
 import {
   TrendingUp,
   ExternalLink,
-  Search,
   Flame,
   BarChart3,
   Brain,
@@ -23,7 +20,6 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
-  Globe,
   Image as ImageIcon,
   Users,
   Heart,
@@ -35,11 +31,6 @@ import {
   Upload,
   Clipboard,
   Eye,
-  MapPin,
-  Timer,
-  Tag,
-  ArrowUpDown,
-  Activity,
 } from "lucide-react";
 
 type AnalysisResult = {
@@ -77,70 +68,31 @@ type ExtractedData = {
   hashtags?: string[];
 };
 
-type Step = "trends" | "analyze" | "results";
+type Step = "analyze" | "results";
 type AnalyzeMode = "screenshot" | "manual";
 
-const COUNTRIES = [
-  { code: "US", name: "United States" }, { code: "GB", name: "United Kingdom" },
-  { code: "CA", name: "Canada" }, { code: "AU", name: "Australia" },
-  { code: "DE", name: "Germany" }, { code: "FR", name: "France" },
-  { code: "BR", name: "Brazil" }, { code: "IN", name: "India" },
-  { code: "JP", name: "Japan" }, { code: "KR", name: "South Korea" },
-  { code: "MX", name: "Mexico" }, { code: "IT", name: "Italy" },
-  { code: "ES", name: "Spain" }, { code: "NL", name: "Netherlands" },
-  { code: "SE", name: "Sweden" }, { code: "NO", name: "Norway" },
-  { code: "DK", name: "Denmark" }, { code: "FI", name: "Finland" },
-  { code: "PL", name: "Poland" }, { code: "AR", name: "Argentina" },
-  { code: "CL", name: "Chile" }, { code: "CO", name: "Colombia" },
-  { code: "NG", name: "Nigeria" }, { code: "ZA", name: "South Africa" },
-  { code: "EG", name: "Egypt" }, { code: "SA", name: "Saudi Arabia" },
-  { code: "AE", name: "UAE" }, { code: "TR", name: "Turkey" },
-  { code: "RU", name: "Russia" }, { code: "ID", name: "Indonesia" },
-  { code: "PH", name: "Philippines" }, { code: "TH", name: "Thailand" },
-  { code: "SG", name: "Singapore" }, { code: "TW", name: "Taiwan" },
-  { code: "NZ", name: "New Zealand" }, { code: "IE", name: "Ireland" },
-  { code: "PT", name: "Portugal" }, { code: "CH", name: "Switzerland" },
-  { code: "AT", name: "Austria" }, { code: "BE", name: "Belgium" },
-  { code: "CZ", name: "Czech Republic" }, { code: "GR", name: "Greece" },
-  { code: "IL", name: "Israel" }, { code: "PK", name: "Pakistan" },
-];
+const TRENDS_URL = "https://trends.google.com/trends/trendingsearches/daily?geo=US";
 
-const CATEGORIES = [
-  { value: "all", label: "All Categories" },
-  { value: "entertainment", label: "Entertainment" },
-  { value: "business", label: "Business" },
-  { value: "technology", label: "Technology" },
-  { value: "sports", label: "Sports" },
-  { value: "health", label: "Health" },
-  { value: "science", label: "Science" },
-  { value: "politics", label: "Politics" },
-];
-
-const TIME_WINDOWS = [
-  { value: "1h", label: "Last 1 hour" },
-  { value: "4h", label: "Last 4 hours" },
-  { value: "12h", label: "Last 12 hours" },
-  { value: "24h", label: "Last 24 hours" },
-  { value: "48h", label: "Last 2 days" },
-  { value: "7d", label: "Last 7 days" },
-];
-
-const SORT_OPTIONS = [
-  { value: "volume", label: "Search volume" },
-  { value: "recent", label: "Most recent" },
-  { value: "growth", label: "Growth rate" },
+const GOOGLE_TRENDS_STEPS = [
+  {
+    icon: TrendingUp,
+    label: "Browse trends",
+    desc: "Open Google Trends in a new tab and explore what's hot right now.",
+  },
+  {
+    icon: Copy,
+    label: "Copy a topic",
+    desc: "Find an interesting trend and copy the keyword or phrase.",
+  },
+  {
+    icon: MessageSquare,
+    label: "Paste into Viral Engine",
+    desc: "Come back here and paste the topic into the Niche field to find matching posts.",
+  },
 ];
 
 export default function ViralEngine() {
-  const [step, setStep] = useState<Step>("trends");
-  const [selectedTrend, setSelectedTrend] = useState<TrendTopic | null>(null);
-  const [expandedTrend, setExpandedTrend] = useState<number | null>(null);
-
-  const [geo, setGeo] = useState("US");
-  const [category, setCategory] = useState("all");
-  const [timeWindow, setTimeWindow] = useState("24h");
-  const [sortBy, setSortBy] = useState("volume");
-
+  const [step, setStep] = useState<Step>("analyze");
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>("screenshot");
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
@@ -160,28 +112,47 @@ export default function ViralEngine() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [googleTrendsOpen, setGoogleTrendsOpen] = useState(false);
-  const [manualSearchTerm, setManualSearchTerm] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const { data: trendsData, isLoading: trendsLoading, refetch: refetchTrends } = useTrendingTopics({ geo, category, timeWindow, sortBy });
   const analyzePost = useAnalyzePost();
   const scanScreenshot = useScanScreenshot();
 
-  const handleSelectTrend = (topic: TrendTopic) => {
-    setSelectedTrend(topic);
-    setStep("analyze");
-  };
+  const compressImage = (file: File): Promise<File> =>
+    new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const MAX = 1280;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          if (width >= height) { height = Math.round(height * MAX / width); width = MAX; }
+          else { width = Math.round(width * MAX / height); height = MAX; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => resolve(blob ? new File([blob], "screenshot.jpg", { type: "image/jpeg" }) : file),
+          "image/jpeg", 0.88
+        );
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file); };
+      img.src = objectUrl;
+    });
 
-  const processImageFile = useCallback((file: File) => {
+  const processImageFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) {
       toast({ title: "Invalid file", description: "Please use an image file (PNG, JPG, etc.)", variant: "destructive" });
       return;
     }
-    setScreenshotFile(file);
+    const compressed = await compressImage(file);
+    setScreenshotFile(compressed);
     const reader = new FileReader();
     reader.onload = (e) => setScreenshotPreview(e.target?.result as string);
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(compressed);
     setExtractedData(null);
   }, [toast]);
 
@@ -219,11 +190,6 @@ export default function ViralEngine() {
     if (!screenshotFile) return;
     const formData = new FormData();
     formData.append("screenshot", screenshotFile);
-    if (selectedTrend) {
-      formData.append("trendTopic", selectedTrend.title);
-      formData.append("trendGrowth", selectedTrend.traffic);
-      formData.append("trendContext", selectedTrend.relatedQueries?.join(", ") || "");
-    }
     formData.append("commentStyle", commentStyle);
     if (niche) formData.append("niche", niche);
 
@@ -246,9 +212,6 @@ export default function ViralEngine() {
     }
     analyzePost.mutate(
       {
-        trendTopic: selectedTrend?.title,
-        trendGrowth: selectedTrend?.traffic,
-        trendContext: selectedTrend?.relatedQueries?.join(", "),
         postText: postText.trim(),
         imageUrl: imageUrl.trim() || undefined,
         authorFollowers: authorFollowers.trim() || undefined,
@@ -273,17 +236,8 @@ export default function ViralEngine() {
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const openXSearch = (query: string) => {
-    const encoded = encodeURIComponent(query);
-    window.open(`https://x.com/search?q=${encoded}&src=typed_query&f=top`, "_blank");
-  };
-
   const searchOnX = (query: string) => {
-    window.open(
-      `https://twitter.com/search?q=${encodeURIComponent(query)}&f=live`,
-      "_blank",
-      "noopener,noreferrer"
-    );
+    window.open(`https://twitter.com/search?q=${encodeURIComponent(query)}&f=live`, "_blank", "noopener,noreferrer");
   };
 
   const scoreColor = (score: number) => score >= 8 ? "text-green-400" : score >= 5 ? "text-yellow-400" : "text-red-400";
@@ -292,275 +246,16 @@ export default function ViralEngine() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-display font-bold" data-testid="text-page-title">Viral Comment Engine</h1>
-          <p className="text-muted-foreground mt-1">Find trending topics, scan posts, generate viral comments</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {["trends", "analyze", "results"].map((s, i) => (
-            <div key={s} className="flex items-center gap-1">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border transition-all ${
-                step === s ? "bg-primary/20 border-primary text-primary"
-                  : i < ["trends", "analyze", "results"].indexOf(step) ? "bg-primary/10 border-primary/50 text-primary/70"
-                  : "bg-secondary/30 border-border/50 text-muted-foreground"
-              }`}>
-                {i + 1}
-              </div>
-              {i < 2 && <div className="w-6 h-px bg-border/50" />}
-            </div>
-          ))}
-        </div>
+      <div>
+        <h1 className="text-2xl font-display font-bold" data-testid="text-page-title">Viral Comment Engine</h1>
+        <p className="text-muted-foreground mt-1">Scan a post screenshot and generate viral comments instantly</p>
       </div>
 
       <AnimatePresence mode="wait">
-        {step === "trends" && (
-          <motion.div key="trends" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-4">
-
-            <div className="glass-panel p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  <MapPin size={14} className="text-muted-foreground" />
-                  <select value={geo} onChange={(e) => setGeo(e.target.value)}
-                    className="bg-secondary/50 border border-border/50 rounded-md px-3 py-1.5 text-sm min-w-[160px]"
-                    data-testid="select-geo">
-                    {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <Timer size={14} className="text-muted-foreground" />
-                  <select value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}
-                    className="bg-secondary/50 border border-border/50 rounded-md px-3 py-1.5 text-sm"
-                    data-testid="select-time-window">
-                    {TIME_WINDOWS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <Tag size={14} className="text-muted-foreground" />
-                  <select value={category} onChange={(e) => setCategory(e.target.value)}
-                    className="bg-secondary/50 border border-border/50 rounded-md px-3 py-1.5 text-sm"
-                    data-testid="select-category">
-                    {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <ArrowUpDown size={14} className="text-muted-foreground" />
-                  <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
-                    className="bg-secondary/50 border border-border/50 rounded-md px-3 py-1.5 text-sm"
-                    data-testid="select-sort">
-                    {SORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </select>
-                </div>
-
-                <Button variant="outline" size="sm" onClick={() => refetchTrends()} disabled={trendsLoading} data-testid="button-refresh-trends">
-                  <RefreshCw size={14} className={trendsLoading ? "animate-spin" : ""} />
-                </Button>
-
-                <Button variant="outline" size="sm" onClick={() => setGoogleTrendsOpen(true)} className="gap-1.5" data-testid="button-open-google-trends">
-                  <TrendingUp size={14} />
-                  Google Trends
-                </Button>
-
-                <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                  {trendsData?.source === "google_trends" ? (
-                    <span className="px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">Live</span>
-                  ) : trendsData?.source === "no_data" ? (
-                    <span className="px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 font-medium">Unavailable</span>
-                  ) : null}
-                  {trendsData?.fetchedAt && (
-                    <span>Updated {new Date(trendsData.fetchedAt).toLocaleTimeString()}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Manual trend search */}
-            <div className="glass-panel p-3">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-muted-foreground whitespace-nowrap shrink-0">
-                  Search trend manually
-                </label>
-                <Input
-                  value={manualSearchTerm}
-                  onChange={(e) => setManualSearchTerm(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && manualSearchTerm.trim()) searchOnX(manualSearchTerm.trim()); }}
-                  placeholder="Enter a trending topic..."
-                  className="flex-1"
-                  data-testid="input-manual-trend"
-                />
-                <Button
-                  size="sm"
-                  onClick={() => { if (manualSearchTerm.trim()) searchOnX(manualSearchTerm.trim()); }}
-                  disabled={!manualSearchTerm.trim()}
-                  className="gap-1.5 whitespace-nowrap"
-                  data-testid="button-search-on-x"
-                >
-                  <ExternalLink size={13} />
-                  Search on X
-                </Button>
-              </div>
-            </div>
-
-            {trendsLoading ? (
-              <div className="glass-panel p-16 flex flex-col items-center justify-center gap-3">
-                <RefreshCw size={28} className="animate-spin text-primary" />
-                <p className="text-muted-foreground text-sm">Fetching trending topics...</p>
-                <p className="text-xs text-muted-foreground">This may take a few seconds</p>
-              </div>
-            ) : !trendsData?.topics?.length ? (
-              <div className="glass-panel p-16 flex flex-col items-center justify-center gap-3">
-                <Globe size={28} className="text-muted-foreground" />
-                {trendsData?.source === "no_data" ? (
-                  <>
-                    <p className="text-muted-foreground font-medium">No live trends available</p>
-                    <p className="text-xs text-muted-foreground">Google Trends could not be reached. Try refreshing or use the manual search above.</p>
-                  </>
-                ) : (
-                  <p className="text-muted-foreground">No trends found. Try different filters.</p>
-                )}
-              </div>
-            ) : (
-              <div className="glass-panel overflow-hidden">
-                <div className="grid grid-cols-[1fr_120px_120px_140px_1fr] gap-0 px-4 py-3 border-b border-border/50 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  <span>Trend</span>
-                  <span>Search Volume</span>
-                  <span>Growth</span>
-                  <span>Started</span>
-                  <span>Related Queries</span>
-                </div>
-
-                {trendsData.topics.map((topic, index) => (
-                  <div key={topic.id} data-testid={`row-trend-${topic.id}`}>
-                    <div
-                      className={`grid grid-cols-[1fr_120px_120px_140px_1fr] gap-0 px-4 py-3 items-center cursor-pointer transition-colors hover:bg-secondary/30 ${
-                        expandedTrend === topic.id ? "bg-secondary/20" : ""
-                      } ${index < trendsData.topics.length - 1 ? "border-b border-border/20" : ""}`}
-                      onClick={() => { setExpandedTrend(expandedTrend === topic.id ? null : topic.id); setManualSearchTerm(topic.title); }}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="text-xs text-muted-foreground w-5 text-right shrink-0">{index + 1}</span>
-                        <span className="font-medium truncate">{topic.title}</span>
-                      </div>
-
-                      <div>
-                        <span className="font-semibold text-sm">{topic.traffic}</span>
-                      </div>
-
-                      <div>
-                        <span className="text-green-400 text-sm font-medium">{topic.growthPercent}</span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm text-muted-foreground">{topic.startedAgo}</span>
-                        <div className="flex items-center gap-0.5">
-                          <Activity size={10} className="text-green-400" />
-                          <span className="text-[10px] text-green-400 font-medium">{topic.status}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-                        {topic.relatedQueries.slice(0, 3).map((q, i) => (
-                          <span key={i} className="text-xs px-1.5 py-0.5 bg-secondary/50 rounded text-muted-foreground truncate max-w-[120px]">{q}</span>
-                        ))}
-                        {topic.relatedQueries.length > 3 && (
-                          <span className="text-xs text-primary">+{topic.relatedQueries.length - 3} more</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <AnimatePresence>
-                      {expandedTrend === topic.id && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="overflow-hidden border-b border-border/20"
-                        >
-                          <div className="px-4 py-3 bg-secondary/10 space-y-3">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {topic.relatedQueries.map((q, i) => (
-                                <button key={i} onClick={() => openXSearch(q)}
-                                  className="text-xs px-2.5 py-1 rounded-full bg-secondary/50 hover:bg-primary/20 hover:text-primary transition-colors border border-border/30"
-                                  data-testid={`button-related-${topic.id}-${i}`}>
-                                  {q}
-                                </button>
-                              ))}
-                            </div>
-
-                            {topic.articles.length > 0 && (
-                              <div className="space-y-1">
-                                {topic.articles.map((a, i) => (
-                                  <a key={i} href={a.url} target="_blank" rel="noopener noreferrer"
-                                    className="text-xs text-blue-400 hover:underline block" data-testid={`link-article-${topic.id}-${i}`}>
-                                    {a.title} — {a.source}
-                                  </a>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="flex items-center gap-2 pt-1">
-                              <Button size="sm" variant="outline" onClick={() => openXSearch(topic.searchQuery)}
-                                data-testid={`button-search-x-${topic.id}`}>
-                                <Search size={12} className="mr-1.5" />
-                                Search on X
-                                <ExternalLink size={10} className="ml-1.5" />
-                              </Button>
-                              <Button size="sm" onClick={() => handleSelectTrend(topic)}
-                                data-testid={`button-use-trend-${topic.id}`}>
-                                <Zap size={12} className="mr-1.5" />
-                                Use This Trend
-                              </Button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                ))}
-
-                <div className="px-4 py-3 border-t border-border/50 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{trendsData.topics.length} trending topics</span>
-                  <span>
-                    {COUNTRIES.find(c => c.code === geo)?.name} &middot; {TIME_WINDOWS.find(t => t.value === timeWindow)?.label} &middot; {CATEGORIES.find(c => c.value === category)?.label}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={() => setStep("analyze")} data-testid="button-skip-to-analyze">
-                Skip to Post Analysis
-              </Button>
-            </div>
-          </motion.div>
-        )}
-
         {step === "analyze" && (
           <motion.div key="analyze" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-4">
-            {selectedTrend && (
-              <div className="glass-panel p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Flame size={18} className="text-primary" />
-                  <div>
-                    <span className="font-medium">{selectedTrend.title}</span>
-                    <span className="text-xs text-primary ml-2">{selectedTrend.traffic}</span>
-                    <span className="text-xs text-green-400 ml-2">{selectedTrend.growthPercent}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => openXSearch(selectedTrend.searchQuery)} data-testid="button-open-x-search">
-                    <Search size={14} className="mr-1" /> Search on X <ExternalLink size={12} className="ml-1" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => { setSelectedTrend(null); setStep("trends"); }} data-testid="button-change-trend">
-                    Change
-                  </Button>
-                </div>
-              </div>
-            )}
 
+            {/* Mode toggle */}
             <div className="flex gap-1 p-1 bg-secondary/30 rounded-lg w-fit">
               <button onClick={() => setAnalyzeMode("screenshot")}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
@@ -576,79 +271,85 @@ export default function ViralEngine() {
               </button>
             </div>
 
+            {/* Hero: Screenshot Scan */}
             {analyzeMode === "screenshot" && (
-              <div className="space-y-4">
-                <div className="glass-panel p-6">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Camera size={20} className="text-primary" />
-                    <h2 className="font-display font-semibold text-lg">Screenshot Scan</h2>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">AI-Powered</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Take a screenshot of any X post and drop it here. AI reads the post text, metrics, images — everything — and generates viral comments.
-                  </p>
-
-                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" data-testid="input-screenshot-file" />
-
-                  <div
-                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onDrop={handleDrop}
-                    onClick={() => !screenshotPreview && fileInputRef.current?.click()}
-                    className={`relative border-2 border-dashed rounded-xl transition-all cursor-pointer min-h-[200px] flex flex-col items-center justify-center ${
-                      isDragging ? "border-primary bg-primary/10 scale-[1.02]"
-                        : screenshotPreview ? "border-border/50 bg-secondary/20"
-                        : "border-border/50 hover:border-primary/50 hover:bg-primary/5"
-                    }`} data-testid="dropzone-screenshot">
-                    {screenshotPreview ? (
-                      <div className="w-full p-4">
-                        <div className="relative max-h-[400px] overflow-hidden rounded-lg">
-                          <img src={screenshotPreview} alt="Screenshot preview" className="w-full object-contain max-h-[400px] rounded-lg" />
-                          <div className="absolute top-2 right-2 flex gap-2">
-                            <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setScreenshotPreview(null); setScreenshotFile(null); setExtractedData(null); }} data-testid="button-remove-screenshot">
-                              <XCircle size={14} className="mr-1" /> Remove
-                            </Button>
-                            <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} data-testid="button-replace-screenshot">
-                              <Upload size={14} className="mr-1" /> Replace
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-4 py-8">
-                        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                          <Camera size={28} className="text-primary" />
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium mb-1">Drop screenshot here or click to upload</p>
-                          <p className="text-sm text-muted-foreground">
-                            Press <kbd className="px-1.5 py-0.5 bg-secondary/50 border border-border/50 rounded text-xs font-mono">Ctrl+V</kbd> to paste from clipboard
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} data-testid="button-browse-files">
-                            <Upload size={14} className="mr-1" /> Browse Files
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={(e) => {
-                            e.stopPropagation();
-                            navigator.clipboard.read().then(items => {
-                              for (const item of items) {
-                                const imageType = item.types.find(t => t.startsWith("image/"));
-                                if (imageType) { item.getType(imageType).then(blob => { processImageFile(new File([blob], "clipboard.png", { type: imageType })); }); }
-                              }
-                            }).catch(() => { toast({ title: "Paste failed", description: "No image in clipboard.", variant: "destructive" }); });
-                          }} data-testid="button-paste-clipboard">
-                            <Clipboard size={14} className="mr-1" /> Paste from Clipboard
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              <div className="glass-panel p-8">
+                <div className="flex items-center gap-2 mb-3">
+                  <Camera size={22} className="text-primary" />
+                  <h2 className="font-display font-semibold text-xl">Screenshot Scan</h2>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">AI-Powered</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <p className="text-sm text-muted-foreground mb-6">
+                  Take a screenshot of any X post and drop it here. AI reads the post text, metrics, images — everything — and generates viral comments.
+                </p>
+
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" data-testid="input-screenshot-file" />
+
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                  onClick={() => !screenshotPreview && fileInputRef.current?.click()}
+                  className={`relative border-2 border-dashed rounded-xl transition-all cursor-pointer min-h-[260px] flex flex-col items-center justify-center ${
+                    isDragging ? "border-primary bg-primary/10 scale-[1.02]"
+                      : screenshotPreview ? "border-border/50 bg-secondary/20"
+                      : "border-border/50 hover:border-primary/50 hover:bg-primary/5"
+                  }`} data-testid="dropzone-screenshot">
+                  {screenshotPreview ? (
+                    <div className="w-full p-4">
+                      <div className="relative max-h-[400px] overflow-hidden rounded-lg">
+                        <img src={screenshotPreview} alt="Screenshot preview" className="w-full object-contain max-h-[400px] rounded-lg" />
+                        <div className="absolute top-2 right-2 flex gap-2">
+                          <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setScreenshotPreview(null); setScreenshotFile(null); setExtractedData(null); }} data-testid="button-remove-screenshot">
+                            <XCircle size={14} className="mr-1" /> Remove
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} data-testid="button-replace-screenshot">
+                            <Upload size={14} className="mr-1" /> Replace
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-4 py-8">
+                      <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center">
+                        <Camera size={36} className="text-primary" />
+                      </div>
+                      <div className="text-center">
+                        <p className="font-medium text-lg mb-1">Drop screenshot here or click to upload</p>
+                        <p className="text-sm text-muted-foreground">
+                          Press <kbd className="px-1.5 py-0.5 bg-secondary/50 border border-border/50 rounded text-xs font-mono">Ctrl+V</kbd> to paste from clipboard
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} data-testid="button-browse-files">
+                          <Upload size={14} className="mr-1" /> Browse Files
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.read().then(items => {
+                            for (const item of items) {
+                              const imageType = item.types.find(t => t.startsWith("image/"));
+                              if (imageType) { item.getType(imageType).then(blob => { processImageFile(new File([blob], "clipboard.png", { type: imageType })); }); }
+                            }
+                          }).catch(() => { toast({ title: "Paste failed", description: "No image in clipboard.", variant: "destructive" }); });
+                        }} data-testid="button-paste-clipboard">
+                          <Clipboard size={14} className="mr-1" /> Paste from Clipboard
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-5">
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Niche (optional)</label>
-                    <Input placeholder="e.g. Tech, Fashion, Crypto" value={niche} onChange={(e) => setNiche(e.target.value)} className="bg-secondary/30" data-testid="input-niche-screenshot" />
+                    <label className="text-xs font-medium mb-1 block">Niche / Trend Topic</label>
+                    <div className="flex gap-2">
+                      <Input placeholder="Paste trend topic here..." value={niche} onChange={(e) => setNiche(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && niche.trim()) searchOnX(niche.trim()); }} className="flex-1 bg-secondary/30" data-testid="input-niche-screenshot" />
+                      <Button size="sm" variant="outline" onClick={() => { if (niche.trim()) searchOnX(niche.trim()); }} disabled={!niche.trim()} className="shrink-0 gap-1.5" data-testid="button-search-niche-x-screenshot">
+                        <ExternalLink size={13} />
+                        X
+                      </Button>
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Comment Style</label>
@@ -661,9 +362,16 @@ export default function ViralEngine() {
                     </select>
                   </div>
                 </div>
+
+                <div className="flex justify-end mt-6">
+                  <Button onClick={handleScreenshotScan} disabled={isScanning || !screenshotFile} className="min-w-[220px]" data-testid="button-scan-screenshot">
+                    {scanScreenshot.isPending ? (<><RefreshCw size={14} className="mr-2 animate-spin" /> AI is reading the post...</>) : (<><Eye size={14} className="mr-2" /> Scan & Generate Comments</>)}
+                  </Button>
+                </div>
               </div>
             )}
 
+            {/* Manual Entry */}
             {analyzeMode === "manual" && (
               <div className="glass-panel p-6 space-y-5">
                 <div className="flex items-center gap-2 mb-2">
@@ -687,7 +395,16 @@ export default function ViralEngine() {
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   <div><label className="text-xs font-medium mb-1 block flex items-center gap-1"><Clock size={12} /> Time Since Posted</label><Input placeholder="e.g. 2h, 30m" value={timeElapsed} onChange={(e) => setTimeElapsed(e.target.value)} className="bg-secondary/30" data-testid="input-time-elapsed" /></div>
-                  <div><label className="text-xs font-medium mb-1 block">Niche</label><Input placeholder="e.g. Tech, Fashion" value={niche} onChange={(e) => setNiche(e.target.value)} className="bg-secondary/30" data-testid="input-niche" /></div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Niche / Trend Topic</label>
+                    <div className="flex gap-2">
+                      <Input placeholder="Paste trend topic here..." value={niche} onChange={(e) => setNiche(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && niche.trim()) searchOnX(niche.trim()); }} className="flex-1 bg-secondary/30" data-testid="input-niche" />
+                      <Button size="sm" variant="outline" onClick={() => { if (niche.trim()) searchOnX(niche.trim()); }} disabled={!niche.trim()} className="shrink-0 gap-1.5" data-testid="button-search-niche-x">
+                        <ExternalLink size={13} />
+                        X
+                      </Button>
+                    </div>
+                  </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Comment Style</label>
                     <select value={commentStyle} onChange={(e) => setCommentStyle(e.target.value)} className="w-full bg-secondary/30 border border-border/50 rounded-md px-3 py-2 text-sm" data-testid="select-comment-style">
@@ -695,20 +412,72 @@ export default function ViralEngine() {
                     </select>
                   </div>
                 </div>
+                <div className="flex justify-end">
+                  <Button onClick={handleManualAnalyze} disabled={isScanning || !postText.trim()} className="min-w-[200px]" data-testid="button-generate-comments">
+                    {analyzePost.isPending ? (<><RefreshCw size={14} className="mr-2 animate-spin" /> Analyzing...</>) : (<><Zap size={14} className="mr-2" /> Generate Viral Comments</>)}
+                  </Button>
+                </div>
               </div>
             )}
 
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep("trends")} data-testid="button-back-to-trends">Back to Trends</Button>
-              {analyzeMode === "screenshot" ? (
-                <Button onClick={handleScreenshotScan} disabled={isScanning || !screenshotFile} className="min-w-[200px]" data-testid="button-scan-screenshot">
-                  {scanScreenshot.isPending ? (<><RefreshCw size={14} className="mr-2 animate-spin" /> AI is reading the post...</>) : (<><Eye size={14} className="mr-2" /> Scan & Generate Comments</>)}
-                </Button>
-              ) : (
-                <Button onClick={handleManualAnalyze} disabled={isScanning || !postText.trim()} className="min-w-[200px]" data-testid="button-generate-comments">
-                  {analyzePost.isPending ? (<><RefreshCw size={14} className="mr-2 animate-spin" /> Analyzing...</>) : (<><Zap size={14} className="mr-2" /> Generate Viral Comments</>)}
-                </Button>
-              )}
+            {/* Google Trends Collapsible */}
+            <div className="glass-panel overflow-hidden">
+              <button
+                onClick={() => setGoogleTrendsOpen(!googleTrendsOpen)}
+                className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-secondary/20 transition-colors"
+                data-testid="button-toggle-google-trends"
+              >
+                <div className="flex items-center gap-2">
+                  <TrendingUp size={15} className="text-primary" />
+                  <span className="font-medium text-sm">Google Trends</span>
+                  <span className="text-xs text-muted-foreground">— find trending topics to inform your niche</span>
+                </div>
+                {googleTrendsOpen ? <ChevronUp size={15} className="text-muted-foreground" /> : <ChevronDown size={15} className="text-muted-foreground" />}
+              </button>
+
+              <AnimatePresence>
+                {googleTrendsOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden border-t border-border/50"
+                  >
+                    <div className="p-4 space-y-4">
+                      <div className="space-y-3">
+                        {GOOGLE_TRENDS_STEPS.map((s, i) => {
+                          const Icon = s.icon;
+                          return (
+                            <div key={i} className="flex gap-3 items-start">
+                              <div className="w-7 h-7 rounded-full bg-primary/15 border border-primary/20 flex items-center justify-center shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-primary">{i + 1}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <Icon size={12} className="text-primary shrink-0" />
+                                  <p className="text-sm font-medium">{s.label}</p>
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-relaxed">{s.desc}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <Button
+                        onClick={() => window.open(TRENDS_URL, "_blank", "noopener,noreferrer")}
+                        className="w-full gap-2"
+                        data-testid="button-open-google-trends"
+                      >
+                        <ExternalLink size={14} />
+                        Open Google Trends
+                      </Button>
+                      <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                        Opens in a new tab. Google Trends does not allow embedding in third-party apps (X-Frame-Options policy).
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
         )}
@@ -832,22 +601,13 @@ export default function ViralEngine() {
               <Button variant="outline" onClick={() => { setStep("analyze"); setAnalysis(null); setExtractedData(null); setScreenshotPreview(null); setScreenshotFile(null); setPostText(""); }} data-testid="button-analyze-another">
                 Analyze Another Post
               </Button>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => { setStep("trends"); setAnalysis(null); setExtractedData(null); setScreenshotPreview(null); setScreenshotFile(null); setPostText(""); setImageUrl(""); }} data-testid="button-new-trend">
-                  New Trend
-                </Button>
-                {selectedTrend && (
-                  <Button onClick={() => openXSearch(selectedTrend.searchQuery)} data-testid="button-back-to-x">
-                    <ExternalLink size={14} className="mr-2" /> Back to X Search
-                  </Button>
-                )}
-              </div>
+              <Button variant="outline" onClick={() => { setStep("analyze"); setAnalysis(null); setExtractedData(null); setScreenshotPreview(null); setScreenshotFile(null); setPostText(""); setImageUrl(""); }} data-testid="button-new-trend">
+                Start Over
+              </Button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-
-      <GoogleTrendsPanel open={googleTrendsOpen} onClose={() => setGoogleTrendsOpen(false)} />
     </div>
   );
 }

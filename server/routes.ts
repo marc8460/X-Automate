@@ -769,46 +769,60 @@ ${commentStyle || "Balanced"}`;
         messages: [{
           role: "user",
           content: [
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } },
             {
               type: "text",
-              text: `This is a screenshot of an X/Twitter post. Extract ALL information you can see. Return ONLY valid JSON:
+              text: `You are looking at a screenshot of an X (Twitter) post. Extract every piece of text and data you can see. Return ONLY valid JSON with this exact structure:
 {
-  "postText": "the full text content of the post/tweet",
-  "authorUsername": "the @username if visible",
-  "authorDisplayName": "display name if visible",
-  "authorFollowers": "follower count if visible (e.g. '50K')",
-  "likes": number or 0,
-  "replies": number or 0,
-  "retweets": number or 0,
-  "views": number or 0,
-  "timeElapsed": "time since posted if visible (e.g. '2h', '3m')",
-  "hasImage": true/false if the post contains an image,
-  "imageDescription": "if the post contains an image, describe what's in it in detail - scene, emotions, meme structure, cultural references. Otherwise null",
+  "postText": "the full text content of the tweet/post",
+  "authorUsername": "the @username if visible, else null",
+  "authorDisplayName": "display name if visible, else null",
+  "authorFollowers": "follower count if visible (e.g. '50K'), else null",
+  "likes": <number or 0>,
+  "replies": <number or 0>,
+  "retweets": <number or 0>,
+  "views": <number or 0>,
+  "timeElapsed": "time since posted if visible (e.g. '2h', '3m'), else null",
+  "hasImage": <true or false>,
+  "imageDescription": "if the post contains an embedded image/meme, describe it in detail. Otherwise null",
   "hashtags": ["any", "hashtags", "visible"],
-  "isQuotePost": true/false,
-  "quotedText": "text of quoted post if it's a quote post, otherwise null"
+  "isQuotePost": <true or false>,
+  "quotedText": "text of quoted post if visible, otherwise null"
 }
-Return ONLY the JSON. No markdown, no extra text.`
+Return ONLY the JSON object. No explanation, no markdown code fences.`
             },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } },
           ],
         }],
-        temperature: 0.2,
-        max_tokens: 1000,
+        temperature: 0.1,
+        max_tokens: 1500,
       });
 
-      const extractedRaw = extractionResult.choices[0]?.message?.content || "{}";
+      const extractedRaw = extractionResult.choices[0]?.message?.content || "";
+      console.log("Vision extraction raw response:", extractedRaw.substring(0, 500));
       let extracted: any;
       try {
         const jsonMatch = extractedRaw.match(/\{[\s\S]*\}/);
-        extracted = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-      } catch {
-        extracted = { postText: "Could not extract post content from screenshot" };
+        if (jsonMatch) {
+          extracted = JSON.parse(jsonMatch[0]);
+        } else {
+          extracted = { postText: extractedRaw.trim() || null };
+        }
+      } catch (parseErr: any) {
+        console.error("JSON parse failed for vision response:", parseErr.message);
+        const textContent = extractedRaw.replace(/```json?\s*/g, "").replace(/```/g, "").trim();
+        try {
+          extracted = JSON.parse(textContent);
+        } catch {
+          extracted = { postText: textContent.length > 20 ? textContent : null };
+        }
       }
 
-      if (!extracted.postText || extracted.postText === "Could not extract post content from screenshot") {
+      if (!extracted.postText?.trim()) {
         fs.promises.unlink(req.file.path).catch(() => {});
-        return res.status(400).json({ message: "Could not read the post from the screenshot. Try a clearer screenshot showing the full post.", extracted });
+        return res.status(400).json({
+          message: "Could not read the post from the screenshot. Try a clearer screenshot showing the full post.",
+          extracted: { postText: "Could not extract post content from screenshot" },
+        });
       }
 
       const systemPrompt = `You are an elite social engagement strategist specialized in identifying emerging trends and generating high-visibility comments on X (Twitter).
