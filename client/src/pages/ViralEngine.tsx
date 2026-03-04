@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTrendingTopics, useAnalyzePost, useScanScreenshot } from "@/lib/hooks";
 import type { TrendTopic } from "@/lib/hooks";
+import { GoogleTrendsPanel } from "@/components/GoogleTrendsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -158,6 +159,7 @@ export default function ViralEngine() {
 
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [googleTrendsOpen, setGoogleTrendsOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -346,6 +348,11 @@ export default function ViralEngine() {
 
                 <Button variant="outline" size="sm" onClick={() => refetchTrends()} disabled={trendsLoading} data-testid="button-refresh-trends">
                   <RefreshCw size={14} className={trendsLoading ? "animate-spin" : ""} />
+                </Button>
+
+                <Button variant="outline" size="sm" onClick={() => setGoogleTrendsOpen(true)} className="gap-1.5" data-testid="button-open-google-trends">
+                  <TrendingUp size={14} />
+                  Google Trends
                 </Button>
 
                 <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
@@ -796,6 +803,8 @@ export default function ViralEngine() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <GoogleTrendsPanel open={googleTrendsOpen} onClose={() => setGoogleTrendsOpen(false)} />
     </div>
   );
 }
