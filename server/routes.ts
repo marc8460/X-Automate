@@ -75,15 +75,42 @@ export async function registerRoutes(
     if (!twitterClient) {
       return res.status(400).json({ message: "Twitter credentials not configured" });
     }
-    const { text } = req.body;
+    const { text, imageUrl } = req.body;
     if (!text?.trim()) return res.status(400).json({ message: "text is required" });
     if (text.length > 280) return res.status(400).json({ message: "Tweet exceeds 280 character limit" });
     try {
-      const result = await twitterClient.v2.tweet(text.trim());
+      let mediaId: string | undefined;
+      if (imageUrl) {
+        try {
+          let imageBuffer: Buffer;
+          if (imageUrl.startsWith("/uploads/")) {
+            imageBuffer = await fs.promises.readFile(path.join(process.cwd(), imageUrl));
+          } else if (imageUrl.startsWith("http")) {
+            const response = await fetch(imageUrl);
+            imageBuffer = Buffer.from(await response.arrayBuffer());
+          } else {
+            imageBuffer = await fs.promises.readFile(imageUrl);
+          }
+          mediaId = await twitterClient.v1.uploadMedia(imageBuffer, {
+            mimeType: imageUrl.endsWith(".png") ? "image/png" : imageUrl.endsWith(".gif") ? "image/gif" : "image/jpeg",
+          });
+          console.log("[post-now] Media uploaded, mediaId:", mediaId);
+        } catch (mediaErr: any) {
+          console.error("[post-now] Media upload failed, posting without image:", mediaErr.message);
+        }
+      }
+
+      const tweetPayload: any = { text: text.trim() };
+      if (mediaId) {
+        tweetPayload.media = { media_ids: [mediaId] };
+      }
+      const result = await twitterClient.v2.tweet(tweetPayload);
+      console.log("[post-now] Tweet posted:", result.data.id);
       res.json({ success: true, tweetId: result.data.id });
     } catch (err: any) {
-      console.error("Post now error:", err);
-      res.status(500).json({ message: err.message || "Failed to post tweet" });
+      console.error("[post-now] Twitter API error:", err.data || err.message || err);
+      const msg = err.data?.detail || err.data?.errors?.[0]?.message || err.message || "Failed to post tweet";
+      res.status(500).json({ message: msg });
     }
   });
 

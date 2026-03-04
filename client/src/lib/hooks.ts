@@ -295,9 +295,8 @@ export function useSendEngagementReply() {
 
 export function usePostNow() {
   return useMutation({
-    mutationFn: async (text: string) => {
-      const res = await apiRequest("POST", "/api/content/post-now", { text });
-      if (!res.ok) throw new Error((await res.json()).message || "Post failed");
+    mutationFn: async (data: { text: string; imageUrl?: string }) => {
+      const res = await apiRequest("POST", "/api/content/post-now", data);
       return res.json() as Promise<{ success: boolean; tweetId: string }>;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/tweets"] }),

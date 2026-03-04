@@ -133,7 +133,7 @@ export default function ContentEngine() {
       toast({ title: "Too long", description: "Tweets must be 280 characters or less.", variant: "destructive" });
       return;
     }
-    postNowMutation.mutate(draftText, {
+    postNowMutation.mutate({ text: draftText, imageUrl: attachedImage || undefined }, {
       onSuccess: () => {
         setDraftText("");
         setAttachedImage(null);
@@ -151,7 +151,7 @@ export default function ContentEngine() {
       return;
     }
     setPostingNowId(tweet.id);
-    postNowMutation.mutate(tweet.text, {
+    postNowMutation.mutate({ text: tweet.text, imageUrl: tweet.imageUrl || undefined }, {
       onSuccess: () => {
         updateTweetMutation.mutate({ id: tweet.id, status: "posted" });
         toast({ title: "Posted to X ✓", description: "Your tweet is live." });
