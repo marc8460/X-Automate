@@ -160,6 +160,7 @@ export default function ViralEngine() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [googleTrendsOpen, setGoogleTrendsOpen] = useState(false);
+  const [manualSearchTerm, setManualSearchTerm] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -277,6 +278,14 @@ export default function ViralEngine() {
     window.open(`https://x.com/search?q=${encoded}&src=typed_query&f=top`, "_blank");
   };
 
+  const searchOnX = (query: string) => {
+    window.open(
+      `https://twitter.com/search?q=${encodeURIComponent(query)}&f=live`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  };
+
   const scoreColor = (score: number) => score >= 8 ? "text-green-400" : score >= 5 ? "text-yellow-400" : "text-red-400";
   const scoreBg = (score: number) => score >= 8 ? "bg-green-500/20 border-green-500/30" : score >= 5 ? "bg-yellow-500/20 border-yellow-500/30" : "bg-red-500/20 border-red-500/30";
   const isScanning = scanScreenshot.isPending || analyzePost.isPending;
@@ -357,14 +366,41 @@ export default function ViralEngine() {
 
                 <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                   {trendsData?.source === "google_trends" ? (
-                    <span className="px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">Google Trends</span>
-                  ) : trendsData?.source === "ai_generated" ? (
-                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">AI-Powered</span>
+                    <span className="px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">Live</span>
+                  ) : trendsData?.source === "no_data" ? (
+                    <span className="px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 font-medium">Unavailable</span>
                   ) : null}
                   {trendsData?.fetchedAt && (
                     <span>Updated {new Date(trendsData.fetchedAt).toLocaleTimeString()}</span>
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Manual trend search */}
+            <div className="glass-panel p-3">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground whitespace-nowrap shrink-0">
+                  Search trend manually
+                </label>
+                <Input
+                  value={manualSearchTerm}
+                  onChange={(e) => setManualSearchTerm(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && manualSearchTerm.trim()) searchOnX(manualSearchTerm.trim()); }}
+                  placeholder="Enter a trending topic..."
+                  className="flex-1"
+                  data-testid="input-manual-trend"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => { if (manualSearchTerm.trim()) searchOnX(manualSearchTerm.trim()); }}
+                  disabled={!manualSearchTerm.trim()}
+                  className="gap-1.5 whitespace-nowrap"
+                  data-testid="button-search-on-x"
+                >
+                  <ExternalLink size={13} />
+                  Search on X
+                </Button>
               </div>
             </div>
 
@@ -377,7 +413,14 @@ export default function ViralEngine() {
             ) : !trendsData?.topics?.length ? (
               <div className="glass-panel p-16 flex flex-col items-center justify-center gap-3">
                 <Globe size={28} className="text-muted-foreground" />
-                <p className="text-muted-foreground">No trends found. Try different filters.</p>
+                {trendsData?.source === "no_data" ? (
+                  <>
+                    <p className="text-muted-foreground font-medium">No live trends available</p>
+                    <p className="text-xs text-muted-foreground">Google Trends could not be reached. Try refreshing or use the manual search above.</p>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">No trends found. Try different filters.</p>
+                )}
               </div>
             ) : (
               <div className="glass-panel overflow-hidden">
@@ -395,7 +438,7 @@ export default function ViralEngine() {
                       className={`grid grid-cols-[1fr_120px_120px_140px_1fr] gap-0 px-4 py-3 items-center cursor-pointer transition-colors hover:bg-secondary/30 ${
                         expandedTrend === topic.id ? "bg-secondary/20" : ""
                       } ${index < trendsData.topics.length - 1 ? "border-b border-border/20" : ""}`}
-                      onClick={() => setExpandedTrend(expandedTrend === topic.id ? null : topic.id)}
+                      onClick={() => { setExpandedTrend(expandedTrend === topic.id ? null : topic.id); setManualSearchTerm(topic.title); }}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xs text-muted-foreground w-5 text-right shrink-0">{index + 1}</span>

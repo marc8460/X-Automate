@@ -522,74 +522,9 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
         allTopics = await fetchGoogleTrendsRSS(geo);
         source = "google_trends";
       } catch (rssErr: any) {
-        console.error("Google Trends RSS failed, using AI fallback:", rssErr.message);
-        source = "ai_generated";
-
-        const countryNames: Record<string, string> = {
-          US: "United States", GB: "United Kingdom", CA: "Canada", AU: "Australia",
-          DE: "Germany", FR: "France", BR: "Brazil", IN: "India", JP: "Japan",
-          KR: "South Korea", MX: "Mexico", IT: "Italy", ES: "Spain", NL: "Netherlands",
-          SE: "Sweden", NO: "Norway", DK: "Denmark", FI: "Finland", PL: "Poland",
-          AR: "Argentina", CL: "Chile", CO: "Colombia", PE: "Peru", NG: "Nigeria",
-          ZA: "South Africa", EG: "Egypt", SA: "Saudi Arabia", AE: "UAE",
-          TR: "Turkey", RU: "Russia", UA: "Ukraine", ID: "Indonesia",
-          PH: "Philippines", TH: "Thailand", VN: "Vietnam", MY: "Malaysia",
-          SG: "Singapore", TW: "Taiwan", HK: "Hong Kong", NZ: "New Zealand",
-          IE: "Ireland", PT: "Portugal", CH: "Switzerland", AT: "Austria",
-          BE: "Belgium", CZ: "Czech Republic", RO: "Romania", GR: "Greece",
-          IL: "Israel", PK: "Pakistan", BD: "Bangladesh",
-        };
-        const countryName = countryNames[geo] || geo;
-
-        const categoryLabels: Record<string, string> = {
-          all: "all categories",
-          entertainment: "entertainment, celebrities, movies, music, gaming",
-          business: "business, finance, economy",
-          technology: "technology, AI, software, crypto",
-          sports: "sports, football, basketball, soccer, F1",
-          health: "health, medicine, fitness",
-          science: "science, space, climate",
-          politics: "politics, elections, government",
-        };
-
-        const completion = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
-          messages: [
-            {
-              role: "system",
-              content: `Generate trending topics matching Google Trends "Trending Now". Return ONLY a JSON array, 10 items. No markdown.
-[{"title":"...","traffic":"500K+","trafficNumber":500000,"growthPercent":"+1,000%","startedAgo":"2 hours ago","startedAgoMinutes":120,"relatedQueries":["q1","q2","q3"],"category":"..."}]`,
-            },
-            {
-              role: "user",
-              content: `Generate 10 trending topics for ${countryName} (${geo}), focusing on: ${categoryLabels[category] || "all categories"}. Topics must be SPECIFIC — real people, events, matches, not generic themes. Sorted by search volume.`,
-            },
-          ],
-          temperature: 0.85,
-          max_tokens: 4096,
-        });
-
-        const raw = completion.choices[0]?.message?.content || "[]";
-        try {
-          const jsonMatch = raw.match(/\[[\s\S]*\]/);
-          const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-          allTopics = parsed.map((t: any, i: number) => ({
-            id: i + 1,
-            title: t.title || "Unknown",
-            traffic: t.traffic || "10K+",
-            trafficNumber: t.trafficNumber || (20 - i) * 10000,
-            growthPercent: t.growthPercent || "+500%",
-            status: "Active",
-            startedAgo: t.startedAgo || "recently",
-            startedAgoMinutes: t.startedAgoMinutes || (i + 1) * 30,
-            relatedQueries: t.relatedQueries || [],
-            articles: [],
-            searchQuery: t.title || "",
-            category: t.category || "general",
-          }));
-        } catch {
-          allTopics = [];
-        }
+        console.error("Google Trends RSS failed:", rssErr.message);
+        allTopics = [];
+        source = "no_data";
       }
 
       let topics = allTopics
