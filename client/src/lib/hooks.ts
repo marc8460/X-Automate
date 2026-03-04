@@ -218,6 +218,7 @@ export function useAnalyzePost() {
       timeElapsed?: string;
       niche?: string;
       commentStyle?: string;
+      customPrompt?: string;
     }) => {
       const res = await apiRequest("POST", "/api/analyze-post", data);
       return res.json();

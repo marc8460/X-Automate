@@ -576,6 +576,7 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
         timeElapsed,
         niche,
         commentStyle,
+        customPrompt,
       } = req.body;
 
       if (!postText) return res.status(400).json({ message: "postText is required" });
@@ -624,29 +625,34 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
         }
       }
 
-      const systemPrompt = `You are an elite social engagement strategist specialized in identifying emerging trends and generating high-visibility comments on X (Twitter).
+      const hasCustomStyle = customPrompt?.trim();
+
+      const systemPrompt = `You are an elite social engagement strategist specialized in generating high-visibility comments on X (Twitter).
 
 Your job is to:
 1. Analyze a rising topic (from Google Trends or other trend signals).
 2. Analyze a specific X post (text + image if provided).
 3. Evaluate both the trend momentum and the post's viral potential.
-4. Generate high-quality, human-like comments optimized for visibility and engagement.
-
-IMPORTANT RULES:
-- Comments must feel 100% human.
-- No generic praise (avoid "Love this!", "So true!", etc.).
-- No spammy tone.
-- No emojis overload.
-- No bot-like enthusiasm.
+4. Generate 5 comments for the post.
+${hasCustomStyle
+  ? `\nCOMMENT STYLE — MANDATORY:
+Every single comment you write MUST follow these style instructions from the user:
+"${customPrompt!.trim()}"
+This is the #1 priority. Apply it to tone, vocabulary, energy, length, slang, emoji usage, and personality.
+Do NOT fall back to generic, balanced, or safe defaults. The user's style instruction overrides everything else about how the comments should sound.\n`
+  : `\nCOMMENT STYLE:
+- Comments must feel 100% human-written.
+- No generic praise ("Love this!", "So true!").
+- No spammy tone or bot-like enthusiasm.
+- No emoji overload.
 - Add insight, curiosity, perspective, or subtle authority.
-- Comments must expand the conversation, not repeat the post.
+- Comments must expand the conversation, not repeat the post.\n`}
 - If engagement velocity is low relative to follower count, recommend skipping the post and explain why.
 
 Optimize for:
 - Early engagement advantage
 - Psychological triggers
 - Curiosity gaps
-- Authority positioning
 - Relatability
 - Conversation expansion
 
@@ -712,9 +718,10 @@ Time Since Posted: ${timeElapsed || "Unknown"}
 
 NICHE:
 ${niche || "General"}
+${hasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 comments is: "${customPrompt!.trim()}". Follow it exactly.` : ""}`;
 
-COMMENT STYLE MODE:
-${commentStyle || "Balanced"}`;
+      console.log("[analyze-post] customPrompt received:", JSON.stringify(customPrompt || ""));
+      console.log("[analyze-post] styleBlock active:", customPrompt?.trim() ? "CUSTOM OVERRIDE" : "DEFAULT");
 
       const completion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
@@ -757,6 +764,7 @@ ${commentStyle || "Balanced"}`;
       const trendContext = (req.body.trendContext as string) || "";
       const commentStyle = (req.body.commentStyle as string) || "Balanced";
       const niche = (req.body.niche as string) || "";
+      const customPrompt = (req.body.customPrompt as string) || "";
 
       const imageData = await fs.promises.readFile(req.file.path);
       const base64Image = imageData.toString("base64");
@@ -825,29 +833,37 @@ Return ONLY the JSON object. No explanation, no markdown code fences.`
         });
       }
 
-      const systemPrompt = `You are an elite social engagement strategist specialized in identifying emerging trends and generating high-visibility comments on X (Twitter).
+      console.log("[scan-screenshot] customPrompt received:", JSON.stringify(customPrompt || ""));
+      console.log("[scan-screenshot] styleBlock active:", customPrompt?.trim() ? "CUSTOM OVERRIDE" : "DEFAULT");
+
+      const scanHasCustomStyle = customPrompt?.trim();
+
+      const systemPrompt = `You are an elite social engagement strategist specialized in generating high-visibility comments on X (Twitter).
 
 Your job is to:
 1. Analyze a rising topic (from Google Trends or other trend signals).
 2. Analyze a specific X post (text + image if provided).
 3. Evaluate both the trend momentum and the post's viral potential.
-4. Generate high-quality, human-like comments optimized for visibility and engagement.
-
-IMPORTANT RULES:
-- Comments must feel 100% human.
-- No generic praise (avoid "Love this!", "So true!", etc.).
-- No spammy tone.
-- No emojis overload.
-- No bot-like enthusiasm.
+4. Generate 5 comments for the post.
+${scanHasCustomStyle
+  ? `\nCOMMENT STYLE — MANDATORY:
+Every single comment you write MUST follow these style instructions from the user:
+"${customPrompt!.trim()}"
+This is the #1 priority. Apply it to tone, vocabulary, energy, length, slang, emoji usage, and personality.
+Do NOT fall back to generic, balanced, or safe defaults. The user's style instruction overrides everything else about how the comments should sound.\n`
+  : `\nCOMMENT STYLE:
+- Comments must feel 100% human-written.
+- No generic praise ("Love this!", "So true!").
+- No spammy tone or bot-like enthusiasm.
+- No emoji overload.
 - Add insight, curiosity, perspective, or subtle authority.
-- Comments must expand the conversation, not repeat the post.
+- Comments must expand the conversation, not repeat the post.\n`}
 - If engagement velocity is low relative to follower count, recommend skipping the post and explain why.
 
 Optimize for:
 - Early engagement advantage
 - Psychological triggers
 - Curiosity gaps
-- Authority positioning
 - Relatability
 - Conversation expansion
 
@@ -910,9 +926,7 @@ Hashtags: ${extracted.hashtags?.join(", ") || "None"}
 
 NICHE:
 ${niche || "General"}
-
-COMMENT STYLE MODE:
-${commentStyle}`;
+${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 comments is: "${customPrompt!.trim()}". Follow it exactly.` : ""}`;
 
       const completion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",

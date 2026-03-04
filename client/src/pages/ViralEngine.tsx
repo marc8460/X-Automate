@@ -31,6 +31,7 @@ import {
   Upload,
   Clipboard,
   Eye,
+  Wand2,
 } from "lucide-react";
 
 type AnalysisResult = {
@@ -91,6 +92,18 @@ const GOOGLE_TRENDS_STEPS = [
   },
 ];
 
+// Auto-expand a textarea to fit its content
+function autoExpand(el: HTMLTextAreaElement) {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
+const promptTextareaClass =
+  "w-full bg-secondary/30 border border-border/50 rounded-md px-3 py-2 text-sm " +
+  "placeholder:text-muted-foreground/40 resize-none overflow-hidden leading-snug " +
+  "focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 " +
+  "focus:shadow-[0_0_14px_hsl(288deg_100%_65%/0.12)] transition-all duration-150";
+
 export default function ViralEngine() {
   const [step, setStep] = useState<Step>("analyze");
   const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>("screenshot");
@@ -107,7 +120,7 @@ export default function ViralEngine() {
   const [retweets, setRetweets] = useState("");
   const [timeElapsed, setTimeElapsed] = useState("");
   const [niche, setNiche] = useState("");
-  const [commentStyle, setCommentStyle] = useState("Balanced");
+  const [customPrompt, setCustomPrompt] = useState("");
 
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -190,8 +203,8 @@ export default function ViralEngine() {
     if (!screenshotFile) return;
     const formData = new FormData();
     formData.append("screenshot", screenshotFile);
-    formData.append("commentStyle", commentStyle);
     if (niche) formData.append("niche", niche);
+    if (customPrompt) formData.append("customPrompt", customPrompt);
 
     scanScreenshot.mutate(formData, {
       onSuccess: (data) => {
@@ -220,13 +233,54 @@ export default function ViralEngine() {
         retweets: retweets ? parseInt(retweets) : undefined,
         timeElapsed: timeElapsed.trim() || undefined,
         niche: niche.trim() || undefined,
-        commentStyle,
+        customPrompt: customPrompt.trim() || undefined,
       },
       {
         onSuccess: (data) => { setAnalysis(data.analysis); setStep("results"); },
         onError: (err: any) => { toast({ title: "Analysis failed", description: err.message, variant: "destructive" }); },
       }
     );
+  };
+
+  const handleRegenerate = () => {
+    if (extractedData) {
+      // Screenshot path — use what the vision model extracted
+      analyzePost.mutate(
+        {
+          postText: extractedData.postText,
+          authorFollowers: extractedData.authorFollowers,
+          likes: extractedData.likes,
+          replies: extractedData.replies,
+          retweets: extractedData.retweets,
+          timeElapsed: extractedData.timeElapsed,
+          niche: niche.trim() || undefined,
+          customPrompt: customPrompt.trim() || undefined,
+        },
+        {
+          onSuccess: (data) => { setAnalysis(data.analysis); },
+          onError: (err: any) => { toast({ title: "Regeneration failed", description: err.message, variant: "destructive" }); },
+        }
+      );
+    } else if (postText.trim()) {
+      // Manual entry path
+      analyzePost.mutate(
+        {
+          postText: postText.trim(),
+          imageUrl: imageUrl.trim() || undefined,
+          authorFollowers: authorFollowers.trim() || undefined,
+          likes: likes ? parseInt(likes) : undefined,
+          replies: replies ? parseInt(replies) : undefined,
+          retweets: retweets ? parseInt(retweets) : undefined,
+          timeElapsed: timeElapsed.trim() || undefined,
+          niche: niche.trim() || undefined,
+          customPrompt: customPrompt.trim() || undefined,
+        },
+        {
+          onSuccess: (data) => { setAnalysis(data.analysis); },
+          onError: (err: any) => { toast({ title: "Regeneration failed", description: err.message, variant: "destructive" }); },
+        }
+      );
+    }
   };
 
   const copyComment = (text: string, index: number) => {
@@ -340,7 +394,8 @@ export default function ViralEngine() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 mt-5">
+                {/* Niche + Custom Prompt */}
+                <div className="mt-5 space-y-3">
                   <div>
                     <label className="text-xs font-medium mb-1 block">Niche / Trend Topic</label>
                     <div className="flex gap-2">
@@ -352,14 +407,18 @@ export default function ViralEngine() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Comment Style</label>
-                    <select value={commentStyle} onChange={(e) => setCommentStyle(e.target.value)}
-                      className="w-full bg-secondary/30 border border-border/50 rounded-md px-3 py-2 text-sm" data-testid="select-comment-style-screenshot">
-                      <option value="Safe">Safe</option>
-                      <option value="Balanced">Balanced</option>
-                      <option value="Bold">Bold</option>
-                      <option value="Contrarian">Contrarian</option>
-                    </select>
+                    <label className="text-xs font-medium mb-1 block">
+                      Comment Instructions <span className="text-muted-foreground/60 font-normal">(optional)</span>
+                    </label>
+                    <textarea
+                      rows={1}
+                      value={customPrompt}
+                      onChange={(e) => { setCustomPrompt(e.target.value); autoExpand(e.target); }}
+                      placeholder='Example: short viral comment in the style of a Gen Z girl'
+                      className={promptTextareaClass}
+                      style={{ minHeight: "38px" }}
+                      data-testid="input-custom-prompt-screenshot"
+                    />
                   </div>
                 </div>
 
@@ -393,7 +452,7 @@ export default function ViralEngine() {
                   <div><label className="text-xs font-medium mb-1 block flex items-center gap-1"><MessageSquare size={12} /> Replies</label><Input type="number" placeholder="0" value={replies} onChange={(e) => setReplies(e.target.value)} className="bg-secondary/30" data-testid="input-replies" /></div>
                   <div><label className="text-xs font-medium mb-1 block flex items-center gap-1"><Repeat2 size={12} /> Reposts</label><Input type="number" placeholder="0" value={retweets} onChange={(e) => setRetweets(e.target.value)} className="bg-secondary/30" data-testid="input-retweets" /></div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <div><label className="text-xs font-medium mb-1 block flex items-center gap-1"><Clock size={12} /> Time Since Posted</label><Input placeholder="e.g. 2h, 30m" value={timeElapsed} onChange={(e) => setTimeElapsed(e.target.value)} className="bg-secondary/30" data-testid="input-time-elapsed" /></div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Niche / Trend Topic</label>
@@ -405,12 +464,20 @@ export default function ViralEngine() {
                       </Button>
                     </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">Comment Style</label>
-                    <select value={commentStyle} onChange={(e) => setCommentStyle(e.target.value)} className="w-full bg-secondary/30 border border-border/50 rounded-md px-3 py-2 text-sm" data-testid="select-comment-style">
-                      <option value="Safe">Safe</option><option value="Balanced">Balanced</option><option value="Bold">Bold</option><option value="Contrarian">Contrarian</option>
-                    </select>
-                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium mb-1 block">
+                    Comment Instructions <span className="text-muted-foreground/60 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    rows={1}
+                    value={customPrompt}
+                    onChange={(e) => { setCustomPrompt(e.target.value); autoExpand(e.target); }}
+                    placeholder='Example: short viral comment in the style of a Gen Z girl'
+                    className={promptTextareaClass}
+                    style={{ minHeight: "38px" }}
+                    data-testid="input-custom-prompt-manual"
+                  />
                 </div>
                 <div className="flex justify-end">
                   <Button onClick={handleManualAnalyze} disabled={isScanning || !postText.trim()} className="min-w-[200px]" data-testid="button-generate-comments">
@@ -567,8 +634,47 @@ export default function ViralEngine() {
               </div>
             </div>
 
+            {/* Generated Comments + Refine & Regenerate */}
             <div className="glass-panel p-5">
-              <div className="flex items-center gap-2 mb-4"><MessageCircle size={18} className="text-primary" /><span className="font-display font-semibold">Generated Comments</span></div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <MessageCircle size={18} className="text-primary" />
+                  <span className="font-display font-semibold">Generated Comments</span>
+                </div>
+              </div>
+
+              {/* Refine bar */}
+              <div className="flex items-end gap-3 mb-5 p-3 rounded-lg bg-secondary/20 border border-border/30">
+                <div className="flex-1">
+                  <label className="text-xs font-medium mb-1.5 flex items-center gap-1.5 text-muted-foreground">
+                    <Wand2 size={11} />
+                    Refine the style <span className="font-normal opacity-60">(optional)</span>
+                  </label>
+                  <textarea
+                    rows={1}
+                    value={customPrompt}
+                    onChange={(e) => { setCustomPrompt(e.target.value); autoExpand(e.target); }}
+                    placeholder="Adjust tone, length, personality… e.g. make it funnier and shorter"
+                    className={promptTextareaClass}
+                    style={{ minHeight: "36px" }}
+                    data-testid="input-refine-prompt"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRegenerate}
+                  disabled={analyzePost.isPending || (!extractedData && !postText.trim())}
+                  className="shrink-0 gap-2 border-primary/30 hover:border-primary/60 hover:bg-primary/10 hover:text-primary"
+                  data-testid="button-refine-regenerate"
+                >
+                  {analyzePost.isPending
+                    ? <><RefreshCw size={13} className="animate-spin" /> Regenerating...</>
+                    : <><RefreshCw size={13} /> Refine & Regenerate</>
+                  }
+                </Button>
+              </div>
+
               <div className="space-y-3">
                 {analysis.comments?.map((comment, i) => {
                   const isSafest = analysis.safestOption?.index === i;
@@ -601,7 +707,7 @@ export default function ViralEngine() {
               <Button variant="outline" onClick={() => { setStep("analyze"); setAnalysis(null); setExtractedData(null); setScreenshotPreview(null); setScreenshotFile(null); setPostText(""); }} data-testid="button-analyze-another">
                 Analyze Another Post
               </Button>
-              <Button variant="outline" onClick={() => { setStep("analyze"); setAnalysis(null); setExtractedData(null); setScreenshotPreview(null); setScreenshotFile(null); setPostText(""); setImageUrl(""); }} data-testid="button-new-trend">
+              <Button variant="outline" onClick={() => { setStep("analyze"); setAnalysis(null); setExtractedData(null); setScreenshotPreview(null); setScreenshotFile(null); setPostText(""); setImageUrl(""); setCustomPrompt(""); }} data-testid="button-new-trend">
                 Start Over
               </Button>
             </div>

@@ -1,0 +1,162 @@
+Fix the Custom Prompt not affecting Groq-generated comments.
+
+Problem:
+The "Comment Instructions" field updates in the UI, but Groq output does NOT change based on it. This means customPrompt is either:
+
+Not being sent to backend
+
+Not injected properly into the Groq instruction
+
+Or being overridden by a stronger system prompt
+
+We must fix this so that Groq STRICTLY follows the customPrompt.
+
+1. Verify Frontend → Backend Transmission
+
+In the comment generation request:
+
+Confirm that customPrompt is included in the POST body.
+
+Add console.log before sending request:
+
+console.log("Sending customPrompt:", customPrompt)
+
+Ensure payload includes:
+
+{
+niche,
+extractedPostText,
+extractedImageContext,
+customPrompt
+}
+
+If missing → fix request body.
+
+2. Verify Backend Receives It
+
+In server/routes.ts inside the generate comments endpoint:
+
+Add temporary log:
+
+console.log("Received customPrompt:", req.body.customPrompt)
+
+If undefined → fix request parsing.
+
+3. Fix Groq Prompt Construction (Most Important)
+
+Currently Groq likely has something like:
+
+"Generate 5 viral comments about this post..."
+
+You must modify it so that customPrompt OVERRIDES style.
+
+Change prompt construction to:
+
+const baseInstruction = `
+You are an expert viral X (Twitter) commenter.
+
+Generate 5 highly engaging comments.
+
+Post:
+${postText}
+
+Context:
+${imageContext}
+`;
+
+let finalInstruction = baseInstruction;
+
+if (customPrompt && customPrompt.trim() !== "") {
+finalInstruction += `
+
+CRITICAL STYLE INSTRUCTION:
+You MUST follow this style exactly:
+"${customPrompt}"
+
+The tone, personality, length, and energy MUST reflect this instruction.
+Do not ignore it.
+`;
+}
+
+Key:
+Use strong language like:
+
+MUST follow
+
+CRITICAL
+
+Do not ignore
+
+Override default tone
+
+This increases compliance.
+
+4. Reduce Prompt Conflict
+
+If there is existing hardcoded style like:
+
+"Make it balanced"
+"Do not be controversial"
+"Keep it safe"
+
+Move those into a weaker tone block or conditionally disable them when customPrompt exists.
+
+If customPrompt exists:
+→ Do NOT inject default style rules.
+
+Let user instruction dominate.
+
+5. Make Regeneration Actually Use Updated Prompt
+
+When clicking "Refine & Regenerate":
+
+Make sure it uses the current value of customPrompt state,
+not a cached one.
+
+Do not store it only at first generation.
+Always read latest state value.
+
+6. Add Debug Confirmation (Temporary)
+
+After generation, temporarily log in backend:
+
+console.log("Final Groq prompt:", finalInstruction)
+
+Confirm it contains:
+
+The exact customPrompt text
+
+The strong MUST block
+
+Expected Result:
+
+If user writes:
+"short freaky gen z girl energy"
+
+Groq output should:
+
+Be short
+
+Be chaotic / expressive
+
+Use slang
+
+Feel Gen Z
+
+Possibly playful or edgy
+
+If that does not happen:
+Increase enforcement language.
+
+Important:
+Do NOT change:
+
+AI model
+
+Temperature logic
+
+Persona settings
+
+Database schema
+
+Only fix instruction injection strength.
