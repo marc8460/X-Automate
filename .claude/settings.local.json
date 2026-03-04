@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add client/src/components/GoogleTrendsPanel.tsx client/src/pages/ViralEngine.tsx && git status)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nAdd Google Trends side-panel viewer to Viral Engine\n\nAdds a resizable, closable right-side sliding panel with a 3-step\nworkflow guide and a button that opens Google Trends in a new tab.\nNo iframe or proxy — compliant with X-Frame-Options policy.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add server/routes.ts client/src/pages/ViralEngine.tsx && git status)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nRefactor Viral Engine: live-only trends and manual X search\n\n- Remove AI fallback from trending topics route; RSS failure now\n  returns source \"no_data\" with an empty array instead of generated data\n- Add manual trend search bar \\(input + \"Search on X\" button\\) above the\n  trends table; opens twitter.com/search?f=live in a new tab\n- Clicking a trend row auto-fills the manual search input\n- Update source badge: \"Live\" for Google Trends, \"Unavailable\" for no_data\n- Show distinct \"No live trends available\" empty state on no_data\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)"
+    ]
+  }
+}
