@@ -77,7 +77,10 @@ export function useTrends() {
 }
 
 export function useActivityLogs() {
-  return useQuery<ActivityLog[]>({ queryKey: ["/api/activity-logs"] });
+  return useQuery<ActivityLog[]>({
+    queryKey: ["/api/activity-logs"],
+    refetchInterval: 30_000,
+  });
 }
 
 export function useAnalyticsData() {
@@ -86,6 +89,41 @@ export function useAnalyticsData() {
 
 export function usePeakTimes() {
   return useQuery<PeakTime[]>({ queryKey: ["/api/peak-times"] });
+}
+
+export type TwitterMetrics = {
+  followers: number;
+  following: number;
+  tweetCount: number;
+  impressions: number;
+  likes: number;
+  retweets: number;
+  replies: number;
+  engagementRate: number;
+  dailyMetrics: { date: string; engagement: number; impressions: number; likes: number; retweets: number; replies: number; tweetCount: number }[];
+  error?: string;
+};
+
+export function useTwitterMetrics() {
+  return useQuery<TwitterMetrics>({
+    queryKey: ["/api/twitter/metrics"],
+    refetchInterval: 5 * 60 * 1000,
+  });
+}
+
+export type TwitterPeakTime = {
+  day: string;
+  time: string;
+  score: number;
+  avgEngagement: number;
+  tweetCount: number;
+};
+
+export function useTwitterPeakTimes() {
+  return useQuery<{ peakTimes: TwitterPeakTime[]; topPeak: TwitterPeakTime | null }>({
+    queryKey: ["/api/twitter/peak-times"],
+    refetchInterval: 5 * 60 * 1000,
+  });
 }
 
 export function useSettings() {

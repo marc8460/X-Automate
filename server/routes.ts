@@ -107,6 +107,12 @@ export async function registerRoutes(
       }
       const result = await twitterClient.v2.tweet(tweetPayload);
       console.log("[post-now] Tweet posted:", result.data.id);
+      await storage.createActivityLog({
+        action: "Tweet Posted",
+        detail: text.trim().slice(0, 60) + (text.trim().length > 60 ? "…" : ""),
+        time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+        status: "success",
+      });
       res.json({ success: true, tweetId: result.data.id });
     } catch (err: any) {
       console.error("[post-now] Twitter API error:", err.data || err.message || err);
@@ -125,6 +131,12 @@ export async function registerRoutes(
     const parsed = insertMediaItemSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const item = await storage.createMediaItem(parsed.data);
+    await storage.createActivityLog({
+      action: "Media Upload",
+      detail: `${parsed.data.mood} / ${parsed.data.outfit}`,
+      time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+      status: "success",
+    });
     res.status(201).json(item);
   });
 
@@ -322,9 +334,14 @@ Return ONLY valid JSON with no markdown:
     }
     try {
       const result = await twitterClient.v2.reply(replyText, commentId);
-      // Mark thread as replied so it disappears from the UI
       const resolvedThreadId = threadId || commentId;
       await storage.markThreadReplied(resolvedThreadId);
+      await storage.createActivityLog({
+        action: "Reply Sent",
+        detail: replyText.slice(0, 60) + (replyText.length > 60 ? "…" : ""),
+        time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+        status: "success",
+      });
       res.json({ success: true, tweetId: result.data.id, threadId: resolvedThreadId });
     } catch (err: any) {
       console.error("Send reply error:", err);
@@ -404,6 +421,177 @@ Return ONLY valid JSON with no markdown:
       res.json(result);
     } catch (err: any) {
       res.json({ connected: false, error: err.message || "Unknown error" });
+    }
+  });
+
+  // --- Live Twitter Metrics (cached 5 min) ---
+  let metricsCache: { data: any; fetchedAt: number } | null = null;
+  const METRICS_CACHE_TTL = 5 * 60 * 1000;
+
+  app.get("/api/twitter/metrics", async (_req, res) => {
+    const twitterClient = getTwitterClient();
+    if (!twitterClient) {
+      return res.json({ error: "Twitter credentials not configured" });
+    }
+
+    if (metricsCache && Date.now() - metricsCache.fetchedAt < METRICS_CACHE_TTL) {
+      return res.json(metricsCache.data);
+    }
+
+    try {
+      const me = await twitterClient.v2.me({ "user.fields": ["public_metrics"] });
+      const userId = me.data.id;
+      const publicMetrics = me.data.public_metrics;
+
+      const timelineResult = await twitterClient.v2.userTimeline(userId, {
+        max_results: 100,
+        "tweet.fields": ["public_metrics", "created_at"],
+        exclude: ["retweets"],
+      });
+
+      const tweets: any[] = timelineResult.data?.data ?? [];
+
+      let totalImpressions = 0;
+      let totalLikes = 0;
+      let totalRetweets = 0;
+      let totalReplies = 0;
+
+      const dailyMap: Record<string, { date: string; engagement: number; impressions: number; likes: number; retweets: number; replies: number; tweetCount: number }> = {};
+
+      for (const tweet of tweets) {
+        const pm = tweet.public_metrics ?? {};
+        const impressions = pm.impression_count ?? 0;
+        const likes = pm.like_count ?? 0;
+        const rts = pm.retweet_count ?? 0;
+        const replies = pm.reply_count ?? 0;
+
+        totalImpressions += impressions;
+        totalLikes += likes;
+        totalRetweets += rts;
+        totalReplies += replies;
+
+        if (tweet.created_at) {
+          const d = new Date(tweet.created_at);
+          const dayKey = d.toISOString().slice(0, 10);
+          const dayLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+          if (!dailyMap[dayKey]) {
+            dailyMap[dayKey] = { date: dayLabel, engagement: 0, impressions: 0, likes: 0, retweets: 0, replies: 0, tweetCount: 0 };
+          }
+          dailyMap[dayKey].engagement += likes + rts + replies;
+          dailyMap[dayKey].impressions += impressions;
+          dailyMap[dayKey].likes += likes;
+          dailyMap[dayKey].retweets += rts;
+          dailyMap[dayKey].replies += replies;
+          dailyMap[dayKey].tweetCount += 1;
+        }
+      }
+
+      const totalEngagement = totalLikes + totalRetweets + totalReplies;
+      const engagementRate = totalImpressions > 0
+        ? ((totalEngagement / totalImpressions) * 100).toFixed(2)
+        : "0";
+
+      const dailyMetrics = Object.entries(dailyMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, v]) => v);
+
+      const result = {
+        followers: publicMetrics?.followers_count ?? 0,
+        following: publicMetrics?.following_count ?? 0,
+        tweetCount: publicMetrics?.tweet_count ?? 0,
+        impressions: totalImpressions,
+        likes: totalLikes,
+        retweets: totalRetweets,
+        replies: totalReplies,
+        engagementRate: parseFloat(engagementRate),
+        dailyMetrics,
+      };
+
+      metricsCache = { data: result, fetchedAt: Date.now() };
+      res.json(result);
+    } catch (err: any) {
+      console.error("[twitter/metrics] Error:", err.message);
+      res.status(500).json({ error: err.message || "Failed to fetch metrics" });
+    }
+  });
+
+  // --- Live Audience Peak Times ---
+  let peakCache: { data: any; fetchedAt: number } | null = null;
+
+  app.get("/api/twitter/peak-times", async (_req, res) => {
+    const twitterClient = getTwitterClient();
+    if (!twitterClient) {
+      return res.json({ peakTimes: [], topPeak: null });
+    }
+
+    if (peakCache && Date.now() - peakCache.fetchedAt < METRICS_CACHE_TTL) {
+      return res.json(peakCache.data);
+    }
+
+    try {
+      const me = await twitterClient.v2.me();
+      const userId = me.data.id;
+
+      const timelineResult = await twitterClient.v2.userTimeline(userId, {
+        max_results: 100,
+        "tweet.fields": ["public_metrics", "created_at"],
+        exclude: ["retweets"],
+      });
+
+      const tweets: any[] = timelineResult.data?.data ?? [];
+
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const slots: Record<string, { totalEngagement: number; count: number; hours: number[] }> = {};
+      for (const day of dayNames) {
+        slots[day] = { totalEngagement: 0, count: 0, hours: [] };
+      }
+
+      for (const tweet of tweets) {
+        if (!tweet.created_at) continue;
+        const d = new Date(tweet.created_at);
+        const dayName = dayNames[d.getUTCDay()];
+        const hour = d.getUTCHours();
+        const pm = tweet.public_metrics ?? {};
+        const engagement = (pm.like_count ?? 0) + (pm.retweet_count ?? 0) + (pm.reply_count ?? 0);
+
+        slots[dayName].totalEngagement += engagement;
+        slots[dayName].count += 1;
+        slots[dayName].hours.push(hour);
+      }
+
+      const peakTimesData = dayNames.map(day => {
+        const slot = slots[day];
+        const avgEngagement = slot.count > 0 ? Math.round(slot.totalEngagement / slot.count) : 0;
+        let bestHour = 21;
+        if (slot.hours.length > 0) {
+          const hourCounts: Record<number, number> = {};
+          slot.hours.forEach(h => { hourCounts[h] = (hourCounts[h] || 0) + 1; });
+          bestHour = parseInt(Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0][0]);
+        }
+        const ampm = bestHour >= 12 ? "PM" : "AM";
+        const h12 = bestHour === 0 ? 12 : bestHour > 12 ? bestHour - 12 : bestHour;
+        const timeLabel = `${h12}:00 ${ampm}`;
+
+        const maxPossible = Math.max(1, ...Object.values(slots).map(s => s.count > 0 ? Math.round(s.totalEngagement / s.count) : 0));
+        const score = maxPossible > 0 ? Math.min(100, Math.round((avgEngagement / maxPossible) * 100)) : 0;
+
+        return {
+          day,
+          time: timeLabel,
+          score,
+          avgEngagement,
+          tweetCount: slot.count,
+        };
+      });
+
+      const topPeak = peakTimesData.reduce((best, t) => t.score > (best?.score ?? 0) ? t : best, peakTimesData[0]);
+
+      const result = { peakTimes: peakTimesData, topPeak };
+      peakCache = { data: result, fetchedAt: Date.now() };
+      res.json(result);
+    } catch (err: any) {
+      console.error("[twitter/peak-times] Error:", err.message);
+      res.status(500).json({ error: err.message || "Failed to fetch peak times" });
     }
   });
 
@@ -1210,32 +1398,7 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       storage.createTrend({ tag: "Late Night Coding", volume: "12K", fitScore: 95, trending: "up" }),
     ]);
 
-    await Promise.all([
-      storage.createActivityLog({ action: "Tweet Posted", detail: "can i dm youuuuu?!! 😩", time: "2m ago", status: "success" }),
-      storage.createActivityLog({ action: "Auto-Reply", detail: "to @techbro_99", time: "15m ago", status: "success" }),
-      storage.createActivityLog({ action: "Media Upload", detail: "Summer Dress (Vault #12)", time: "1h ago", status: "success" }),
-      storage.createActivityLog({ action: "Trend Detected", detail: "#AIArtwork (92% fit)", time: "2h ago", status: "info" }),
-    ]);
-
-    await Promise.all([
-      storage.createAnalyticsData({ name: "Mon", engagement: 400, followers: 240 }),
-      storage.createAnalyticsData({ name: "Tue", engagement: 300, followers: 139 }),
-      storage.createAnalyticsData({ name: "Wed", engagement: 550, followers: 980 }),
-      storage.createAnalyticsData({ name: "Thu", engagement: 278, followers: 390 }),
-      storage.createAnalyticsData({ name: "Fri", engagement: 189, followers: 480 }),
-      storage.createAnalyticsData({ name: "Sat", engagement: 239, followers: 380 }),
-      storage.createAnalyticsData({ name: "Sun", engagement: 349, followers: 430 }),
-    ]);
-
-    await Promise.all([
-      storage.createPeakTime({ day: "Mon", time: "10:00 PM", score: 95 }),
-      storage.createPeakTime({ day: "Tue", time: "11:30 PM", score: 88 }),
-      storage.createPeakTime({ day: "Wed", time: "09:15 PM", score: 92 }),
-      storage.createPeakTime({ day: "Thu", time: "10:45 PM", score: 98 }),
-      storage.createPeakTime({ day: "Fri", time: "12:00 AM", score: 85 }),
-      storage.createPeakTime({ day: "Sat", time: "01:30 AM", score: 78 }),
-      storage.createPeakTime({ day: "Sun", time: "10:00 PM", score: 82 }),
-    ]);
+    // Activity logs, analytics, and peak times are now populated from live Twitter data — no seed needed
 
     const defaultSettings = [
       { key: "seductiveness", value: "60" },
@@ -1271,6 +1434,12 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
         try {
           await twitterClient.v2.tweet(tweet.text);
           await storage.updateTweet(tweet.id, { status: "posted" });
+          await storage.createActivityLog({
+            action: "Scheduled Tweet",
+            detail: tweet.text.slice(0, 60) + (tweet.text.length > 60 ? "…" : ""),
+            time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+            status: "success",
+          });
           console.log(`[scheduler] Posted tweet ${tweet.id}`);
         } catch (err: any) {
           console.error(`[scheduler] Failed tweet ${tweet.id}:`, err.message);

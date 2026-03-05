@@ -113,10 +113,10 @@ async function runPoll() {
       ? commentsLastChecked
       : sevenDaysAgo;
 
-    // Run fetches in parallel, each silently handles its own errors
     await Promise.allSettled([
       fetchCommentThreads(client, userId, commentsStartTime),
       fetchFollowerActivity(client, userId, followersLastChecked),
+      snapshotMetrics(client, userId),
     ]);
 
     // Update timestamps
@@ -243,7 +243,7 @@ async function fetchFollowerActivity(client: any, userId: string, since: Date) {
     }
   }
 
-  // Fetch recent retweets of user's tweets
+  // Fetch recent retweets and likes of user's tweets
   try {
     const tweetsResult = await client.v2.userTimeline(userId, {
       max_results: 5,
@@ -254,7 +254,6 @@ async function fetchFollowerActivity(client: any, userId: string, since: Date) {
     const userTweets: any[] = tweetsResult.data?.data ?? [];
 
     for (const tweet of userTweets) {
-      // Only check tweets from the last 48h to limit API calls
       if (tweet.created_at && new Date(tweet.created_at) < since) continue;
 
       try {
@@ -278,10 +277,72 @@ async function fetchFollowerActivity(client: any, userId: string, since: Date) {
       } catch {
         // Skip if this specific tweet's RT fetch fails
       }
+
+      try {
+        const likeResult = await client.v2.tweetLikedBy(tweet.id, {
+          max_results: 20,
+          "user.fields": ["username"],
+        });
+
+        const likers: any[] = likeResult.data?.data ?? [];
+        for (const user of likers) {
+          const eventKey = `like:${user.username}:${tweet.id}`;
+          await storage.upsertLiveFollowerInteraction({
+            type: "like",
+            username: `@${user.username}`,
+            tweetId: tweet.id,
+            xEventKey: eventKey,
+            seen: false,
+            createdAt: new Date(),
+          });
+        }
+      } catch {
+        // Skip if this specific tweet's likes fetch fails
+      }
     }
   } catch (err: any) {
     if (err.code !== 429) {
-      console.error("[EngagementPoller] fetchRetweets error:", err.message);
+      console.error("[EngagementPoller] fetchRetweets/Likes error:", err.message);
     }
+  }
+}
+
+let lastSnapshotDate = "";
+
+async function snapshotMetrics(client: any, userId: string) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today === lastSnapshotDate) return;
+
+    const me = await client.v2.me({ "user.fields": ["public_metrics"] });
+    const followers = me.data.public_metrics?.followers_count ?? 0;
+
+    const timelineResult = await client.v2.userTimeline(userId, {
+      max_results: 20,
+      "tweet.fields": ["public_metrics", "created_at"],
+      exclude: ["retweets"],
+    });
+
+    const tweets: any[] = timelineResult.data?.data ?? [];
+    let todayEngagement = 0;
+    for (const tweet of tweets) {
+      if (!tweet.created_at) continue;
+      const tweetDate = new Date(tweet.created_at).toISOString().slice(0, 10);
+      if (tweetDate !== today) continue;
+      const pm = tweet.public_metrics ?? {};
+      todayEngagement += (pm.like_count ?? 0) + (pm.retweet_count ?? 0) + (pm.reply_count ?? 0);
+    }
+
+    const dayLabel = new Date().toLocaleDateString("en-US", { weekday: "short" });
+    await storage.createAnalyticsData({
+      name: dayLabel,
+      engagement: todayEngagement,
+      followers,
+    });
+
+    lastSnapshotDate = today;
+    console.log(`[EngagementPoller] Metrics snapshot: ${dayLabel} engagement=${todayEngagement} followers=${followers}`);
+  } catch (err: any) {
+    console.error("[EngagementPoller] snapshotMetrics error:", err.message);
   }
 }
