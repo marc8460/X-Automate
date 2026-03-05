@@ -3,6 +3,7 @@ import path from "path";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { startEngagementPoller } from "./engagementPoller";
 
 const app = express();
 const httpServer = createServer(app);
@@ -65,6 +66,9 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
+  // Start engagement poller (runs if X credentials are configured)
+  startEngagementPoller();
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -75,7 +79,9 @@ app.use((req, res, next) => {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // Always return JSON — never let errors fall through to the HTML catch-all
+    res.setHeader("Content-Type", "application/json");
+    return res.status(status).json({ success: false, message });
   });
 
   // importantly only setup vite in development and after

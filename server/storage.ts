@@ -1,10 +1,12 @@
-import { eq, gte, desc, and, sql } from "drizzle-orm";
+import { eq, gte, desc, and, sql, lte } from "drizzle-orm";
 import { db } from "./db";
 import {
   tweets, type Tweet, type InsertTweet,
   mediaItems, type MediaItem, type InsertMediaItem,
   engagements, type Engagement, type InsertEngagement,
   followerInteractions, type FollowerInteraction, type InsertFollowerInteraction,
+  liveFollowerInteractions, type LiveFollowerInteraction, type InsertLiveFollowerInteraction,
+  commentThreads, type CommentThread, type InsertCommentThread,
   trends, type Trend, type InsertTrend,
   activityLogs, type ActivityLog, type InsertActivityLog,
   analyticsData, type AnalyticsData, type InsertAnalyticsData,
@@ -31,6 +33,17 @@ export interface IStorage {
 
   getFollowerInteractions(): Promise<FollowerInteraction[]>;
   createFollowerInteraction(interaction: InsertFollowerInteraction): Promise<FollowerInteraction>;
+
+  // Live follower interactions (real X data)
+  getLiveFollowerInteractions(hoursAgo?: number): Promise<LiveFollowerInteraction[]>;
+  upsertLiveFollowerInteraction(data: InsertLiveFollowerInteraction): Promise<LiveFollowerInteraction>;
+  markLiveInteractionSeen(id: number): Promise<void>;
+
+  // Comment threads
+  getActiveCommentThreads(): Promise<CommentThread[]>;
+  upsertCommentThread(data: InsertCommentThread): Promise<CommentThread>;
+  markThreadReplied(id: string): Promise<void>;
+  setThreadNeedsAttention(id: string, lastCommentId: string, lastCommentText: string, lastCommentAuthor: string, lastCommentAuthorName: string, lastCommentAt: Date): Promise<void>;
 
   getTrends(): Promise<Trend[]>;
   createTrend(trend: InsertTrend): Promise<Trend>;
@@ -125,6 +138,99 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.insert(followerInteractions).values(interaction).returning();
     return result;
   }
+
+  // --- Live Follower Interactions ---
+
+  async getLiveFollowerInteractions(hoursAgo = 48): Promise<LiveFollowerInteraction[]> {
+    const cutoff = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+    return db
+      .select()
+      .from(liveFollowerInteractions)
+      .where(gte(liveFollowerInteractions.createdAt, cutoff))
+      .orderBy(desc(liveFollowerInteractions.createdAt))
+      .limit(50);
+  }
+
+  async upsertLiveFollowerInteraction(data: InsertLiveFollowerInteraction): Promise<LiveFollowerInteraction> {
+    const [result] = await db
+      .insert(liveFollowerInteractions)
+      .values(data)
+      .onConflictDoUpdate({
+        target: liveFollowerInteractions.xEventKey,
+        set: { seen: data.seen ?? false },
+      })
+      .returning();
+    return result;
+  }
+
+  async markLiveInteractionSeen(id: number): Promise<void> {
+    await db
+      .update(liveFollowerInteractions)
+      .set({ seen: true })
+      .where(eq(liveFollowerInteractions.id, id));
+  }
+
+  // --- Comment Threads ---
+
+  async getActiveCommentThreads(): Promise<CommentThread[]> {
+    return db
+      .select()
+      .from(commentThreads)
+      .where(eq(commentThreads.needsAttention, true))
+      .orderBy(desc(commentThreads.lastCommentAt));
+  }
+
+  async upsertCommentThread(data: InsertCommentThread): Promise<CommentThread> {
+    const [result] = await db
+      .insert(commentThreads)
+      .values(data)
+      .onConflictDoUpdate({
+        target: commentThreads.id,
+        set: {
+          lastCommentId: data.lastCommentId,
+          lastCommentText: data.lastCommentText,
+          lastCommentAuthor: data.lastCommentAuthor,
+          lastCommentAuthorName: data.lastCommentAuthorName,
+          lastCommentAt: data.lastCommentAt,
+          needsAttention: data.needsAttention,
+          replied: data.replied,
+          parentTweetText: data.parentTweetText,
+        },
+      })
+      .returning();
+    return result;
+  }
+
+  async markThreadReplied(id: string): Promise<void> {
+    await db
+      .update(commentThreads)
+      .set({ replied: true, needsAttention: false })
+      .where(eq(commentThreads.id, id));
+  }
+
+  async setThreadNeedsAttention(
+    id: string,
+    lastCommentId: string,
+    lastCommentText: string,
+    lastCommentAuthor: string,
+    lastCommentAuthorName: string,
+    lastCommentAt: Date,
+  ): Promise<void> {
+    await db
+      .update(commentThreads)
+      .set({
+        lastCommentId,
+        lastCommentText,
+        lastCommentAuthor,
+        lastCommentAuthorName,
+        lastCommentAt,
+        replied: false,
+        needsAttention: true,
+      })
+      .where(eq(commentThreads.id, id));
+  }
+
+  // --- Trends ---
 
   async getTrends(): Promise<Trend[]> {
     return db.select().from(trends);

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, serial, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -44,6 +44,7 @@ export const insertEngagementSchema = createInsertSchema(engagements).omit({ id:
 export type InsertEngagement = z.infer<typeof insertEngagementSchema>;
 export type Engagement = typeof engagements.$inferSelect;
 
+// Legacy mock table — kept for seeded data
 export const followerInteractions = pgTable("follower_interactions", {
   id: serial("id").primaryKey(),
   user: text("user").notNull(),
@@ -54,6 +55,39 @@ export const followerInteractions = pgTable("follower_interactions", {
 export const insertFollowerInteractionSchema = createInsertSchema(followerInteractions).omit({ id: true });
 export type InsertFollowerInteraction = z.infer<typeof insertFollowerInteractionSchema>;
 export type FollowerInteraction = typeof followerInteractions.$inferSelect;
+
+// Live follower interactions from X API
+export const liveFollowerInteractions = pgTable("live_follower_interactions", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull(), // 'follow' | 'like' | 'retweet'
+  username: text("username").notNull(),
+  tweetId: text("tweet_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  seen: boolean("seen").notNull().default(false),
+  xEventKey: text("x_event_key").notNull().unique(), // dedup key: "${type}:${username}:${tweetId??''}"
+});
+
+export const insertLiveFollowerInteractionSchema = createInsertSchema(liveFollowerInteractions).omit({ id: true });
+export type InsertLiveFollowerInteraction = z.infer<typeof insertLiveFollowerInteractionSchema>;
+export type LiveFollowerInteraction = typeof liveFollowerInteractions.$inferSelect;
+
+// Comment threads — tracks replies/mentions requiring attention
+export const commentThreads = pgTable("comment_threads", {
+  id: text("id").primaryKey(), // conversation_id from X
+  rootTweetId: text("root_tweet_id").notNull(),
+  lastCommentId: text("last_comment_id").notNull(),
+  lastCommentText: text("last_comment_text").notNull(),
+  lastCommentAuthor: text("last_comment_author").notNull(), // @username
+  lastCommentAuthorName: text("last_comment_author_name").notNull().default(""),
+  lastCommentAt: timestamp("last_comment_at", { withTimezone: true }).notNull(),
+  replied: boolean("replied").notNull().default(false),
+  needsAttention: boolean("needs_attention").notNull().default(true),
+  parentTweetText: text("parent_tweet_text").notNull().default(""),
+});
+
+export const insertCommentThreadSchema = createInsertSchema(commentThreads);
+export type InsertCommentThread = z.infer<typeof insertCommentThreadSchema>;
+export type CommentThread = typeof commentThreads.$inferSelect;
 
 export const trends = pgTable("trends", {
   id: serial("id").primaryKey(),

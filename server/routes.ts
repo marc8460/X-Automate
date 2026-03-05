@@ -7,6 +7,7 @@ import multer from "multer";
 import Groq from "groq-sdk";
 import { testTwitterConnection, getTwitterClient } from "./twitter";
 import { storage } from "./storage";
+import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
 import {
   insertTweetSchema,
   insertMediaItemSchema,
@@ -160,55 +161,103 @@ export async function registerRoutes(
     res.json(engagement);
   });
 
-  // --- Live X Engagement Endpoints ---
+  // --- Live Engagement Engine Endpoints ---
+  // All routes in this section ALWAYS return JSON — no HTML, no redirects.
 
-  app.get("/api/engagement/comments", async (_req, res) => {
-    const twitterClient = getTwitterClient();
-    if (!twitterClient) {
-      return res.status(400).json({ message: "Twitter credentials not configured" });
-    }
+  // Middleware: force JSON content-type for all /api/engagement/* routes
+  app.use("/api/engagement", (_req, res, next) => {
+    res.setHeader("Content-Type", "application/json");
+    next();
+  });
+
+  // SSE endpoint is exempt from the JSON middleware above — override to SSE content-type
+  app.get("/api/engagement/events", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+
+    addSseClient(res);
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`data: ${JSON.stringify({ type: "heartbeat" })}\n\n`);
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 30_000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      removeSseClient(res);
+    });
+  });
+
+  // Poller status — always JSON, works without credentials
+  app.get("/api/engagement/status", (_req, res) => {
     try {
-      const me = await twitterClient.v2.me();
-      const userId = me.data.id;
+      const status = getPollerStatus();
+      const hasCredentials = !!getTwitterClient();
+      res.json({ ...status, hasCredentials });
+    } catch (err: any) {
+      res.json({ running: false, paused: false, lastPollAt: null, error: err.message, hasCredentials: false });
+    }
+  });
 
-      const timeline = await twitterClient.v2.userMentionTimeline(userId, {
-        max_results: 20,
-        "tweet.fields": ["conversation_id", "in_reply_to_user_id", "created_at", "referenced_tweets", "author_id"],
-        "expansions": ["author_id", "referenced_tweets.id"],
-        "user.fields": ["name", "username"],
-      });
+  // Pause / resume poller
+  app.post("/api/engagement/pause", (_req, res) => {
+    pausePoller();
+    res.json({ paused: true });
+  });
 
-      const tweets = timeline.data?.data ?? [];
-      const users = (timeline.data?.includes as any)?.users ?? [];
-      const refTweets = (timeline.data?.includes as any)?.tweets ?? [];
+  app.post("/api/engagement/resume", (_req, res) => {
+    resumePoller();
+    res.json({ paused: false });
+  });
 
-      const userMap: Record<string, { name: string; username: string }> = {};
-      for (const u of users) userMap[u.id] = { name: u.name, username: u.username };
+  // Live comment threads (from DB, needsAttention = true)
+  app.get("/api/engagement/live-comments", async (_req, res) => {
+    try {
+      const threads = await storage.getActiveCommentThreads();
+      res.json({ threads });
+    } catch (err: any) {
+      console.error("[engagement/live-comments]", err.message);
+      res.status(500).json({ threads: [], error: err.message });
+    }
+  });
 
-      const refTweetMap: Record<string, string> = {};
-      for (const t of refTweets) refTweetMap[t.id] = t.text;
+  // Live follower interactions (from DB, last 48h)
+  app.get("/api/engagement/live-interactions", async (_req, res) => {
+    try {
+      const interactions = await storage.getLiveFollowerInteractions(48);
+      res.json({ interactions });
+    } catch (err: any) {
+      console.error("[engagement/live-interactions]", err.message);
+      res.status(500).json({ interactions: [], error: err.message });
+    }
+  });
 
-      const comments = tweets
-        .filter((t: any) => t.in_reply_to_user_id === userId)
-        .map((t: any) => {
-          const author = userMap[t.author_id ?? ""] ?? { name: "Unknown", username: "unknown" };
-          const parentRef = t.referenced_tweets?.find((r: any) => r.type === "replied_to");
-          const parentTweetId = parentRef?.id ?? t.conversation_id ?? "";
-          return {
-            commentId: t.id,
-            commentAuthor: `@${author.username}`,
-            commentAuthorName: author.name,
-            commentText: t.text,
-            parentTweetId,
-            parentTweetText: refTweetMap[parentTweetId] ?? "",
-            createdAt: t.created_at ?? "",
-          };
-        });
-
+  // Legacy comments endpoint kept for backward compat — proxies from DB
+  app.get("/api/engagement/comments", async (_req, res) => {
+    try {
+      const threads = await storage.getActiveCommentThreads();
+      const comments = threads.map(t => ({
+        commentId: t.lastCommentId,
+        commentAuthor: t.lastCommentAuthor,
+        commentAuthorName: t.lastCommentAuthorName,
+        commentText: t.lastCommentText,
+        parentTweetId: t.rootTweetId,
+        parentTweetText: t.parentTweetText,
+        createdAt: t.lastCommentAt.toISOString(),
+        threadId: t.id,
+      }));
       res.json({ comments });
     } catch (err: any) {
-      console.error("Fetch X comments error:", err);
-      res.status(500).json({ message: err.message || "Failed to fetch comments from X" });
+      console.error("[engagement/comments]", err.message);
+      res.status(500).json({ comments: [], error: err.message });
     }
   });
 
@@ -266,13 +315,17 @@ Return ONLY valid JSON with no markdown:
     if (!twitterClient) {
       return res.status(400).json({ message: "Twitter credentials not configured" });
     }
-    const { commentId, replyText } = req.body;
+    // threadId = conversation_id, commentId = the specific tweet to reply to
+    const { commentId, threadId, replyText } = req.body;
     if (!commentId || !replyText) {
       return res.status(400).json({ message: "commentId and replyText are required" });
     }
     try {
       const result = await twitterClient.v2.reply(replyText, commentId);
-      res.json({ success: true, tweetId: result.data.id });
+      // Mark thread as replied so it disappears from the UI
+      const resolvedThreadId = threadId || commentId;
+      await storage.markThreadReplied(resolvedThreadId);
+      res.json({ success: true, tweetId: result.data.id, threadId: resolvedThreadId });
     } catch (err: any) {
       console.error("Send reply error:", err);
       res.status(500).json({ message: err.message || "Failed to send reply" });

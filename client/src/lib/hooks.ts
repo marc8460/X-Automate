@@ -1,7 +1,9 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { queryClient, apiRequest } from "./queryClient";
 import type {
   Tweet, MediaItem, Engagement, FollowerInteraction,
+  LiveFollowerInteraction, CommentThread,
   Trend, ActivityLog, AnalyticsData, PeakTime, Setting,
 } from "@shared/schema";
 
@@ -251,6 +253,7 @@ export function useSeedData() {
   });
 }
 
+// Legacy type kept for backward compat
 export type XComment = {
   commentId: string;
   commentAuthor: string;
@@ -259,20 +262,109 @@ export type XComment = {
   parentTweetId: string;
   parentTweetText: string;
   createdAt: string;
+  threadId?: string;
 };
 
 export function useFetchXComments(enabled: boolean) {
   return useQuery<{ comments: XComment[] }>({
     queryKey: ["/api/engagement/comments"],
-    queryFn: async () => {
-      const res = await fetch("/api/engagement/comments");
-      if (!res.ok) throw new Error((await res.json()).message || "Failed to fetch comments");
-      return res.json();
-    },
+    queryFn: () => fetchJson<{ comments: XComment[] }>("/api/engagement/comments"),
     enabled,
     staleTime: 2 * 60 * 1000,
     retry: 1,
   });
+}
+
+/** Parse a fetch Response as JSON safely — throws a readable error if HTML is returned. */
+async function safeJson<T>(res: Response): Promise<T> {
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(
+      `Expected JSON from ${res.url} but got: ${text.slice(0, 120)}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
+/** Fetch a JSON endpoint, throwing a clean error on non-OK or non-JSON responses. */
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    // Try to extract a message from the body, fall back to status text
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || body.error || `HTTP ${res.status}`);
+    }
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  }
+  return safeJson<T>(res);
+}
+
+// Live comment threads from DB (auto-polled every 30s)
+export function useLiveCommentThreads() {
+  return useQuery<{ threads: CommentThread[] }>({
+    queryKey: ["/api/engagement/live-comments"],
+    queryFn: () => fetchJson<{ threads: CommentThread[] }>("/api/engagement/live-comments"),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: 1,
+  });
+}
+
+// Live follower interactions from DB (auto-polled every 30s)
+export function useLiveFollowerInteractions() {
+  return useQuery<{ interactions: LiveFollowerInteraction[] }>({
+    queryKey: ["/api/engagement/live-interactions"],
+    queryFn: () => fetchJson<{ interactions: LiveFollowerInteraction[] }>("/api/engagement/live-interactions"),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: 1,
+  });
+}
+
+// Poller status
+export function useEngagementStatus() {
+  return useQuery<{ running: boolean; paused: boolean; lastPollAt: string | null; error: string | null; hasCredentials: boolean }>({
+    queryKey: ["/api/engagement/status"],
+    queryFn: () => fetchJson("/api/engagement/status"),
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  });
+}
+
+// SSE subscription — invalidates queries when backend emits an update
+export function useEngagementSSE() {
+  const qc = useQueryClient();
+  const sourceRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    const source = new EventSource("/api/engagement/events");
+    sourceRef.current = source;
+
+    source.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === "update") {
+          qc.invalidateQueries({ queryKey: ["/api/engagement/live-comments"] });
+          qc.invalidateQueries({ queryKey: ["/api/engagement/live-interactions"] });
+          qc.invalidateQueries({ queryKey: ["/api/engagement/status"] });
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    source.onerror = () => {
+      // EventSource auto-reconnects — no action needed
+    };
+
+    return () => {
+      source.close();
+      sourceRef.current = null;
+    };
+  }, [qc]);
 }
 
 export function useGenerateEngagementReply() {
@@ -286,10 +378,32 @@ export function useGenerateEngagementReply() {
 
 export function useSendEngagementReply() {
   return useMutation({
-    mutationFn: async (data: { commentId: string; replyText: string }) => {
+    mutationFn: async (data: { commentId: string; threadId?: string; replyText: string }) => {
       const res = await apiRequest("POST", "/api/engagement/send-reply", data);
-      return res.json() as Promise<{ success: boolean; tweetId: string }>;
+      return res.json() as Promise<{ success: boolean; tweetId: string; threadId: string }>;
     },
+  });
+}
+
+export function usePauseEngagement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/engagement/pause");
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/engagement/status"] }),
+  });
+}
+
+export function useResumeEngagement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/engagement/resume");
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/engagement/status"] }),
   });
 }
 
