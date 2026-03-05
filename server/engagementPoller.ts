@@ -89,12 +89,12 @@ async function runPoll() {
   }
 
   try {
-    const me = await client.v2.me();
+    const me = await client.v2.me({ "user.fields": ["public_metrics"] });
     const userId = me.data.id;
+    const currentFollowers = me.data.public_metrics?.followers_count ?? 0;
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    // Get last checked timestamps from settings
     const [commentCheckedSetting, followerCheckedSetting] = await Promise.all([
       storage.getSetting("engagement_comments_last_checked"),
       storage.getSetting("engagement_followers_last_checked"),
@@ -108,14 +108,13 @@ async function runPoll() {
       ? new Date(followerCheckedSetting.value)
       : new Date(Date.now() - 48 * 60 * 60 * 1000);
 
-    // Use the more recent of stored time or 7 days ago for comments
     const commentsStartTime = commentsLastChecked > sevenDaysAgo
       ? commentsLastChecked
       : sevenDaysAgo;
 
     await Promise.allSettled([
       fetchCommentThreads(client, userId, commentsStartTime),
-      fetchFollowerActivity(client, userId, followersLastChecked),
+      fetchFollowerActivityDelta(client, userId, currentFollowers),
       snapshotMetrics(client, userId),
     ]);
 
@@ -215,95 +214,123 @@ async function fetchCommentThreads(client: any, userId: string, startTime: Date)
   }
 }
 
-async function fetchFollowerActivity(client: any, userId: string, since: Date) {
-  // Fetch new followers (first page — rate limit: 15/15min)
+async function fetchFollowerActivityDelta(client: any, userId: string, currentFollowers: number) {
+  // --- Follower delta: detect new followers by comparing count ---
   try {
-    const followersResult = await client.v2.followers(userId, {
-      max_results: 100,
-      "user.fields": ["username", "name"],
-    });
+    const prevSetting = await storage.getSetting("prev_follower_count");
+    const prevCount = prevSetting ? parseInt(prevSetting.value, 10) : currentFollowers;
 
-    const followers: any[] = followersResult.data?.data ?? [];
-
-    for (const follower of followers) {
-      const eventKey = `follow:${follower.username}`;
+    if (currentFollowers > prevCount) {
+      const gained = currentFollowers - prevCount;
+      const eventKey = `follow:delta:${currentFollowers}`;
       await storage.upsertLiveFollowerInteraction({
         type: "follow",
-        username: `@${follower.username}`,
+        username: `+${gained} new follower${gained > 1 ? "s" : ""}`,
         tweetId: null,
         xEventKey: eventKey,
         seen: false,
         createdAt: new Date(),
       });
+      console.log(`[EngagementPoller] Detected ${gained} new follower(s) (${prevCount} → ${currentFollowers})`);
     }
+
+    await storage.upsertSetting("prev_follower_count", String(currentFollowers));
   } catch (err: any) {
-    // Rate limit 429 or permission error — silently skip
-    if (err.code !== 429) {
-      console.error("[EngagementPoller] fetchFollowers error:", err.message);
-    }
+    console.error("[EngagementPoller] follower delta error:", err.message);
   }
 
-  // Fetch recent retweets and likes of user's tweets
+  // --- Like / Retweet delta: compare tweet public_metrics with stored snapshot ---
   try {
     const tweetsResult = await client.v2.userTimeline(userId, {
-      max_results: 5,
-      "tweet.fields": ["public_metrics", "created_at"],
-      exclude: ["replies", "retweets"],
+      max_results: 10,
+      "tweet.fields": ["public_metrics", "created_at", "text"],
+      exclude: ["retweets"],
     });
 
     const userTweets: any[] = tweetsResult.data?.data ?? [];
+    if (userTweets.length === 0) return;
+
+    const snapshotSetting = await storage.getSetting("tweet_metrics_snapshot");
+    const prevSnapshot: Record<string, { likes: number; retweets: number }> = snapshotSetting
+      ? JSON.parse(snapshotSetting.value)
+      : {};
+
+    const newSnapshot: Record<string, { likes: number; retweets: number }> = {};
+    const isFirstRun = Object.keys(prevSnapshot).length === 0;
 
     for (const tweet of userTweets) {
-      if (tweet.created_at && new Date(tweet.created_at) < since) continue;
+      const pm = tweet.public_metrics ?? {};
+      const likes = pm.like_count ?? 0;
+      const retweets = pm.retweet_count ?? 0;
+      const tweetText = (tweet.text ?? "").slice(0, 40);
 
-      try {
-        const rtResult = await client.v2.tweetRetweetedBy(tweet.id, {
-          max_results: 20,
-          "user.fields": ["username"],
-        });
+      newSnapshot[tweet.id] = { likes, retweets };
 
-        const retweeters: any[] = rtResult.data?.data ?? [];
-        for (const user of retweeters) {
-          const eventKey = `retweet:${user.username}:${tweet.id}`;
-          await storage.upsertLiveFollowerInteraction({
-            type: "retweet",
-            username: `@${user.username}`,
-            tweetId: tweet.id,
-            xEventKey: eventKey,
-            seen: false,
-            createdAt: new Date(),
-          });
-        }
-      } catch {
-        // Skip if this specific tweet's RT fetch fails
-      }
-
-      try {
-        const likeResult = await client.v2.tweetLikedBy(tweet.id, {
-          max_results: 20,
-          "user.fields": ["username"],
-        });
-
-        const likers: any[] = likeResult.data?.data ?? [];
-        for (const user of likers) {
-          const eventKey = `like:${user.username}:${tweet.id}`;
+      if (isFirstRun) {
+        if (likes > 0) {
+          const eventKey = `like:init:${tweet.id}`;
           await storage.upsertLiveFollowerInteraction({
             type: "like",
-            username: `@${user.username}`,
+            username: `${likes} like${likes > 1 ? "s" : ""} on "${tweetText}…"`,
             tweetId: tweet.id,
             xEventKey: eventKey,
             seen: false,
-            createdAt: new Date(),
+            createdAt: tweet.created_at ? new Date(tweet.created_at) : new Date(),
           });
         }
-      } catch {
-        // Skip if this specific tweet's likes fetch fails
+        if (retweets > 0) {
+          const eventKey = `retweet:init:${tweet.id}`;
+          await storage.upsertLiveFollowerInteraction({
+            type: "retweet",
+            username: `${retweets} retweet${retweets > 1 ? "s" : ""} on "${tweetText}…"`,
+            tweetId: tweet.id,
+            xEventKey: eventKey,
+            seen: false,
+            createdAt: tweet.created_at ? new Date(tweet.created_at) : new Date(),
+          });
+        }
+        continue;
+      }
+
+      const prev = prevSnapshot[tweet.id];
+      if (!prev) continue;
+
+      const newLikes = likes - prev.likes;
+      const newRetweets = retweets - prev.retweets;
+
+      if (newLikes > 0) {
+        const eventKey = `like:delta:${tweet.id}:${likes}`;
+        await storage.upsertLiveFollowerInteraction({
+          type: "like",
+          username: `+${newLikes} new like${newLikes > 1 ? "s" : ""} on "${tweetText}…"`,
+          tweetId: tweet.id,
+          xEventKey: eventKey,
+          seen: false,
+          createdAt: new Date(),
+        });
+        console.log(`[EngagementPoller] +${newLikes} like(s) on tweet ${tweet.id}`);
+      }
+
+      if (newRetweets > 0) {
+        const eventKey = `retweet:delta:${tweet.id}:${retweets}`;
+        await storage.upsertLiveFollowerInteraction({
+          type: "retweet",
+          username: `+${newRetweets} new retweet${newRetweets > 1 ? "s" : ""} on "${tweetText}…"`,
+          tweetId: tweet.id,
+          xEventKey: eventKey,
+          seen: false,
+          createdAt: new Date(),
+        });
+        console.log(`[EngagementPoller] +${newRetweets} retweet(s) on tweet ${tweet.id}`);
       }
     }
-  } catch (err: any) {
-    if (err.code !== 429) {
-      console.error("[EngagementPoller] fetchRetweets/Likes error:", err.message);
+
+    await storage.upsertSetting("tweet_metrics_snapshot", JSON.stringify(newSnapshot));
+    if (isFirstRun) {
+      console.log(`[EngagementPoller] Initial tweet metrics snapshot stored (${userTweets.length} tweets)`);
     }
+  } catch (err: any) {
+    console.error("[EngagementPoller] tweet metrics delta error:", err.message);
   }
 }
 

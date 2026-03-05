@@ -244,7 +244,7 @@ export async function registerRoutes(
   // Live follower interactions (from DB, last 48h)
   app.get("/api/engagement/live-interactions", async (_req, res) => {
     try {
-      const interactions = await storage.getLiveFollowerInteractions(48);
+      const interactions = await storage.getLiveFollowerInteractions(168);
       res.json({ interactions });
     } catch (err: any) {
       console.error("[engagement/live-interactions]", err.message);

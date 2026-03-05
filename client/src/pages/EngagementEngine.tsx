@@ -556,7 +556,7 @@ export default function EngagementEngine() {
               ) : interactions.length === 0 ? (
                 <p className="text-xs text-muted-foreground/50 py-2">
                   {hasCredentials
-                    ? "No recent interactions in the last 48 hours."
+                    ? "No recent interactions in the last 7 days."
                     : "Connect X credentials to see live interactions."}
                 </p>
               ) : (
