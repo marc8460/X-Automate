@@ -188,10 +188,6 @@ export default function Composer() {
       toast({ title: "Too long", description: `Max ${charLimit} characters for this platform.`, variant: "destructive" });
       return;
     }
-    if (composerTab === "threads" || composerTab === "both") {
-      toast({ title: "Threads queuing coming soon", description: "Threads API integration is in progress.", variant: "destructive" });
-      if (composerTab === "threads") return;
-    }
     await createTweetMutation.mutateAsync({
       text: draftText,
       style: selectedStyle,
@@ -214,18 +210,15 @@ export default function Composer() {
       toast({ title: "Too long", description: `Max ${charLimit} characters for this platform.`, variant: "destructive" });
       return;
     }
-    if (composerTab === "threads") {
-      toast({ title: "Threads posting coming soon", description: "Threads API integration is in progress." });
-      return;
-    }
+    const platform = composerTab === "threads" ? "threads" : "x";
     postNowMutation.mutate(
-      { text: draftText, imageUrl: attachedImage || undefined },
+      { text: draftText, imageUrl: attachedImage || undefined, platform },
       {
         onSuccess: () => {
           setDraftText("");
           setAttachedImage(null);
           setDraftSchedule("");
-          const label = composerTab === "both" ? "X (Threads coming soon)" : "X";
+          const label = composerTab === "both" ? "X & Threads" : composerTab === "threads" ? "Threads" : "X";
           toast({ title: `Posted to ${label}`, description: "Your post is live." });
         },
         onError: (err: any) =>
@@ -298,14 +291,6 @@ export default function Composer() {
         </div>
       </div>
 
-      {composerTab !== "x" && (
-        <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-400 text-sm">
-          <Sparkles className="w-4 h-4 shrink-0" />
-          {composerTab === "threads"
-            ? "Threads posting is coming soon. You can draft content and preview formatting, but publishing requires Threads API integration."
-            : "Cross-posting to both platforms: X will publish immediately; Threads integration is coming soon."}
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">

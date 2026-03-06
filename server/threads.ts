@@ -66,3 +66,82 @@ export async function testThreadsConnection() {
     return { connected: false, error: err.message };
   }
 }
+
+async function getThreadsUserId(): Promise<string> {
+  const profile = await getThreadsProfile();
+  if (!profile?.id) throw new Error("Could not resolve Threads user ID");
+  return profile.id;
+}
+
+export async function createThreadsPost(text: string, imageUrl?: string): Promise<{ id: string }> {
+  const token = await getThreadsAccessToken();
+  if (!token) throw new Error("Threads access token not configured");
+  const userId = await getThreadsUserId();
+
+  // Step 1: create media container
+  const containerParams = new URLSearchParams({
+    media_type: imageUrl ? "IMAGE" : "TEXT",
+    text,
+    access_token: token,
+  });
+  if (imageUrl) containerParams.set("image_url", imageUrl);
+
+  const containerRes = await fetch(
+    `https://graph.threads.net/v1.0/${userId}/threads`,
+    { method: "POST", body: containerParams },
+  );
+  if (!containerRes.ok) {
+    const err = await containerRes.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to create Threads post container");
+  }
+  const { id: creationId } = await containerRes.json();
+
+  // Step 2: publish the container
+  const publishParams = new URLSearchParams({ creation_id: creationId, access_token: token });
+  const publishRes = await fetch(
+    `https://graph.threads.net/v1.0/${userId}/threads_publish`,
+    { method: "POST", body: publishParams },
+  );
+  if (!publishRes.ok) {
+    const err = await publishRes.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to publish Threads post");
+  }
+  const { id } = await publishRes.json();
+  return { id };
+}
+
+export async function replyToThreadsComment(mediaId: string, replyText: string): Promise<{ id: string }> {
+  const token = await getThreadsAccessToken();
+  if (!token) throw new Error("Threads access token not configured");
+  const userId = await getThreadsUserId();
+
+  // Step 1: create reply container
+  const containerParams = new URLSearchParams({
+    media_type: "TEXT",
+    text: replyText,
+    reply_to_id: mediaId,
+    access_token: token,
+  });
+  const containerRes = await fetch(
+    `https://graph.threads.net/v1.0/${userId}/threads`,
+    { method: "POST", body: containerParams },
+  );
+  if (!containerRes.ok) {
+    const err = await containerRes.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to create Threads reply container");
+  }
+  const { id: creationId } = await containerRes.json();
+
+  // Step 2: publish the reply
+  const publishParams = new URLSearchParams({ creation_id: creationId, access_token: token });
+  const publishRes = await fetch(
+    `https://graph.threads.net/v1.0/${userId}/threads_publish`,
+    { method: "POST", body: publishParams },
+  );
+  if (!publishRes.ok) {
+    const err = await publishRes.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to publish Threads reply");
+  }
+  const { id } = await publishRes.json();
+  return { id };
+}

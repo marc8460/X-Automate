@@ -165,7 +165,7 @@ export default function UnifiedInbox() {
       if (!replyText) return;
       updateCard(thread.id, { isSending: true });
       sendReply.mutate(
-        { commentId: thread.lastCommentId, threadId: thread.id, replyText },
+        { commentId: thread.lastCommentId, threadId: thread.id, replyText, platform: thread.platform ?? "x" },
         {
           onSuccess: () => {
             updateCard(thread.id, { isSent: true, isSending: false });

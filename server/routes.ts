@@ -6,7 +6,7 @@ import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
 import { testTwitterConnection, getTwitterClient } from "./twitter";
-import { testThreadsConnection, getThreadsProfile } from "./threads";
+import { testThreadsConnection, getThreadsProfile, createThreadsPost, replyToThreadsComment } from "./threads";
 import { storage } from "./storage";
 import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
 import {
@@ -73,12 +73,31 @@ export async function registerRoutes(
   });
 
   app.post("/api/content/post-now", async (req, res) => {
+    const { text, imageUrl, platform = "x" } = req.body;
+    if (!text?.trim()) return res.status(400).json({ message: "text is required" });
+
+    // Route to Threads
+    if (platform === "threads") {
+      try {
+        const result = await createThreadsPost(text.trim(), imageUrl || undefined);
+        await storage.createActivityLog({
+          action: "Threads Post Published",
+          detail: text.trim().slice(0, 60) + (text.trim().length > 60 ? "…" : ""),
+          time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+          status: "success",
+        });
+        return res.json({ success: true, tweetId: result.id });
+      } catch (err: any) {
+        console.error("[post-now] Threads API error:", err.message);
+        return res.status(500).json({ message: err.message || "Failed to post to Threads" });
+      }
+    }
+
+    // Default: X/Twitter
     const twitterClient = getTwitterClient();
     if (!twitterClient) {
       return res.status(400).json({ message: "Twitter credentials not configured" });
     }
-    const { text, imageUrl } = req.body;
-    if (!text?.trim()) return res.status(400).json({ message: "text is required" });
     if (text.length > 280) return res.status(400).json({ message: "Tweet exceeds 280 character limit" });
     try {
       let mediaId: string | undefined;
@@ -324,15 +343,36 @@ Return ONLY valid JSON with no markdown:
   });
 
   app.post("/api/engagement/send-reply", async (req, res) => {
+    const { commentId, threadId, replyText, platform = "x" } = req.body;
+    if (!commentId || !replyText) {
+      return res.status(400).json({ message: "commentId and replyText are required" });
+    }
+
+    // Route to Threads
+    if (platform === "threads") {
+      try {
+        const result = await replyToThreadsComment(commentId, replyText);
+        const resolvedThreadId = threadId || commentId;
+        await storage.markThreadReplied(resolvedThreadId);
+        await storage.createActivityLog({
+          action: "Threads Reply Sent",
+          detail: replyText.slice(0, 60) + (replyText.length > 60 ? "…" : ""),
+          time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+          status: "success",
+        });
+        return res.json({ success: true, tweetId: result.id, threadId: resolvedThreadId });
+      } catch (err: any) {
+        console.error("Send Threads reply error:", err);
+        return res.status(500).json({ message: err.message || "Failed to send Threads reply" });
+      }
+    }
+
+    // Default: X/Twitter
     const twitterClient = getTwitterClient();
     if (!twitterClient) {
       return res.status(400).json({ message: "Twitter credentials not configured" });
     }
     // threadId = conversation_id, commentId = the specific tweet to reply to
-    const { commentId, threadId, replyText } = req.body;
-    if (!commentId || !replyText) {
-      return res.status(400).json({ message: "commentId and replyText are required" });
-    }
     try {
       const result = await twitterClient.v2.reply(replyText, commentId);
       const resolvedThreadId = threadId || commentId;

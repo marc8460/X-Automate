@@ -201,6 +201,28 @@ export function useTestTwitterConnection() {
   });
 }
 
+export function useThreadsStatus() {
+  return useQuery<{
+    connected: boolean;
+    username?: string;
+    error?: string;
+  }>({
+    queryKey: ["/api/threads/status"],
+    staleTime: 30000,
+    retry: false,
+  });
+}
+
+export function useTestThreadsConnection() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/threads/status");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/threads/status"] }),
+  });
+}
+
 export type TrendTopic = {
   id: number;
   title: string;
@@ -448,7 +470,7 @@ export function useGenerateEngagementReply() {
 
 export function useSendEngagementReply() {
   return useMutation({
-    mutationFn: async (data: { commentId: string; threadId?: string; replyText: string }) => {
+    mutationFn: async (data: { commentId: string; threadId?: string; replyText: string; platform?: string }) => {
       const res = await apiRequest("POST", "/api/engagement/send-reply", data);
       return res.json() as Promise<{ success: boolean; tweetId: string; threadId: string }>;
     },
@@ -479,7 +501,7 @@ export function useResumeEngagement() {
 
 export function usePostNow() {
   return useMutation({
-    mutationFn: async (data: { text: string; imageUrl?: string }) => {
+    mutationFn: async (data: { text: string; imageUrl?: string; platform?: "x" | "threads" }) => {
       const res = await apiRequest("POST", "/api/content/post-now", data);
       return res.json() as Promise<{ success: boolean; tweetId: string }>;
     },

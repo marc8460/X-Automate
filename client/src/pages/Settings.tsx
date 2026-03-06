@@ -9,7 +9,7 @@ import {
   Shield, Bot, Settings2, Save, Loader2, CheckCircle2, AlertCircle,
   Wifi, WifiOff, Link2, ChevronDown, ChevronUp, ExternalLink,
 } from "lucide-react";
-import { useSettings, useUpdateSetting, useTwitterStatus, useTestTwitterConnection } from "@/lib/hooks";
+import { useSettings, useUpdateSetting, useTwitterStatus, useTestTwitterConnection, useThreadsStatus, useTestThreadsConnection } from "@/lib/hooks";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { PlatformBadge } from "@/components/platform/PlatformBadge";
@@ -256,6 +256,174 @@ function XAccountCard({
   );
 }
 
+// ── Threads account card ──────────────────────────────────────────────────────
+
+function ThreadsAccountCard() {
+  const { data: threadsStatus, isLoading } = useThreadsStatus();
+  const testConnection = useTestThreadsConnection();
+  const updateSetting = useUpdateSetting();
+  const { toast } = useToast();
+
+  const connected = threadsStatus?.connected ?? false;
+  const username = threadsStatus?.username;
+
+  const [tokenOpen, setTokenOpen] = useState(!connected);
+  const [token, setToken] = useState("");
+
+  // Auto-open when disconnected once status loads
+  useEffect(() => {
+    if (!isLoading && !connected) setTokenOpen(true);
+  }, [isLoading, connected]);
+
+  const handleSaveAndTest = async () => {
+    if (!token.trim()) return;
+    try {
+      await updateSetting.mutateAsync({ key: "threads_access_token", value: token.trim() });
+      const result = await testConnection.mutateAsync();
+      if (result?.connected) {
+        toast({ title: "Threads connected", description: `Logged in as @${result.username}` });
+        setToken("");
+        setTokenOpen(false);
+      } else {
+        toast({ title: "Connection failed", description: result?.error || "Invalid access token.", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleTest = async () => {
+    try {
+      const result = await testConnection.mutateAsync();
+      if (result?.connected) {
+        toast({ title: "Threads connected", description: `Active as @${result.username}` });
+      } else {
+        toast({ title: "Not connected", description: result?.error || "No valid token found.", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Test failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const isPending = updateSetting.isPending || testConnection.isPending;
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-background/30 p-5 flex flex-col gap-4">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <PlatformBadge platform="threads" showLabel size="sm" />
+        {isLoading
+          ? <div className="h-5 w-16 rounded-full bg-secondary/40 animate-pulse" />
+          : <StatusBadge status={connected ? "connected" : "disconnected"} />
+        }
+      </div>
+
+      {/* Connected state: show username */}
+      {connected && username && (
+        <div className="flex items-center gap-3 h-[52px] px-3 rounded-lg bg-secondary/20 border border-border/20">
+          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary uppercase">
+            {username[0]}
+          </div>
+          <div>
+            <div className="text-sm font-medium">@{username}</div>
+            <div className="text-xs text-muted-foreground">Threads Account</div>
+          </div>
+          <CheckCircle2 className="w-4 h-4 text-emerald-500 ml-auto" />
+        </div>
+      )}
+
+      {/* Disconnected placeholder */}
+      {!connected && !isLoading && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span className="text-xs text-amber-400">No Threads account connected</span>
+        </div>
+      )}
+
+      {/* Collapsible token input */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setTokenOpen((o) => !o)}
+          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+        >
+          {tokenOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          Access Token
+        </button>
+        <AnimatePresence initial={false}>
+          {tokenOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="pt-2 space-y-2">
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    placeholder="Paste your long-lived access token…"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    className="text-xs h-8 bg-secondary/30 border-border/40 flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleSaveAndTest}
+                    disabled={!token.trim() || isPending}
+                    className="h-8 text-xs px-3 shrink-0"
+                  >
+                    {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
+                  Get your token from the{" "}
+                  <a
+                    href="https://developers.facebook.com/apps/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    Meta for Developers
+                  </a>{" "}
+                  portal under your Threads app.
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleTest}
+          disabled={testConnection.isPending}
+          className="flex-1 text-xs h-8 gap-1.5"
+        >
+          {testConnection.isPending
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />
+          }
+          Test Connection
+        </Button>
+        <a
+          href="https://developers.facebook.com/docs/threads"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors h-8 px-2"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          Docs
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ── Coming-soon platform card ─────────────────────────────────────────────────
 
 function ComingSoonCard({ platform, description }: { platform: "threads" | "instagram" | "tiktok"; description: string }) {
@@ -360,11 +528,8 @@ export default function SettingsPage() {
             testConnection={testConnection}
           />
 
-          {/* Threads / Instagram / TikTok — coming soon */}
-          <ComingSoonCard
-            platform="threads"
-            description="API integration in progress. Threads support will be activated once the Threads API supports publishing."
-          />
+          {/* Threads — live */}
+          <ThreadsAccountCard />
           <ComingSoonCard
             platform="instagram"
             description="Instagram integration is planned for a future release. Connect to manage posts and analytics."
