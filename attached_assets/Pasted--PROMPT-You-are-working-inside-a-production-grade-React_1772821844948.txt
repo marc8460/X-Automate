@@ -1,0 +1,199 @@
+🔥 PROMPT
+
+You are working inside a production-grade React + Express + TypeScript SaaS app.
+
+Objective:
+Upgrade the X feed browser inside the Viral Engine so that:
+
+Images render in full aspect ratio (no cropping).
+
+Each post displays impressions/views when available.
+
+A “Refresh Feed” button loads 20 new posts.
+
+Posts are automatically ranked with a 0–100 “Comment Opportunity Score”.
+
+The feed can be sorted by:
+
+Latest
+
+Best Opportunity (default)
+
+This must be implemented cleanly, modularly, and production-ready.
+
+BACKEND REQUIREMENTS
+1. Upgrade /api/twitter/home-timeline
+
+Use twitter-api-v2.
+
+Request:
+
+tweet.fields: public_metrics, organic_metrics, created_at
+
+expansions: author_id, attachments.media_keys
+
+media.fields: preview_image_url, url, width, height, type
+
+user.fields: name, username, profile_image_url
+
+Return 20 posts per request.
+
+Support:
+
+?since_id=xxx for refresh
+
+?pagination_token=xxx for load more
+
+2. Implement Ranking Engine
+
+Create a reusable function:
+
+function computeCommentOpportunityScore(tweet: Tweet): number
+
+Use this logic:
+
+Definitions:
+
+L = like_count
+R = retweet_count
+C = reply_count
+Q = quote_count
+V = impression_count (if available)
+T = age in minutes
+
+If impressions exist:
+
+engagementRate = (L + 2R + 3C + 2Q) / V
+
+Else:
+
+engagementProxy = (L + 2R + 3C + 2Q)
+
+velocity = engagementProxy / max(T, 1)
+
+replyGapFactor = 1 - (C / (L + R + Q + 1))
+
+Raw score:
+
+score_raw =
+0.4 * normalized(engagementRate or engagementProxy) +
+0.4 * normalized(velocity) +
+0.2 * replyGapFactor
+
+Normalize per batch.
+
+Scale final result:
+
+score = Math.min(100, Math.round(score_raw * 100))
+
+Attach:
+
+score: number
+
+to each returned post.
+
+FRONTEND REQUIREMENTS
+1. Image Rendering
+
+Images must:
+
+Preserve original aspect ratio
+
+Use object-contain
+
+Not crop content
+
+Support multiple images
+
+Handle video/gif gracefully
+
+Use dynamic aspect-ratio container if width/height provided.
+
+2. Post Card Layout
+
+Each post must display:
+
+Author avatar
+
+Name + @username
+
+Post text
+
+Media (full aspect ratio)
+
+Metrics:
+
+Likes
+
+Retweets
+
+Replies
+
+Quotes
+
+Impressions (if available)
+
+Add a badge:
+
+🔥 Score: 87/100
+
+Color code:
+
+80–100: red/purple glow
+
+60–79: amber
+
+<60: muted
+
+3. Refresh Button
+
+Add:
+
+[ Refresh Feed ]
+
+On click:
+
+Call API with since_id equal to newest tweet ID.
+
+Prepend new posts.
+
+4. Sorting Toggle
+
+Add toggle:
+
+Latest
+
+Best Opportunity
+
+Latest → sort by created_at desc
+Best → sort by score desc (default)
+
+Sorting must be client-side.
+
+OUTPUT FORMAT
+
+Return:
+
+Updated backend route
+
+Ranking function
+
+Updated frontend feed component
+
+Clear separation of concerns
+
+No hacks
+
+Clean TypeScript
+
+DESIGN RULES
+
+Keep dark premium UI
+
+No visual clutter
+
+No fixed height image cropping
+
+Must feel production-ready SaaS
+
+Modular and scalable
