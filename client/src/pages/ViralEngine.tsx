@@ -33,6 +33,9 @@ import {
   Eye,
   Wand2,
   LayoutGrid,
+  Quote,
+  Play,
+  ArrowUpDown,
 } from "lucide-react";
 
 type AnalysisResult = {
@@ -132,7 +135,50 @@ export default function ViralEngine() {
   const analyzePost = useAnalyzePost();
   const analyzeFeedPost = useAnalyzeFeedPost();
   const scanScreenshot = useScanScreenshot();
-  const { data: homeTimeline, isLoading: isLoadingTimeline, refetch: refetchTimeline } = useTwitterHomeTimeline();
+  const { data: timelineData, isLoading: isLoadingTimeline, refetch: refetchTimeline } = useTwitterHomeTimeline();
+  const [feedPosts, setFeedPosts] = useState<any[]>([]);
+  const [feedSort, setFeedSort] = useState<"best" | "latest">("best");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (timelineData?.posts?.length) {
+      setFeedPosts(timelineData.posts);
+    }
+  }, [timelineData]);
+
+  const sortedFeedPosts = [...feedPosts].sort((a, b) => {
+    if (feedSort === "best") return (b.score ?? 0) - (a.score ?? 0);
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  const handleRefreshFeed = async () => {
+    if (!feedPosts.length) {
+      refetchTimeline();
+      return;
+    }
+    setIsRefreshing(true);
+    try {
+      const newestId = feedPosts.reduce((max, p) =>
+        BigInt(p.id) > BigInt(max) ? p.id : max, feedPosts[0].id);
+      const res = await fetch(`/api/twitter/home-timeline?since_id=${newestId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to refresh");
+      const data = await res.json();
+      if (data.posts?.length) {
+        setFeedPosts((prev) => {
+          const existingIds = new Set(prev.map((p: any) => p.id));
+          const newPosts = data.posts.filter((p: any) => !existingIds.has(p.id));
+          return [...newPosts, ...prev];
+        });
+        toast({ title: `${data.posts.length} new post${data.posts.length > 1 ? "s" : ""} loaded` });
+      } else {
+        toast({ title: "No new posts found" });
+      }
+    } catch (err: any) {
+      toast({ title: "Refresh failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const compressImage = (file: File): Promise<File> =>
     new Promise((resolve) => {
@@ -483,10 +529,28 @@ export default function ViralEngine() {
                       <LayoutGrid size={20} className="text-primary" />
                       <h2 className="font-display font-semibold text-lg">Browse X Feed</h2>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => refetchTimeline()} disabled={isLoadingTimeline} className="gap-2">
-                      <RefreshCw size={14} className={isLoadingTimeline ? "animate-spin" : ""} />
-                      Refresh
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center rounded-lg border border-border/30 overflow-hidden text-xs" data-testid="feed-sort-toggle">
+                        <button
+                          onClick={() => setFeedSort("best")}
+                          className={`px-3 py-1.5 flex items-center gap-1.5 transition-colors ${feedSort === "best" ? "bg-primary text-primary-foreground" : "bg-secondary/30 text-muted-foreground hover:text-foreground"}`}
+                          data-testid="button-sort-best"
+                        >
+                          <Flame size={12} /> Best Opportunity
+                        </button>
+                        <button
+                          onClick={() => setFeedSort("latest")}
+                          className={`px-3 py-1.5 flex items-center gap-1.5 transition-colors ${feedSort === "latest" ? "bg-primary text-primary-foreground" : "bg-secondary/30 text-muted-foreground hover:text-foreground"}`}
+                          data-testid="button-sort-latest"
+                        >
+                          <Clock size={12} /> Latest
+                        </button>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={handleRefreshFeed} disabled={isLoadingTimeline || isRefreshing} className="gap-2" data-testid="button-refresh-feed">
+                        <RefreshCw size={14} className={(isLoadingTimeline || isRefreshing) ? "animate-spin" : ""} />
+                        Refresh Feed
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -515,51 +579,97 @@ export default function ViralEngine() {
                         </div>
                       </div>
                     ))
-                  ) : homeTimeline?.length ? (
-                    homeTimeline.map((post: any) => (
-                      <div key={post.id} className="glass-panel p-4 hover:border-primary/30 transition-colors group">
-                        <div className="flex gap-3">
-                          <img src={post.author?.profileImageUrl} alt="" className="w-10 h-10 rounded-full bg-secondary/50" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="font-bold text-sm truncate">{post.author?.name}</span>
-                                <span className="text-muted-foreground text-xs truncate">@{post.author?.username}</span>
+                  ) : sortedFeedPosts.length ? (
+                    sortedFeedPosts.map((post: any) => {
+                      const score = post.score ?? 0;
+                      const scoreBadgeClass = score >= 80
+                        ? "bg-red-500/20 text-red-400 border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.3)]"
+                        : score >= 60
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                          : "bg-secondary/40 text-muted-foreground border-border/30";
+
+                      return (
+                        <div key={post.id} className="glass-panel p-4 hover:border-primary/30 transition-colors group" data-testid={`card-feed-post-${post.id}`}>
+                          <div className="flex gap-3">
+                            <img src={post.author?.profileImageUrl} alt="" className="w-10 h-10 rounded-full bg-secondary/50 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="font-bold text-sm truncate">{post.author?.name}</span>
+                                  <span className="text-muted-foreground text-xs truncate">@{post.author?.username}</span>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${scoreBadgeClass}`} data-testid={`score-badge-${post.id}`}>
+                                    🔥 {score}/100
+                                  </span>
+                                  <span className="text-muted-foreground text-[10px] whitespace-nowrap">{new Date(post.createdAt).toLocaleDateString()}</span>
+                                </div>
                               </div>
-                              <span className="text-muted-foreground text-[10px] whitespace-nowrap">{new Date(post.createdAt).toLocaleDateString()}</span>
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap mb-3 leading-relaxed">{post.text}</p>
-                            {post.media?.[0] && (
-                              <div className="mb-3 rounded-lg overflow-hidden border border-border/30 max-h-[300px]">
-                                <img src={post.media[0].url || post.media[0].preview_image_url} alt="" className="w-full h-full object-cover" />
+                              <p className="text-sm whitespace-pre-wrap mb-3 leading-relaxed">{post.text}</p>
+
+                              {post.media?.length > 0 && (
+                                <div className={`mb-3 ${post.media.length > 1 ? "grid grid-cols-2 gap-1.5" : ""} rounded-lg overflow-hidden`}>
+                                  {post.media.map((m: any, idx: number) => {
+                                    const isVideo = m.type === "video" || m.type === "animated_gif";
+                                    const imgSrc = isVideo ? m.preview_image_url : (m.url || m.preview_image_url);
+                                    const aspectStyle = m.width && m.height
+                                      ? { aspectRatio: `${m.width}/${m.height}` }
+                                      : {};
+
+                                    return (
+                                      <div key={m.media_key || idx} className="relative rounded-lg overflow-hidden border border-border/30 bg-secondary/20" style={aspectStyle}>
+                                        {imgSrc && (
+                                          <img
+                                            src={imgSrc}
+                                            alt=""
+                                            className="w-full h-full object-contain"
+                                            loading="lazy"
+                                          />
+                                        )}
+                                        {isVideo && (
+                                          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                            <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
+                                              <Play size={18} className="text-black ml-0.5" />
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between pt-2 border-t border-border/10">
+                                <div className="flex items-center gap-3 text-muted-foreground flex-wrap">
+                                  <span className="flex items-center gap-1 text-xs" data-testid={`metric-likes-${post.id}`}><Heart size={12} /> {(post.publicMetrics?.like_count ?? 0).toLocaleString()}</span>
+                                  <span className="flex items-center gap-1 text-xs" data-testid={`metric-replies-${post.id}`}><MessageSquare size={12} /> {(post.publicMetrics?.reply_count ?? 0).toLocaleString()}</span>
+                                  <span className="flex items-center gap-1 text-xs" data-testid={`metric-retweets-${post.id}`}><Repeat2 size={12} /> {(post.publicMetrics?.retweet_count ?? 0).toLocaleString()}</span>
+                                  <span className="flex items-center gap-1 text-xs" data-testid={`metric-quotes-${post.id}`}><Quote size={12} /> {(post.publicMetrics?.quote_count ?? 0).toLocaleString()}</span>
+                                  {post.publicMetrics?.impression_count != null && (
+                                    <span className="flex items-center gap-1 text-xs" data-testid={`metric-impressions-${post.id}`}><Eye size={12} /> {post.publicMetrics.impression_count.toLocaleString()}</span>
+                                  )}
+                                </div>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleFeedPostScan(post)}
+                                  disabled={isScanning}
+                                  className="h-8 gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  data-testid={`button-scan-feed-post-${post.id}`}
+                                >
+                                  {analyzePost.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
+                                  Scan & Generate
+                                </Button>
                               </div>
-                            )}
-                            <div className="flex items-center justify-between pt-2 border-t border-border/10">
-                              <div className="flex items-center gap-4 text-muted-foreground">
-                                <span className="flex items-center gap-1 text-xs"><Heart size={12} /> {post.publicMetrics?.like_count}</span>
-                                <span className="flex items-center gap-1 text-xs"><MessageSquare size={12} /> {post.publicMetrics?.reply_count}</span>
-                                <span className="flex items-center gap-1 text-xs"><Repeat2 size={12} /> {post.publicMetrics?.retweet_count}</span>
-                              </div>
-                              <Button
-                                size="sm"
-                                onClick={() => handleFeedPostScan(post)}
-                                disabled={isScanning}
-                                className="h-8 gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                data-testid={`button-scan-feed-post-${post.id}`}
-                              >
-                                {analyzePost.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
-                                Scan & Generate
-                              </Button>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="glass-panel p-12 text-center text-muted-foreground">
                       <LayoutGrid size={48} className="mx-auto mb-4 opacity-20" />
                       <p>No posts found in your feed.</p>
-                      <p className="text-xs mt-2">Make sure your Twitter credentials are set up correctly.</p>
+                      <p className="text-xs mt-2">Make sure your X account is connected in Settings.</p>
                     </div>
                   )}
                 </div>

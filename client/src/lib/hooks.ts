@@ -184,10 +184,20 @@ export function useTwitterStatus() {
   });
 }
 
-export function useTwitterHomeTimeline() {
-  return useQuery<any[]>({
-    queryKey: ["/api/twitter/home-timeline"],
+export function useTwitterHomeTimeline(sinceId?: string) {
+  const params = new URLSearchParams();
+  if (sinceId) params.set("since_id", sinceId);
+  const qs = params.toString();
+  const url = `/api/twitter/home-timeline${qs ? `?${qs}` : ""}`;
+  return useQuery<{ posts: any[]; nextToken: string | null }>({
+    queryKey: ["/api/twitter/home-timeline", sinceId || "initial"],
+    queryFn: async () => {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
     staleTime: 2 * 60 * 1000,
+    enabled: !sinceId,
   });
 }
 

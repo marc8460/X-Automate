@@ -9,6 +9,7 @@ import { getTwitterClient, getTwitterClientForUser, testTwitterConnectionForUser
 import { testThreadsConnectionForUser, getThreadsAccessTokenForUser, createThreadsPost, replyToThreadsComment, generateThreadsOAuthUrl, storeThreadsOAuthState, handleThreadsOAuthCallback } from "./threads";
 import { storage } from "./storage";
 import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
+import { rankTweets } from "./ranking";
 import { isAuthenticated } from "./replit_integrations/auth";
 import {
   insertTweetSchema,
@@ -587,20 +588,29 @@ Return ONLY valid JSON with no markdown:
     }
 
     try {
-      const timeline = await twitterClient.v2.homeTimeline({
+      const params: any = {
         max_results: 20,
         "tweet.fields": ["public_metrics", "created_at", "author_id", "entities"],
         "user.fields": ["name", "username", "profile_image_url"],
         expansions: ["author_id", "attachments.media_keys"],
         "media.fields": ["url", "preview_image_url", "type", "width", "height"],
-      });
+      };
+
+      if (req.query.since_id) {
+        params.since_id = req.query.since_id as string;
+      }
+      if (req.query.pagination_token) {
+        params.pagination_token = req.query.pagination_token as string;
+      }
+
+      const timeline = await twitterClient.v2.homeTimeline(params);
 
       const tweets = timeline.data.data || [];
       const includes = timeline.data.includes || {};
       const users = includes.users || [];
       const media = includes.media || [];
 
-      const result = tweets.map((tweet: any) => {
+      const mapped = tweets.map((tweet: any) => {
         const author = users.find((u: any) => u.id === tweet.author_id);
         const tweetMedia = tweet.attachments?.media_keys?.map((key: string) =>
           media.find((m: any) => m.media_key === key)
@@ -620,7 +630,10 @@ Return ONLY valid JSON with no markdown:
         };
       });
 
-      res.json(result);
+      const ranked = rankTweets(mapped);
+      const nextToken = timeline.data.meta?.next_token || null;
+
+      res.json({ posts: ranked, nextToken });
     } catch (err: any) {
       console.error("[twitter/home-timeline] Error:", err.data || err.message);
       const msg = err.data?.detail || err.message || "Failed to fetch home timeline";
