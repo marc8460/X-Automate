@@ -200,11 +200,35 @@ export async function registerRoutes(
           } else {
             imageBuffer = await fs.promises.readFile(imageUrl);
           }
-          mediaId = await twitterClient.v1.uploadMedia(imageBuffer, {
-            mimeType: imageUrl.endsWith(".png") ? "image/png" : imageUrl.endsWith(".gif") ? "image/gif" : "image/jpeg",
-          });
+          const mimeType = imageUrl.endsWith(".png") ? "image/png"
+            : imageUrl.endsWith(".gif") ? "image/gif"
+            : imageUrl.endsWith(".webp") ? "image/webp"
+            : "image/jpeg";
+          mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType });
         } catch (mediaErr: any) {
-          console.error("[post-now] Media upload failed, posting without image:", mediaErr.message);
+          console.error("[post-now] Media upload failed:", mediaErr.data || mediaErr.message);
+          const uploadClient = getTwitterClient();
+          if (uploadClient) {
+            try {
+              let imageBuffer: Buffer;
+              if (imageUrl.startsWith("/uploads/")) {
+                imageBuffer = await fs.promises.readFile(path.join(process.cwd(), imageUrl));
+              } else if (imageUrl.startsWith("http")) {
+                const response = await fetch(imageUrl);
+                imageBuffer = Buffer.from(await response.arrayBuffer());
+              } else {
+                imageBuffer = await fs.promises.readFile(imageUrl);
+              }
+              const mimeType = imageUrl.endsWith(".png") ? "image/png"
+                : imageUrl.endsWith(".gif") ? "image/gif"
+                : imageUrl.endsWith(".webp") ? "image/webp"
+                : "image/jpeg";
+              mediaId = await uploadClient.v1.uploadMedia(imageBuffer, { mimeType });
+              console.log("[post-now] Media uploaded via OAuth 1.0a fallback");
+            } catch (fallbackErr: any) {
+              console.error("[post-now] OAuth 1.0a media upload also failed:", fallbackErr.message);
+            }
+          }
         }
       }
 
