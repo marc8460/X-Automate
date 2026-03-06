@@ -171,7 +171,15 @@ export default function ViralEngine() {
         });
         toast({ title: `${data.posts.length} new post${data.posts.length > 1 ? "s" : ""} loaded` });
       } else {
-        toast({ title: "No new posts found" });
+        const fullRes = await fetch("/api/twitter/home-timeline", { credentials: "include" });
+        if (!fullRes.ok) throw new Error("Failed to refresh");
+        const fullData = await fullRes.json();
+        if (fullData.posts?.length) {
+          setFeedPosts(fullData.posts);
+          toast({ title: "Feed refreshed" });
+        } else {
+          toast({ title: "No posts available right now" });
+        }
       }
     } catch (err: any) {
       toast({ title: "Refresh failed", description: err.message, variant: "destructive" });
