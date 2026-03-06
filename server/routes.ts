@@ -580,8 +580,21 @@ Return ONLY valid JSON with no markdown:
     }
   });
 
+  const timelineCache = new Map<string, { data: any; fetchedAt: number }>();
+  const TIMELINE_CACHE_TTL = 2 * 60 * 1000;
+
   app.get("/api/twitter/home-timeline", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
+    const hasSinceId = !!req.query.since_id;
+    const hasPagination = !!req.query.pagination_token;
+
+    if (!hasSinceId && !hasPagination) {
+      const cached = timelineCache.get(userId);
+      if (cached && Date.now() - cached.fetchedAt < TIMELINE_CACHE_TTL) {
+        return res.json(cached.data);
+      }
+    }
+
     const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
     if (!twitterClient) {
       return res.status(400).json({ message: "X account not connected" });
@@ -632,10 +645,24 @@ Return ONLY valid JSON with no markdown:
 
       const ranked = rankTweets(mapped);
       const nextToken = timeline.data.meta?.next_token || null;
+      const result = { posts: ranked, nextToken };
 
-      res.json({ posts: ranked, nextToken });
+      if (!hasSinceId && !hasPagination) {
+        timelineCache.set(userId, { data: result, fetchedAt: Date.now() });
+      }
+
+      res.json(result);
     } catch (err: any) {
       console.error("[twitter/home-timeline] Error:", err.data || err.message);
+
+      if (err.code === 429 || err.data?.status === 429 || (err.data?.detail || "").includes("Too Many")) {
+        const cached = timelineCache.get(userId);
+        if (cached) {
+          return res.json(cached.data);
+        }
+        return res.status(429).json({ message: "Rate limited by X. Please wait a minute and try again.", posts: [], nextToken: null });
+      }
+
       const msg = err.data?.detail || err.message || "Failed to fetch home timeline";
       res.status(500).json({ message: msg });
     }

@@ -161,7 +161,10 @@ export default function ViralEngine() {
       const newestId = feedPosts.reduce((max, p) =>
         BigInt(p.id) > BigInt(max) ? p.id : max, feedPosts[0].id);
       const res = await fetch(`/api/twitter/home-timeline?since_id=${newestId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to refresh");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || "Failed to refresh");
+      }
       const data = await res.json();
       if (data.posts?.length) {
         setFeedPosts((prev) => {
@@ -171,18 +174,10 @@ export default function ViralEngine() {
         });
         toast({ title: `${data.posts.length} new post${data.posts.length > 1 ? "s" : ""} loaded` });
       } else {
-        const fullRes = await fetch("/api/twitter/home-timeline", { credentials: "include" });
-        if (!fullRes.ok) throw new Error("Failed to refresh");
-        const fullData = await fullRes.json();
-        if (fullData.posts?.length) {
-          setFeedPosts(fullData.posts);
-          toast({ title: "Feed refreshed" });
-        } else {
-          toast({ title: "No posts available right now" });
-        }
+        toast({ title: "Feed is up to date" });
       }
     } catch (err: any) {
-      toast({ title: "Refresh failed", description: err.message, variant: "destructive" });
+      toast({ title: "Couldn't refresh right now", description: err.message, variant: "destructive" });
     } finally {
       setIsRefreshing(false);
     }
