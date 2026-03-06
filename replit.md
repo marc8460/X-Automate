@@ -1,16 +1,25 @@
 # Aura - AI Influencer Automation Dashboard
 
 ## Overview
-Full-stack multi-platform AI influencer automation dashboard for a female AI persona. Dark creator aesthetic with purple/pink neon glass panels and Framer Motion animations. Supports X (Twitter) and Threads, with Instagram/TikTok planned.
+Multi-user SaaS AI influencer automation dashboard. Users sign in via Replit Auth, then connect their own X and Threads accounts via OAuth. Dark creator aesthetic with purple/pink neon glass panels and Framer Motion animations. Supports X (Twitter) and Threads, with Instagram/TikTok planned.
 
 ## Architecture
 - **Frontend**: React 19 + Vite, TailwindCSS, shadcn/ui, Recharts, Framer Motion, TanStack Query, wouter routing
 - **Backend**: Express on port 5000, Drizzle ORM with PostgreSQL (pg driver, NOT neon-serverless)
+- **Auth**: Replit Auth (OIDC via passport + openid-client + connect-pg-simple sessions)
 - **AI**: Groq SDK — `llama-3.3-70b-versatile` for text generation, `meta-llama/llama-4-scout-17b-16e-instruct` for vision/image analysis
-- **Twitter**: `twitter-api-v2` package for real Twitter/X API integration (OAuth 1.0a)
-- **Threads**: Meta Threads API via REST (long-lived access token)
+- **Twitter**: `twitter-api-v2` — OAuth 2.0 PKCE for user connections, OAuth 1.0a legacy for dev account
+- **Threads**: Meta Threads API via REST — OAuth for user connections
 - **File Uploads**: Multer with disk storage to `uploads/` directory, served statically
 - **Fonts**: Outfit (display) + Inter (UI)
+
+## Authentication & Multi-User
+- **Replit Auth**: Users sign in via Google/X/Apple/email. Session stored in `sessions` table via connect-pg-simple.
+- **Auth middleware**: `isAuthenticated` from `server/replit_integrations/auth/` protects all `/api/*` routes (returns 401 if not logged in)
+- **User ID**: `getUserId(req)` extracts `req.user.claims.sub` for data scoping
+- **Connected Accounts**: Users connect X/Threads via OAuth buttons in Settings (no API keys needed from users)
+- **Data isolation**: All data tables have `userId` column; all storage queries are user-scoped
+- **Landing page**: Unauthenticated users see `Landing.tsx`; authenticated users see the dashboard
 
 ## Key Design Rules
 - Persona is a **woman influencer** who never reveals she's AI. All UI copy reflects a "natural human creator" workflow.
@@ -48,17 +57,14 @@ uploads/          - User-uploaded media files (served statically)
 ```
 
 ## Twitter/X Integration
-- **Credentials**: OAuth 1.0a via environment secrets: TWITTER_APP_KEY, TWITTER_APP_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET
-- **server/twitter.ts**: `getTwitterClient()` returns TwitterApi instance or null; `testTwitterConnection()` verifies connection
-- **Follower tracking**: Delta-based — compares current follower count with previous snapshot via `v2.me()` with `public_metrics`
-- **Like/Retweet tracking**: Delta-based — compares tweet `public_metrics` via `v2.userTimeline()` against stored snapshots
-- **Home timeline**: `v2.homeTimeline()` for browsing feed in Viral Engine (requires Basic tier)
+- **OAuth 2.0 (per-user)**: `TWITTER_CLIENT_ID` + `TWITTER_CLIENT_SECRET` for user OAuth connect flow. Users click "Connect X" → redirected to Twitter → tokens stored in `connected_accounts` table
+- **OAuth 1.0a (legacy)**: `TWITTER_APP_KEY` + `TWITTER_APP_SECRET` + `TWITTER_ACCESS_TOKEN` + `TWITTER_ACCESS_SECRET` for dev account fallback
+- **server/twitter.ts**: `getTwitterClientForUser(userId)` loads per-user tokens; `getTwitterClient()` is legacy fallback; `generateTwitterOAuthUrl()` + `handleTwitterOAuthCallback()` handle OAuth 2.0 PKCE flow
+- **Token refresh**: Automatic via `refreshUserTwitterToken()` when tokens expire (2-hour TTL)
 
 ## Threads Integration
-- **Credentials**: THREADS_ACCESS_TOKEN environment secret (long-lived Meta access token)
-- **server/threads.ts**: REST API client for Threads API v1.0
-- **Polling**: Engagement poller fetches replies to user's threads posts, tracks follower delta
-- **Status**: `/api/threads/status` endpoint checks connection
+- **OAuth (per-user)**: `THREADS_APP_ID` + `THREADS_APP_SECRET` for Meta OAuth flow. Short-lived token auto-exchanged for long-lived token.
+- **server/threads.ts**: `getThreadsAccessTokenForUser(userId)` loads per-user tokens; `generateThreadsOAuthUrl()` + `handleThreadsOAuthCallback()` handle OAuth flow
 
 ## Viral Comment Engine
 - **4-mode workflow**: Browse Feed (X home timeline) | Screenshot Scan | Manual Entry → AI generates viral comments
@@ -100,11 +106,15 @@ uploads/          - User-uploaded media files (served statically)
 ## Environment Secrets
 - GROQ_API_KEY — for AI content generation via Groq
 - DATABASE_URL — PostgreSQL connection (auto-managed by Replit)
-- TWITTER_APP_KEY — Twitter OAuth 1.0a App Key (optional, enables X features)
-- TWITTER_APP_SECRET — Twitter OAuth 1.0a App Secret (optional)
-- TWITTER_ACCESS_TOKEN — Twitter OAuth 1.0a Access Token (optional)
-- TWITTER_ACCESS_SECRET — Twitter OAuth 1.0a Access Secret (optional)
-- THREADS_ACCESS_TOKEN — Meta Threads API long-lived access token (optional, enables Threads features)
+- SESSION_SECRET — Express session secret (for Replit Auth sessions)
+- TWITTER_CLIENT_ID — Twitter OAuth 2.0 Client ID (for "Connect X" user flow)
+- TWITTER_CLIENT_SECRET — Twitter OAuth 2.0 Client Secret (for "Connect X" user flow)
+- TWITTER_APP_KEY — Twitter OAuth 1.0a App Key (legacy dev account fallback)
+- TWITTER_APP_SECRET — Twitter OAuth 1.0a App Secret (legacy dev account fallback)
+- TWITTER_ACCESS_TOKEN — Twitter OAuth 1.0a Access Token (legacy dev account fallback)
+- TWITTER_ACCESS_SECRET — Twitter OAuth 1.0a Access Secret (legacy dev account fallback)
+- THREADS_APP_ID — Meta Threads App ID (for "Connect Threads" user flow, optional)
+- THREADS_APP_SECRET — Meta Threads App Secret (for "Connect Threads" user flow, optional)
 
 ## Content Generation
 - `/api/generate` reads persona settings (seductiveness, playfulness, dominance) from settings table

@@ -40,13 +40,13 @@ export async function getTwitterClientForUser(userId: string): Promise<TwitterAp
 }
 
 async function refreshUserTwitterToken(userId: string, refreshToken: string): Promise<TwitterApi | null> {
-  const clientId = process.env.TWITTER_APP_KEY;
+  const clientId = process.env.TWITTER_CLIENT_ID;
   if (!clientId) return null;
 
   try {
     const client = new TwitterApi({
       clientId,
-      clientSecret: process.env.TWITTER_APP_SECRET,
+      clientSecret: process.env.TWITTER_CLIENT_SECRET,
     });
     const { accessToken, refreshToken: newRefreshToken, expiresIn } = await client.refreshOAuth2Token(refreshToken);
 
@@ -149,12 +149,12 @@ setInterval(() => {
 }, 60_000);
 
 export async function generateTwitterOAuthUrl(userId: string, callbackUrl: string): Promise<{ url: string; state: string }> {
-  const clientId = process.env.TWITTER_APP_KEY;
-  if (!clientId) throw new Error("TWITTER_APP_KEY not configured");
+  const clientId = process.env.TWITTER_CLIENT_ID;
+  if (!clientId) throw new Error("TWITTER_CLIENT_ID not configured");
 
   const client = new TwitterApi({
     clientId,
-    clientSecret: process.env.TWITTER_APP_SECRET,
+    clientSecret: process.env.TWITTER_CLIENT_SECRET,
   });
 
   const { url, codeVerifier, state } = client.generateOAuth2AuthLink(callbackUrl, {
@@ -172,13 +172,13 @@ export async function handleTwitterOAuthCallback(state: string, code: string, ca
 
   oauthStates.delete(state);
 
-  const clientId = process.env.TWITTER_APP_KEY;
-  if (!clientId) return { success: false, error: "TWITTER_APP_KEY not configured" };
+  const clientId = process.env.TWITTER_CLIENT_ID;
+  if (!clientId) return { success: false, error: "TWITTER_CLIENT_ID not configured" };
 
   try {
     const client = new TwitterApi({
       clientId,
-      clientSecret: process.env.TWITTER_APP_SECRET,
+      clientSecret: process.env.TWITTER_CLIENT_SECRET,
     });
 
     const { accessToken, refreshToken, expiresIn } = await client.loginWithOAuth2({
