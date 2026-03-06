@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAnalyzePost, useScanScreenshot } from "@/lib/hooks";
+import { useAnalyzePost, useScanScreenshot, useTwitterHomeTimeline, useAnalyzeFeedPost } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +32,7 @@ import {
   Clipboard,
   Eye,
   Wand2,
+  LayoutGrid,
 } from "lucide-react";
 
 type AnalysisResult = {
@@ -70,7 +71,7 @@ type ExtractedData = {
 };
 
 type Step = "analyze" | "results";
-type AnalyzeMode = "screenshot" | "manual";
+type AnalyzeMode = "screenshot" | "manual" | "feed";
 
 const TRENDS_URL = "https://trends.google.com/trends/trendingsearches/daily?geo=US";
 
@@ -129,7 +130,9 @@ export default function ViralEngine() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const analyzePost = useAnalyzePost();
+  const analyzeFeedPost = useAnalyzeFeedPost();
   const scanScreenshot = useScanScreenshot();
+  const { data: homeTimeline, isLoading: isLoadingTimeline, refetch: refetchTimeline } = useTwitterHomeTimeline();
 
   const compressImage = (file: File): Promise<File> =>
     new Promise((resolve) => {
@@ -242,6 +245,41 @@ export default function ViralEngine() {
     );
   };
 
+  const handleFeedPostScan = (post: any) => {
+    setPostText(post.text);
+    setImageUrl(post.media?.[0]?.url || post.media?.[0]?.preview_image_url || "");
+    setAuthorFollowers(post.author?.publicMetrics?.followers_count?.toString() || "");
+    setLikes(post.publicMetrics?.like_count?.toString() || "");
+    setReplies(post.publicMetrics?.reply_count?.toString() || "");
+    setRetweets(post.publicMetrics?.retweet_count?.toString() || "");
+    setTimeElapsed(new Date(post.createdAt).toLocaleDateString());
+
+    analyzeFeedPost.mutate(
+      {
+        postText: post.text,
+        imageUrl: post.media?.[0]?.url || post.media?.[0]?.preview_image_url || undefined,
+        authorFollowers: post.author?.publicMetrics?.followers_count?.toString() || undefined,
+        likes: post.publicMetrics?.like_count,
+        replies: post.publicMetrics?.reply_count,
+        retweets: post.publicMetrics?.retweet_count,
+        timeElapsed: "Recently",
+        niche: niche.trim() || undefined,
+        customPrompt: customPrompt.trim() || undefined,
+        authorName: post.author?.name,
+        authorUsername: post.author?.username,
+      },
+      {
+        onSuccess: (data) => {
+          setAnalysis(data.analysis);
+          setStep("results");
+        },
+        onError: (err: any) => {
+          toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
+        },
+      }
+    );
+  };
+
   const handleRegenerate = () => {
     if (extractedData) {
       // Screenshot path — use what the vision model extracted
@@ -296,7 +334,7 @@ export default function ViralEngine() {
 
   const scoreColor = (score: number) => score >= 8 ? "text-green-400" : score >= 5 ? "text-yellow-400" : "text-red-400";
   const scoreBg = (score: number) => score >= 8 ? "bg-green-500/20 border-green-500/30" : score >= 5 ? "bg-yellow-500/20 border-yellow-500/30" : "bg-red-500/20 border-red-500/30";
-  const isScanning = scanScreenshot.isPending || analyzePost.isPending;
+  const isScanning = scanScreenshot.isPending || analyzePost.isPending || analyzeFeedPost.isPending;
 
   return (
     <div className="space-y-6">
@@ -316,6 +354,12 @@ export default function ViralEngine() {
                   analyzeMode === "screenshot" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground"
                 }`} data-testid="button-mode-screenshot">
                 <Camera size={14} /> Screenshot Scan
+              </button>
+              <button onClick={() => setAnalyzeMode("feed")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                  analyzeMode === "feed" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground"
+                }`} data-testid="button-mode-feed">
+                <LayoutGrid size={14} /> Browse Feed
               </button>
               <button onClick={() => setAnalyzeMode("manual")}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
@@ -426,6 +470,98 @@ export default function ViralEngine() {
                   <Button onClick={handleScreenshotScan} disabled={isScanning || !screenshotFile} className="min-w-[220px]" data-testid="button-scan-screenshot">
                     {scanScreenshot.isPending ? (<><RefreshCw size={14} className="mr-2 animate-spin" /> AI is reading the post...</>) : (<><Eye size={14} className="mr-2" /> Scan & Generate Comments</>)}
                   </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Feed Browser */}
+            {analyzeMode === "feed" && (
+              <div className="space-y-4">
+                <div className="glass-panel p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <LayoutGrid size={20} className="text-primary" />
+                      <h2 className="font-display font-semibold text-lg">Browse X Feed</h2>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => refetchTimeline()} disabled={isLoadingTimeline} className="gap-2">
+                      <RefreshCw size={14} className={isLoadingTimeline ? "animate-spin" : ""} />
+                      Refresh
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium mb-1 block">Niche / Trend Topic</label>
+                      <Input placeholder="Trend topic..." value={niche} onChange={(e) => setNiche(e.target.value)} className="bg-secondary/30" data-testid="input-niche-feed" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium mb-1 block">Comment Instructions (optional)</label>
+                      <Input placeholder="e.g. style of a Gen Z girl" value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} className="bg-secondary/30" data-testid="input-custom-prompt-feed" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
+                  {isLoadingTimeline ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="glass-panel p-4 animate-pulse">
+                        <div className="flex gap-3">
+                          <div className="w-10 h-10 rounded-full bg-secondary/50" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 bg-secondary/50 rounded w-1/4" />
+                            <div className="h-4 bg-secondary/50 rounded w-full" />
+                            <div className="h-4 bg-secondary/50 rounded w-full" />
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : homeTimeline?.length ? (
+                    homeTimeline.map((post: any) => (
+                      <div key={post.id} className="glass-panel p-4 hover:border-primary/30 transition-colors group">
+                        <div className="flex gap-3">
+                          <img src={post.author?.profileImageUrl} alt="" className="w-10 h-10 rounded-full bg-secondary/50" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="font-bold text-sm truncate">{post.author?.name}</span>
+                                <span className="text-muted-foreground text-xs truncate">@{post.author?.username}</span>
+                              </div>
+                              <span className="text-muted-foreground text-[10px] whitespace-nowrap">{new Date(post.createdAt).toLocaleDateString()}</span>
+                            </div>
+                            <p className="text-sm whitespace-pre-wrap mb-3 leading-relaxed">{post.text}</p>
+                            {post.media?.[0] && (
+                              <div className="mb-3 rounded-lg overflow-hidden border border-border/30 max-h-[300px]">
+                                <img src={post.media[0].url || post.media[0].preview_image_url} alt="" className="w-full h-full object-cover" />
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between pt-2 border-t border-border/10">
+                              <div className="flex items-center gap-4 text-muted-foreground">
+                                <span className="flex items-center gap-1 text-xs"><Heart size={12} /> {post.publicMetrics?.like_count}</span>
+                                <span className="flex items-center gap-1 text-xs"><MessageSquare size={12} /> {post.publicMetrics?.reply_count}</span>
+                                <span className="flex items-center gap-1 text-xs"><Repeat2 size={12} /> {post.publicMetrics?.retweet_count}</span>
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => handleFeedPostScan(post)}
+                                disabled={isScanning}
+                                className="h-8 gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                data-testid={`button-scan-feed-post-${post.id}`}
+                              >
+                                {analyzePost.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
+                                Scan & Generate
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="glass-panel p-12 text-center text-muted-foreground">
+                      <LayoutGrid size={48} className="mx-auto mb-4 opacity-20" />
+                      <p>No posts found in your feed.</p>
+                      <p className="text-xs mt-2">Make sure your Twitter credentials are set up correctly.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

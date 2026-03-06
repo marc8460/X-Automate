@@ -184,6 +184,13 @@ export function useTwitterStatus() {
   });
 }
 
+export function useTwitterHomeTimeline() {
+  return useQuery<any[]>({
+    queryKey: ["/api/twitter/home-timeline"],
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useTestTwitterConnection() {
   return useMutation({
     mutationFn: async () => {
@@ -266,6 +273,27 @@ export function useAnalyzePost() {
   });
 }
 
+export function useAnalyzeFeedPost() {
+  return useMutation({
+    mutationFn: async (data: {
+      postText: string;
+      imageUrl?: string;
+      authorFollowers?: string;
+      likes?: number;
+      replies?: number;
+      retweets?: number;
+      timeElapsed?: string;
+      niche?: string;
+      customPrompt?: string;
+      authorName?: string;
+      authorUsername?: string;
+    }) => {
+      const res = await apiRequest("POST", "/api/analyze-feed-post", data);
+      return res.json();
+    },
+  });
+}
+
 export function useScanScreenshot() {
   return useMutation({
     mutationFn: async (formData: FormData) => {
@@ -340,22 +368,26 @@ async function fetchJson<T>(url: string): Promise<T> {
   return safeJson<T>(res);
 }
 
-// Live comment threads from DB (auto-polled every 30s)
-export function useLiveCommentThreads() {
+export function useLiveCommentThreads(platform?: string) {
+  const url = platform && platform !== "all"
+    ? `/api/engagement/live-comments?platform=${platform}`
+    : "/api/engagement/live-comments";
   return useQuery<{ threads: CommentThread[] }>({
-    queryKey: ["/api/engagement/live-comments"],
-    queryFn: () => fetchJson<{ threads: CommentThread[] }>("/api/engagement/live-comments"),
+    queryKey: ["/api/engagement/live-comments", platform],
+    queryFn: () => fetchJson<{ threads: CommentThread[] }>(url),
     refetchInterval: 30_000,
     staleTime: 15_000,
     retry: 1,
   });
 }
 
-// Live follower interactions from DB (auto-polled every 30s)
-export function useLiveFollowerInteractions() {
+export function useLiveFollowerInteractions(platform?: string) {
+  const url = platform && platform !== "all"
+    ? `/api/engagement/live-interactions?platform=${platform}`
+    : "/api/engagement/live-interactions";
   return useQuery<{ interactions: LiveFollowerInteraction[] }>({
-    queryKey: ["/api/engagement/live-interactions"],
-    queryFn: () => fetchJson<{ interactions: LiveFollowerInteraction[] }>("/api/engagement/live-interactions"),
+    queryKey: ["/api/engagement/live-interactions", platform],
+    queryFn: () => fetchJson<{ interactions: LiveFollowerInteraction[] }>(url),
     refetchInterval: 30_000,
     staleTime: 15_000,
     retry: 1,

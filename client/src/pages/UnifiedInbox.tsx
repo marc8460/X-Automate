@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { PlatformBadge } from "@/components/platform/PlatformBadge";
 import type { Platform } from "@/types/platform";
+import { usePlatform } from "@/contexts/PlatformContext";
 
 type InboxFilter = "all" | "x" | "threads";
 
@@ -96,14 +97,21 @@ function LastUpdated({ lastPollAt }: { lastPollAt: string | null }) {
 export default function UnifiedInbox() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { selectedPlatform } = usePlatform();
   const [filter, setFilter] = useState<InboxFilter>("all");
+
+  // Sync internal filter with global platform context
+  useEffect(() => {
+    setFilter(selectedPlatform as InboxFilter);
+  }, [selectedPlatform]);
+
   const [customPrompt, setCustomPrompt] = useState("");
   const [cardStates, setCardStates] = useState<Record<string, CardState>>({});
 
   useEngagementSSE();
 
-  const { data: threadsData, isLoading: loadingThreads, error: threadsError, refetch } = useLiveCommentThreads();
-  const { data: interactionsData, isLoading: loadingInteractions } = useLiveFollowerInteractions();
+  const { data: threadsData, isLoading: loadingThreads, error: threadsError, refetch } = useLiveCommentThreads(filter);
+  const { data: interactionsData, isLoading: loadingInteractions } = useLiveFollowerInteractions(filter);
   const { data: status } = useEngagementStatus();
   const generateReply = useGenerateEngagementReply();
   const sendReply = useSendEngagementReply();
@@ -174,11 +182,7 @@ export default function UnifiedInbox() {
   );
 
   const allThreads = threadsData?.threads ?? [];
-  // All threads are from X — platform field would come from backend in production
-  const filteredThreads = allThreads.filter((t) => {
-    if (filter === "threads") return false; // no Threads messages yet
-    return true; // "all" and "x" show X threads
-  }).filter((t) => !(cardStates[t.id]?.isSkipped));
+  const filteredThreads = allThreads.filter((t) => !(cardStates[t.id]?.isSkipped));
   const interactions = interactionsData?.interactions ?? [];
   const isLive = status?.running ?? false;
   const isPaused = status?.paused ?? false;
@@ -384,8 +388,7 @@ export default function UnifiedInbox() {
                             <p className="font-medium text-sm">
                               {thread.lastCommentAuthorName || thread.lastCommentAuthor}
                             </p>
-                            {/* All threads from X for now */}
-                            <PlatformBadge platform="x" size="xs" />
+                            <PlatformBadge platform={thread.platform as Platform} size="xs" />
                           </div>
                           <p className="text-xs text-muted-foreground">
                             {thread.lastCommentAuthor} · {formatTime(thread.lastCommentAt)}

@@ -64,7 +64,8 @@ export const liveFollowerInteractions = pgTable("live_follower_interactions", {
   tweetId: text("tweet_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   seen: boolean("seen").notNull().default(false),
-  xEventKey: text("x_event_key").notNull().unique(), // dedup key: "${type}:${username}:${tweetId??''}"
+  xEventKey: text("x_event_key").notNull().unique(),
+  platform: text("platform").notNull().default("x"),
 });
 
 export const insertLiveFollowerInteractionSchema = createInsertSchema(liveFollowerInteractions).omit({ id: true });
@@ -73,16 +74,17 @@ export type LiveFollowerInteraction = typeof liveFollowerInteractions.$inferSele
 
 // Comment threads — tracks replies/mentions requiring attention
 export const commentThreads = pgTable("comment_threads", {
-  id: text("id").primaryKey(), // conversation_id from X
+  id: text("id").primaryKey(),
   rootTweetId: text("root_tweet_id").notNull(),
   lastCommentId: text("last_comment_id").notNull(),
   lastCommentText: text("last_comment_text").notNull(),
-  lastCommentAuthor: text("last_comment_author").notNull(), // @username
+  lastCommentAuthor: text("last_comment_author").notNull(),
   lastCommentAuthorName: text("last_comment_author_name").notNull().default(""),
   lastCommentAt: timestamp("last_comment_at", { withTimezone: true }).notNull(),
   replied: boolean("replied").notNull().default(false),
   needsAttention: boolean("needs_attention").notNull().default(true),
   parentTweetText: text("parent_tweet_text").notNull().default(""),
+  platform: text("platform").notNull().default("x"),
 });
 
 export const insertCommentThreadSchema = createInsertSchema(commentThreads);

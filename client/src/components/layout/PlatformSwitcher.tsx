@@ -1,12 +1,5 @@
+import { useState, useRef, useEffect } from "react";
 import { ChevronDown, Globe, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { usePlatform } from "@/contexts/PlatformContext";
 import { cn } from "@/lib/utils";
 import type { SelectedPlatform } from "@/types/platform";
@@ -37,50 +30,67 @@ const OPTIONS: { value: SelectedPlatform; label: string; icon: React.ReactNode; 
 
 export function PlatformSwitcher() {
   const { selectedPlatform, setSelectedPlatform } = usePlatform();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const current = OPTIONS.find((o) => o.value === selectedPlatform) ?? OPTIONS[0];
 
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-2 border-border/50 bg-secondary/30 hover:bg-secondary/60 text-sm font-medium min-w-[120px] justify-between"
-        >
-          <span className="flex items-center gap-2">
-            {current.icon}
-            <span className="hidden sm:inline">{current.label}</span>
-          </span>
-          <ChevronDown className="w-3 h-3 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        {OPTIONS.map((opt, i) => (
-          <div key={opt.value}>
-            {i === 1 && <DropdownMenuSeparator />}
-            {i === 3 && <DropdownMenuSeparator />}
-            <DropdownMenuItem
-              disabled={!opt.available}
-              className={cn(
-                "gap-2 cursor-pointer",
-                !opt.available && "opacity-40 cursor-not-allowed",
-              )}
-              onClick={() => opt.available && setSelectedPlatform(opt.value)}
-            >
-              {opt.icon}
-              <span className="flex-1">{opt.label}</span>
-              {!opt.available && (
-                <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
-                  Soon
-                </span>
-              )}
-              {opt.available && selectedPlatform === opt.value && (
-                <Check className="w-3.5 h-3.5 text-primary" />
-              )}
-            </DropdownMenuItem>
-          </div>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div ref={ref} className="relative" data-testid="platform-switcher">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center h-8 gap-2 px-3 border border-border/50 bg-secondary/30 hover:bg-secondary/60 text-sm font-medium min-w-[120px] justify-between rounded-md transition-colors"
+        data-testid="button-platform-switcher"
+      >
+        <span className="flex items-center gap-2">
+          {current.icon}
+          <span className="hidden sm:inline">{current.label}</span>
+        </span>
+        <ChevronDown className={cn("w-3 h-3 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95">
+          {OPTIONS.map((opt, i) => (
+            <div key={opt.value}>
+              {(i === 1 || i === 3) && <div className="-mx-1 my-1 h-px bg-muted" />}
+              <button
+                type="button"
+                disabled={!opt.available}
+                className={cn(
+                  "relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                  opt.available
+                    ? "hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed",
+                )}
+                onClick={() => {
+                  if (!opt.available) return;
+                  setSelectedPlatform(opt.value);
+                  setOpen(false);
+                }}
+                data-testid={`button-platform-${opt.value}`}
+              >
+                {opt.icon}
+                <span className="flex-1 text-left">{opt.label}</span>
+                {!opt.available && (
+                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Soon</span>
+                )}
+                {opt.available && selectedPlatform === opt.value && (
+                  <Check className="w-3.5 h-3.5 text-primary" />
+                )}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

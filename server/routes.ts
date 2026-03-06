@@ -6,6 +6,7 @@ import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
 import { testTwitterConnection, getTwitterClient } from "./twitter";
+import { testThreadsConnection, getThreadsProfile } from "./threads";
 import { storage } from "./storage";
 import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
 import {
@@ -230,10 +231,10 @@ export async function registerRoutes(
     res.json({ paused: false });
   });
 
-  // Live comment threads (from DB, needsAttention = true)
-  app.get("/api/engagement/live-comments", async (_req, res) => {
+  app.get("/api/engagement/live-comments", async (req, res) => {
     try {
-      const threads = await storage.getActiveCommentThreads();
+      const platform = req.query.platform as string | undefined;
+      const threads = await storage.getActiveCommentThreads(platform);
       res.json({ threads });
     } catch (err: any) {
       console.error("[engagement/live-comments]", err.message);
@@ -241,10 +242,10 @@ export async function registerRoutes(
     }
   });
 
-  // Live follower interactions (from DB, last 48h)
-  app.get("/api/engagement/live-interactions", async (_req, res) => {
+  app.get("/api/engagement/live-interactions", async (req, res) => {
     try {
-      const interactions = await storage.getLiveFollowerInteractions(168);
+      const platform = req.query.platform as string | undefined;
+      const interactions = await storage.getLiveFollowerInteractions(168, platform);
       res.json({ interactions });
     } catch (err: any) {
       console.error("[engagement/live-interactions]", err.message);
@@ -421,6 +422,63 @@ Return ONLY valid JSON with no markdown:
       res.json(result);
     } catch (err: any) {
       res.json({ connected: false, error: err.message || "Unknown error" });
+    }
+  });
+
+  app.get("/api/threads/status", async (_req, res) => {
+    try {
+      const result = await testThreadsConnection();
+      res.json(result);
+    } catch (err: any) {
+      res.json({ connected: false, error: err.message || "Unknown error" });
+    }
+  });
+
+  app.get("/api/twitter/home-timeline", async (_req, res) => {
+    const twitterClient = getTwitterClient();
+    if (!twitterClient) {
+      return res.status(400).json({ message: "Twitter credentials not configured" });
+    }
+
+    try {
+      const timeline = await twitterClient.v2.homeTimeline({
+        max_results: 20,
+        "tweet.fields": ["public_metrics", "created_at", "author_id", "entities"],
+        "user.fields": ["name", "username", "profile_image_url"],
+        expansions: ["author_id", "attachments.media_keys"],
+        "media.fields": ["url", "preview_image_url", "type", "width", "height"],
+      });
+
+      const tweets = timeline.data.data || [];
+      const includes = timeline.data.includes || {};
+      const users = includes.users || [];
+      const media = includes.media || [];
+
+      const result = tweets.map((tweet: any) => {
+        const author = users.find((u: any) => u.id === tweet.author_id);
+        const tweetMedia = tweet.attachments?.media_keys?.map((key: string) =>
+          media.find((m: any) => m.media_key === key)
+        ).filter(Boolean);
+
+        return {
+          id: tweet.id,
+          text: tweet.text,
+          createdAt: tweet.created_at,
+          publicMetrics: tweet.public_metrics,
+          author: author ? {
+            name: author.name,
+            username: author.username,
+            profileImageUrl: author.profile_image_url,
+          } : null,
+          media: tweetMedia,
+        };
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("[twitter/home-timeline] Error:", err.data || err.message);
+      const msg = err.data?.detail || err.message || "Failed to fetch home timeline";
+      res.status(500).json({ message: msg });
     }
   });
 
@@ -965,6 +1023,157 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
   });
 
   // --- Analyze Post & Generate Viral Comments (Groq AI) ---
+  app.post("/api/analyze-feed-post", async (req, res) => {
+    try {
+      const {
+        postText,
+        imageUrl,
+        authorFollowers,
+        likes,
+        replies,
+        retweets,
+        timeElapsed,
+        niche,
+        customPrompt,
+        authorName,
+        authorUsername,
+      } = req.body;
+
+      if (!postText) return res.status(400).json({ message: "postText is required" });
+
+      let imageDescription = "";
+      if (imageUrl) {
+        try {
+          // For feed posts, we always have an absolute URL or it's empty
+          const visionResult = await groq.chat.completions.create({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: imageUrl } },
+                { type: "text", text: "Analyze this image in detail. Describe: scene content, emotional signals, meme potential, cultural references, visual irony or contrast. Be specific and concise, 3-4 sentences." },
+              ],
+            }],
+            temperature: 0.3,
+            max_tokens: 400,
+          });
+          imageDescription = visionResult.choices[0]?.message?.content || "";
+        } catch (visionErr: any) {
+          console.error("Vision analysis failed for feed post:", visionErr.message);
+          imageDescription = "Image could not be analyzed.";
+        }
+      }
+
+      const hasCustomStyle = customPrompt?.trim();
+
+      const systemPrompt = `You are an elite social engagement strategist specialized in generating high-visibility comments on X (Twitter).
+
+Your job is to:
+1. Analyze a specific X post (text + image if provided).
+2. Evaluate the post's viral potential.
+3. Generate 5 comments for the post.
+${hasCustomStyle
+  ? `\nCOMMENT STYLE — MANDATORY:
+Every single comment you write MUST follow these style instructions from the user:
+"${customPrompt!.trim()}"
+This is the #1 priority. Apply it to tone, vocabulary, energy, length, slang, emoji usage, and personality.
+Do NOT fall back to generic, balanced, or safe defaults. The user's style instruction overrides everything else about how the comments should sound.\n`
+  : `\nCOMMENT STYLE:
+- Comments must feel 100% human-written.
+- No generic praise ("Love this!", "So true!").
+- No spammy tone or bot-like enthusiasm.
+- No emoji overload.
+- Add insight, curiosity, perspective, or subtle authority.
+- Comments must expand the conversation, not repeat the post.\n`}
+- If engagement velocity is low relative to follower count, recommend skipping the post and explain why.
+
+Optimize for:
+- Early engagement advantage
+- Psychological triggers
+- Curiosity gaps
+- Relatability
+- Conversation expansion
+
+If an image is provided, integrate visual analysis into comment strategy.
+
+You MUST return your response as valid JSON with this exact structure:
+{
+  "trendMomentumScore": <number 1-10>,
+  "trendMomentumExplanation": "<string>",
+  "postViralPotential": <number 1-10>,
+  "postViralExplanation": "<string>",
+  "toneAnalysis": {
+    "emotionalTone": "<string>",
+    "controversyLevel": "<string low/medium/high>",
+    "authorityLevel": "<string low/medium/high>",
+    "audienceType": "<string>",
+    "memeVisualFactor": "<string or null>"
+  },
+  "bestStrategy": {
+    "type": "<Authority/Curious/Contrarian/Relatable/Insightful>",
+    "explanation": "<string>"
+  },
+  "comments": ["<comment1>", "<comment2>", "<comment3>", "<comment4>", "<comment5>"],
+  "safestOption": {
+    "index": <number 0-4>,
+    "explanation": "<string>"
+  },
+  "highVisibilityOption": {
+    "index": <number 0-4>,
+    "explanation": "<string>"
+  },
+  "skipRecommended": <boolean>,
+  "skipReason": "<string or null>"
+}
+
+Return ONLY the JSON. No markdown, no extra text.`;
+
+      const userPrompt = `INPUT DATA:
+
+POST TEXT:
+${postText}
+
+IMAGE DESCRIPTION:
+${imageDescription || "No image provided"}
+
+POST METRICS:
+Author: ${authorName || "Unknown"} (@${authorUsername || "Unknown"})
+Author Followers: ${authorFollowers || "Unknown"}
+Likes: ${likes || 0}
+Replies: ${replies || 0}
+Reposts: ${retweets || 0}
+Time Since Posted: ${timeElapsed || "Recently"}
+
+NICHE:
+${niche || "General"}
+${hasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 comments is: "${customPrompt!.trim()}". Follow it exactly.` : ""}`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: 2048,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{}";
+      let analysis;
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      } catch {
+        analysis = { raw, parseError: true };
+      }
+
+      res.json({ analysis, imageDescription: imageDescription || null });
+    } catch (err: any) {
+      console.error("Feed post analysis error:", err);
+      res.status(500).json({ message: err.message || "Analysis failed" });
+    }
+  });
+
   app.post("/api/analyze-post", async (req, res) => {
     try {
       const {

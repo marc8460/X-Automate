@@ -34,13 +34,11 @@ export interface IStorage {
   getFollowerInteractions(): Promise<FollowerInteraction[]>;
   createFollowerInteraction(interaction: InsertFollowerInteraction): Promise<FollowerInteraction>;
 
-  // Live follower interactions (real X data)
-  getLiveFollowerInteractions(hoursAgo?: number): Promise<LiveFollowerInteraction[]>;
+  getLiveFollowerInteractions(hoursAgo?: number, platform?: string): Promise<LiveFollowerInteraction[]>;
   upsertLiveFollowerInteraction(data: InsertLiveFollowerInteraction): Promise<LiveFollowerInteraction>;
   markLiveInteractionSeen(id: number): Promise<void>;
 
-  // Comment threads
-  getActiveCommentThreads(): Promise<CommentThread[]>;
+  getActiveCommentThreads(platform?: string): Promise<CommentThread[]>;
   upsertCommentThread(data: InsertCommentThread): Promise<CommentThread>;
   markThreadReplied(id: string): Promise<void>;
   setThreadNeedsAttention(id: string, lastCommentId: string, lastCommentText: string, lastCommentAuthor: string, lastCommentAuthorName: string, lastCommentAt: Date): Promise<void>;
@@ -141,12 +139,16 @@ export class DatabaseStorage implements IStorage {
 
   // --- Live Follower Interactions ---
 
-  async getLiveFollowerInteractions(hoursAgo = 48): Promise<LiveFollowerInteraction[]> {
+  async getLiveFollowerInteractions(hoursAgo = 168, platform?: string): Promise<LiveFollowerInteraction[]> {
     const cutoff = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+    const conditions = [gte(liveFollowerInteractions.createdAt, cutoff)];
+    if (platform && platform !== "all") {
+      conditions.push(eq(liveFollowerInteractions.platform, platform));
+    }
     return db
       .select()
       .from(liveFollowerInteractions)
-      .where(gte(liveFollowerInteractions.createdAt, cutoff))
+      .where(and(...conditions))
       .orderBy(desc(liveFollowerInteractions.createdAt))
       .limit(50);
   }
@@ -172,11 +174,15 @@ export class DatabaseStorage implements IStorage {
 
   // --- Comment Threads ---
 
-  async getActiveCommentThreads(): Promise<CommentThread[]> {
+  async getActiveCommentThreads(platform?: string): Promise<CommentThread[]> {
+    const conditions = [eq(commentThreads.needsAttention, true)];
+    if (platform && platform !== "all") {
+      conditions.push(eq(commentThreads.platform, platform));
+    }
     return db
       .select()
       .from(commentThreads)
-      .where(eq(commentThreads.needsAttention, true))
+      .where(and(...conditions))
       .orderBy(desc(commentThreads.lastCommentAt));
   }
 
