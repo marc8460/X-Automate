@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -15,7 +15,9 @@ import UnifiedInbox from "@/pages/UnifiedInbox";
 import ViralEngine from "@/pages/ViralEngine";
 import Analytics from "@/pages/Analytics";
 import SettingsPage from "@/pages/Settings";
+import LandingPage from "@/pages/Landing";
 import { useSeedData } from "@/lib/hooks";
+import { useAuth } from "@/hooks/use-auth";
 
 function SeedOnMount() {
   const { mutate: seed } = useSeedData();
@@ -25,17 +27,16 @@ function SeedOnMount() {
   return null;
 }
 
-function Router() {
+function AuthenticatedRouter() {
   return (
     <Layout>
+      <SeedOnMount />
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/vault" component={MediaVault} />
         <Route path="/composer" component={Composer} />
-        {/* Legacy route redirect */}
         <Route path="/content" component={Composer} />
         <Route path="/inbox" component={UnifiedInbox} />
-        {/* Legacy route redirect */}
         <Route path="/engagement" component={UnifiedInbox} />
         <Route path="/viral" component={ViralEngine} />
         <Route path="/analytics" component={Analytics} />
@@ -46,6 +47,28 @@ function Router() {
   );
 }
 
+function AppRouter() {
+  const { user, isLoading, isAuthenticated } = useAuth();
+  const [location] = useLocation();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading Aura...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
+
+  return <AuthenticatedRouter />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -53,8 +76,7 @@ function App() {
         <AccountProvider>
           <TooltipProvider>
             <Toaster />
-            <SeedOnMount />
-            <Router />
+            <AppRouter />
           </TooltipProvider>
         </AccountProvider>
       </PlatformProvider>

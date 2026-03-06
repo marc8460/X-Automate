@@ -3,8 +3,27 @@ import { pgTable, text, varchar, integer, timestamp, serial, boolean } from "dri
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export * from "./models/auth";
+
+export const connectedAccounts = pgTable("connected_accounts", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  platform: text("platform").notNull(),
+  platformUserId: text("platform_user_id"),
+  platformUsername: text("platform_username"),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertConnectedAccountSchema = createInsertSchema(connectedAccounts).omit({ id: true, createdAt: true });
+export type InsertConnectedAccount = z.infer<typeof insertConnectedAccountSchema>;
+export type ConnectedAccount = typeof connectedAccounts.$inferSelect;
+
 export const tweets = pgTable("tweets", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   text: text("text").notNull(),
   style: text("style").notNull(),
   status: text("status").notNull().default("queued"),
@@ -18,6 +37,7 @@ export type Tweet = typeof tweets.$inferSelect;
 
 export const mediaItems = pgTable("media_items", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   url: text("url").notNull(),
   mood: text("mood").notNull(),
   outfit: text("outfit").notNull(),
@@ -32,6 +52,7 @@ export type MediaItem = typeof mediaItems.$inferSelect;
 
 export const engagements = pgTable("engagements", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   user: text("user").notNull(),
   text: text("text").notNull(),
   sentiment: text("sentiment").notNull(),
@@ -44,9 +65,9 @@ export const insertEngagementSchema = createInsertSchema(engagements).omit({ id:
 export type InsertEngagement = z.infer<typeof insertEngagementSchema>;
 export type Engagement = typeof engagements.$inferSelect;
 
-// Legacy mock table — kept for seeded data
 export const followerInteractions = pgTable("follower_interactions", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   user: text("user").notNull(),
   action: text("action").notNull(),
   time: text("time").notNull(),
@@ -56,10 +77,10 @@ export const insertFollowerInteractionSchema = createInsertSchema(followerIntera
 export type InsertFollowerInteraction = z.infer<typeof insertFollowerInteractionSchema>;
 export type FollowerInteraction = typeof followerInteractions.$inferSelect;
 
-// Live follower interactions from X API
 export const liveFollowerInteractions = pgTable("live_follower_interactions", {
   id: serial("id").primaryKey(),
-  type: text("type").notNull(), // 'follow' | 'like' | 'retweet'
+  userId: text("user_id"),
+  type: text("type").notNull(),
   username: text("username").notNull(),
   tweetId: text("tweet_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -72,9 +93,9 @@ export const insertLiveFollowerInteractionSchema = createInsertSchema(liveFollow
 export type InsertLiveFollowerInteraction = z.infer<typeof insertLiveFollowerInteractionSchema>;
 export type LiveFollowerInteraction = typeof liveFollowerInteractions.$inferSelect;
 
-// Comment threads — tracks replies/mentions requiring attention
 export const commentThreads = pgTable("comment_threads", {
   id: text("id").primaryKey(),
+  userId: text("user_id"),
   rootTweetId: text("root_tweet_id").notNull(),
   lastCommentId: text("last_comment_id").notNull(),
   lastCommentText: text("last_comment_text").notNull(),
@@ -105,6 +126,7 @@ export type Trend = typeof trends.$inferSelect;
 
 export const activityLogs = pgTable("activity_logs", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   action: text("action").notNull(),
   detail: text("detail").notNull(),
   time: text("time").notNull(),
@@ -117,6 +139,7 @@ export type ActivityLog = typeof activityLogs.$inferSelect;
 
 export const analyticsData = pgTable("analytics_data", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   name: text("name").notNull(),
   engagement: integer("engagement").notNull().default(0),
   followers: integer("followers").notNull().default(0),
@@ -139,6 +162,7 @@ export type PeakTime = typeof peakTimes.$inferSelect;
 
 export const nicheProfiles = pgTable("niche_profiles", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   name: text("name").notNull(),
   keywords: text("keywords").notNull(),
   source: text("source").notNull().default("manual"),
@@ -175,7 +199,8 @@ export type TrendingPost = typeof trendingPosts.$inferSelect;
 
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
-  key: text("key").notNull().unique(),
+  userId: text("user_id"),
+  key: text("key").notNull(),
   value: text("value").notNull(),
 });
 

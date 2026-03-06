@@ -213,6 +213,14 @@ export function useThreadsStatus() {
   });
 }
 
+export function useConnectedAccounts() {
+  return useQuery<any[]>({
+    queryKey: ["/api/auth/connected-accounts"],
+    staleTime: 30000,
+    retry: false,
+  });
+}
+
 export function useTestThreadsConnection() {
   return useMutation({
     mutationFn: async () => {

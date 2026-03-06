@@ -1,14 +1,15 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import https from "https";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
-import { testTwitterConnection, getTwitterClient } from "./twitter";
-import { testThreadsConnection, getThreadsProfile, createThreadsPost, replyToThreadsComment } from "./threads";
+import { getTwitterClient, getTwitterClientForUser, testTwitterConnectionForUser, generateTwitterOAuthUrl, handleTwitterOAuthCallback } from "./twitter";
+import { testThreadsConnectionForUser, getThreadsAccessTokenForUser, createThreadsPost, replyToThreadsComment, generateThreadsOAuthUrl, storeThreadsOAuthState, handleThreadsOAuthCallback } from "./threads";
 import { storage } from "./storage";
 import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
+import { isAuthenticated } from "./replit_integrations/auth";
 import {
   insertTweetSchema,
   insertMediaItemSchema,
@@ -41,46 +42,133 @@ const upload = multer({
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+function getUserId(req: Request): string {
+  return (req as any).user?.claims?.sub ?? "anonymous";
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
 
+  // --- OAuth Connect Routes (must be before isAuthenticated middleware for callbacks) ---
+
+  app.get("/api/auth/x/connect", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const callbackUrl = `${protocol}://${req.hostname}/api/auth/x/callback`;
+      const { url, state } = await generateTwitterOAuthUrl(userId, callbackUrl);
+      res.json({ url, state });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to generate OAuth URL" });
+    }
+  });
+
+  app.get("/api/auth/x/callback", async (req: Request, res: Response) => {
+    const { state, code } = req.query as { state: string; code: string };
+    if (!state || !code) return res.redirect("/settings?error=missing_params");
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const callbackUrl = `${protocol}://${req.hostname}/api/auth/x/callback`;
+    const result = await handleTwitterOAuthCallback(state, code, callbackUrl);
+    if (result.success) {
+      res.redirect(`/settings?connected=x&username=${result.username}`);
+    } else {
+      res.redirect(`/settings?error=${encodeURIComponent(result.error || "OAuth failed")}`);
+    }
+  });
+
+  app.get("/api/auth/threads/connect", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const callbackUrl = `${protocol}://${req.hostname}/api/auth/threads/callback`;
+      const { url, state } = generateThreadsOAuthUrl(userId, callbackUrl);
+      storeThreadsOAuthState(state, userId);
+      res.json({ url, state });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to generate OAuth URL" });
+    }
+  });
+
+  app.get("/api/auth/threads/callback", async (req: Request, res: Response) => {
+    const { state, code } = req.query as { state: string; code: string };
+    if (!state || !code) return res.redirect("/settings?error=missing_params");
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const callbackUrl = `${protocol}://${req.hostname}/api/auth/threads/callback`;
+    const result = await handleThreadsOAuthCallback(state, code, callbackUrl);
+    if (result.success) {
+      res.redirect(`/settings?connected=threads&username=${result.username}`);
+    } else {
+      res.redirect(`/settings?error=${encodeURIComponent(result.error || "OAuth failed")}`);
+    }
+  });
+
+  app.delete("/api/auth/disconnect/:platform", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { platform } = req.params;
+    if (platform !== "x" && platform !== "threads") {
+      return res.status(400).json({ message: "Invalid platform" });
+    }
+    await storage.deleteConnectedAccount(userId, platform);
+    res.json({ success: true });
+  });
+
+  app.get("/api/auth/connected-accounts", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const accounts = await storage.getConnectedAccounts(userId);
+    const safe = accounts.map(a => ({
+      id: a.id,
+      platform: a.platform,
+      platformUserId: a.platformUserId,
+      platformUsername: a.platformUsername,
+      tokenExpiresAt: a.tokenExpiresAt,
+      createdAt: a.createdAt,
+    }));
+    res.json(safe);
+  });
+
   // --- Tweets ---
-  app.get("/api/tweets", async (_req, res) => {
-    const data = await storage.getTweets();
+  app.get("/api/tweets", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getTweets(userId);
     res.json(data);
   });
 
-  app.post("/api/tweets", async (req, res) => {
-    const parsed = insertTweetSchema.safeParse(req.body);
+  app.post("/api/tweets", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertTweetSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const tweet = await storage.createTweet(parsed.data);
     res.status(201).json(tweet);
   });
 
-  app.patch("/api/tweets/:id", async (req, res) => {
+  app.patch("/api/tweets/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const id = parseInt(req.params.id);
-    const tweet = await storage.updateTweet(id, req.body);
+    const tweet = await storage.updateTweet(id, req.body, userId);
     if (!tweet) return res.status(404).json({ message: "Tweet not found" });
     res.json(tweet);
   });
 
-  app.delete("/api/tweets/:id", async (req, res) => {
+  app.delete("/api/tweets/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const id = parseInt(req.params.id);
-    await storage.deleteTweet(id);
+    await storage.deleteTweet(id, userId);
     res.status(204).send();
   });
 
-  app.post("/api/content/post-now", async (req, res) => {
+  app.post("/api/content/post-now", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const { text, imageUrl, platform = "x" } = req.body;
     if (!text?.trim()) return res.status(400).json({ message: "text is required" });
 
-    // Route to Threads
     if (platform === "threads") {
       try {
-        const result = await createThreadsPost(text.trim(), imageUrl || undefined);
+        const token = await getThreadsAccessTokenForUser(userId);
+        const result = await createThreadsPost(text.trim(), imageUrl || undefined, token);
         await storage.createActivityLog({
+          userId,
           action: "Threads Post Published",
           detail: text.trim().slice(0, 60) + (text.trim().length > 60 ? "…" : ""),
           time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
@@ -93,10 +181,9 @@ export async function registerRoutes(
       }
     }
 
-    // Default: X/Twitter
-    const twitterClient = getTwitterClient();
+    const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
     if (!twitterClient) {
-      return res.status(400).json({ message: "Twitter credentials not configured" });
+      return res.status(400).json({ message: "X account not connected. Go to Settings to connect your account." });
     }
     if (text.length > 280) return res.status(400).json({ message: "Tweet exceeds 280 character limit" });
     try {
@@ -115,7 +202,6 @@ export async function registerRoutes(
           mediaId = await twitterClient.v1.uploadMedia(imageBuffer, {
             mimeType: imageUrl.endsWith(".png") ? "image/png" : imageUrl.endsWith(".gif") ? "image/gif" : "image/jpeg",
           });
-          console.log("[post-now] Media uploaded, mediaId:", mediaId);
         } catch (mediaErr: any) {
           console.error("[post-now] Media upload failed, posting without image:", mediaErr.message);
         }
@@ -126,8 +212,8 @@ export async function registerRoutes(
         tweetPayload.media = { media_ids: [mediaId] };
       }
       const result = await twitterClient.v2.tweet(tweetPayload);
-      console.log("[post-now] Tweet posted:", result.data.id);
       await storage.createActivityLog({
+        userId,
         action: "Tweet Posted",
         detail: text.trim().slice(0, 60) + (text.trim().length > 60 ? "…" : ""),
         time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
@@ -142,16 +228,19 @@ export async function registerRoutes(
   });
 
   // --- Media Items ---
-  app.get("/api/media", async (_req, res) => {
-    const data = await storage.getMediaItems();
+  app.get("/api/media", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getMediaItems(userId);
     res.json(data);
   });
 
-  app.post("/api/media", async (req, res) => {
-    const parsed = insertMediaItemSchema.safeParse(req.body);
+  app.post("/api/media", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertMediaItemSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const item = await storage.createMediaItem(parsed.data);
     await storage.createActivityLog({
+      userId,
       action: "Media Upload",
       detail: `${parsed.data.mood} / ${parsed.data.outfit}`,
       time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
@@ -160,49 +249,56 @@ export async function registerRoutes(
     res.status(201).json(item);
   });
 
-  app.patch("/api/media/:id", async (req, res) => {
+  app.patch("/api/media/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const id = parseInt(req.params.id);
-    const item = await storage.updateMediaItem(id, req.body);
+    const item = await storage.updateMediaItem(id, req.body, userId);
     if (!item) return res.status(404).json({ message: "Media item not found" });
     res.json(item);
   });
 
-  app.delete("/api/media/:id", async (req, res) => {
+  app.delete("/api/media/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const id = parseInt(req.params.id);
-    await storage.deleteMediaItem(id);
+    const items = await storage.getMediaItems(userId);
+    const item = items.find((m) => m.id === id);
+    if (item && item.url.startsWith("/uploads/")) {
+      const filePath = path.join(process.cwd(), item.url);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
+    await storage.deleteMediaItem(id, userId);
     res.status(204).send();
   });
 
   // --- Engagements ---
-  app.get("/api/engagements", async (_req, res) => {
-    const data = await storage.getEngagements();
+  app.get("/api/engagements", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getEngagements(userId);
     res.json(data);
   });
 
-  app.post("/api/engagements", async (req, res) => {
-    const parsed = insertEngagementSchema.safeParse(req.body);
+  app.post("/api/engagements", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertEngagementSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const engagement = await storage.createEngagement(parsed.data);
     res.status(201).json(engagement);
   });
 
-  app.patch("/api/engagements/:id", async (req, res) => {
+  app.patch("/api/engagements/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const id = parseInt(req.params.id);
-    const engagement = await storage.updateEngagement(id, req.body);
+    const engagement = await storage.updateEngagement(id, req.body, userId);
     if (!engagement) return res.status(404).json({ message: "Engagement not found" });
     res.json(engagement);
   });
 
   // --- Live Engagement Engine Endpoints ---
-  // All routes in this section ALWAYS return JSON — no HTML, no redirects.
-
-  // Middleware: force JSON content-type for all /api/engagement/* routes
   app.use("/api/engagement", (_req, res, next) => {
     res.setHeader("Content-Type", "application/json");
     next();
   });
 
-  // SSE endpoint is exempt from the JSON middleware above — override to SSE content-type
   app.get("/api/engagement/events", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -228,32 +324,33 @@ export async function registerRoutes(
     });
   });
 
-  // Poller status — always JSON, works without credentials
-  app.get("/api/engagement/status", (_req, res) => {
+  app.get("/api/engagement/status", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      const userId = getUserId(req);
       const status = getPollerStatus();
-      const hasCredentials = !!getTwitterClient();
+      const xAccount = await storage.getConnectedAccount(userId, "x");
+      const hasCredentials = !!xAccount || !!getTwitterClient();
       res.json({ ...status, hasCredentials });
     } catch (err: any) {
       res.json({ running: false, paused: false, lastPollAt: null, error: err.message, hasCredentials: false });
     }
   });
 
-  // Pause / resume poller
-  app.post("/api/engagement/pause", (_req, res) => {
+  app.post("/api/engagement/pause", isAuthenticated, (_req: Request, res: Response) => {
     pausePoller();
     res.json({ paused: true });
   });
 
-  app.post("/api/engagement/resume", (_req, res) => {
+  app.post("/api/engagement/resume", isAuthenticated, (_req: Request, res: Response) => {
     resumePoller();
     res.json({ paused: false });
   });
 
-  app.get("/api/engagement/live-comments", async (req, res) => {
+  app.get("/api/engagement/live-comments", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      const userId = getUserId(req);
       const platform = req.query.platform as string | undefined;
-      const threads = await storage.getActiveCommentThreads(platform);
+      const threads = await storage.getActiveCommentThreads(userId, platform);
       res.json({ threads });
     } catch (err: any) {
       console.error("[engagement/live-comments]", err.message);
@@ -261,10 +358,11 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/engagement/live-interactions", async (req, res) => {
+  app.get("/api/engagement/live-interactions", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      const userId = getUserId(req);
       const platform = req.query.platform as string | undefined;
-      const interactions = await storage.getLiveFollowerInteractions(168, platform);
+      const interactions = await storage.getLiveFollowerInteractions(userId, 168, platform);
       res.json({ interactions });
     } catch (err: any) {
       console.error("[engagement/live-interactions]", err.message);
@@ -272,10 +370,10 @@ export async function registerRoutes(
     }
   });
 
-  // Legacy comments endpoint kept for backward compat — proxies from DB
-  app.get("/api/engagement/comments", async (_req, res) => {
+  app.get("/api/engagement/comments", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const threads = await storage.getActiveCommentThreads();
+      const userId = getUserId(req);
+      const threads = await storage.getActiveCommentThreads(userId);
       const comments = threads.map(t => ({
         commentId: t.lastCommentId,
         commentAuthor: t.lastCommentAuthor,
@@ -293,7 +391,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/engagement/generate-reply", async (req, res) => {
+  app.post("/api/engagement/generate-reply", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { parentTweetText, commentText, customPrompt } = req.body;
       if (!commentText) return res.status(400).json({ message: "commentText is required" });
@@ -311,8 +409,6 @@ Return ONLY valid JSON with no markdown:
 {"reply":"<the reply text>","sentiment":"positive"}`;
 
       const userPrompt = `Original Post:\n${parentTweetText || "Unknown"}\n\nComment to reply to:\n${commentText}`;
-
-      console.log("[generate-reply] customPrompt:", JSON.stringify(customPrompt || ""));
 
       const completion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
@@ -342,19 +438,21 @@ Return ONLY valid JSON with no markdown:
     }
   });
 
-  app.post("/api/engagement/send-reply", async (req, res) => {
+  app.post("/api/engagement/send-reply", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const { commentId, threadId, replyText, platform = "x" } = req.body;
     if (!commentId || !replyText) {
       return res.status(400).json({ message: "commentId and replyText are required" });
     }
 
-    // Route to Threads
     if (platform === "threads") {
       try {
-        const result = await replyToThreadsComment(commentId, replyText);
+        const token = await getThreadsAccessTokenForUser(userId);
+        const result = await replyToThreadsComment(commentId, replyText, token);
         const resolvedThreadId = threadId || commentId;
         await storage.markThreadReplied(resolvedThreadId);
         await storage.createActivityLog({
+          userId,
           action: "Threads Reply Sent",
           detail: replyText.slice(0, 60) + (replyText.length > 60 ? "…" : ""),
           time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
@@ -367,17 +465,16 @@ Return ONLY valid JSON with no markdown:
       }
     }
 
-    // Default: X/Twitter
-    const twitterClient = getTwitterClient();
+    const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
     if (!twitterClient) {
-      return res.status(400).json({ message: "Twitter credentials not configured" });
+      return res.status(400).json({ message: "X account not connected" });
     }
-    // threadId = conversation_id, commentId = the specific tweet to reply to
     try {
       const result = await twitterClient.v2.reply(replyText, commentId);
       const resolvedThreadId = threadId || commentId;
       await storage.markThreadReplied(resolvedThreadId);
       await storage.createActivityLog({
+        userId,
         action: "Reply Sent",
         detail: replyText.slice(0, 60) + (replyText.length > 60 ? "…" : ""),
         time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
@@ -391,25 +488,27 @@ Return ONLY valid JSON with no markdown:
   });
 
   // --- Follower Interactions ---
-  app.get("/api/follower-interactions", async (_req, res) => {
-    const data = await storage.getFollowerInteractions();
+  app.get("/api/follower-interactions", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getFollowerInteractions(userId);
     res.json(data);
   });
 
-  app.post("/api/follower-interactions", async (req, res) => {
-    const parsed = insertFollowerInteractionSchema.safeParse(req.body);
+  app.post("/api/follower-interactions", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertFollowerInteractionSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const interaction = await storage.createFollowerInteraction(parsed.data);
     res.status(201).json(interaction);
   });
 
   // --- Trends ---
-  app.get("/api/trends", async (_req, res) => {
+  app.get("/api/trends", isAuthenticated, async (_req: Request, res: Response) => {
     const data = await storage.getTrends();
     res.json(data);
   });
 
-  app.post("/api/trends", async (req, res) => {
+  app.post("/api/trends", isAuthenticated, async (req: Request, res: Response) => {
     const parsed = insertTrendSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const trend = await storage.createTrend(parsed.data);
@@ -417,38 +516,42 @@ Return ONLY valid JSON with no markdown:
   });
 
   // --- Activity Logs ---
-  app.get("/api/activity-logs", async (_req, res) => {
-    const data = await storage.getActivityLogs();
+  app.get("/api/activity-logs", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getActivityLogs(userId);
     res.json(data);
   });
 
-  app.post("/api/activity-logs", async (req, res) => {
-    const parsed = insertActivityLogSchema.safeParse(req.body);
+  app.post("/api/activity-logs", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertActivityLogSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const log = await storage.createActivityLog(parsed.data);
     res.status(201).json(log);
   });
 
   // --- Analytics ---
-  app.get("/api/analytics", async (_req, res) => {
-    const data = await storage.getAnalyticsData();
+  app.get("/api/analytics", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getAnalyticsData(userId);
     res.json(data);
   });
 
-  app.post("/api/analytics", async (req, res) => {
-    const parsed = insertAnalyticsDataSchema.safeParse(req.body);
+  app.post("/api/analytics", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertAnalyticsDataSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const analytics = await storage.createAnalyticsData(parsed.data);
     res.status(201).json(analytics);
   });
 
   // --- Peak Times ---
-  app.get("/api/peak-times", async (_req, res) => {
+  app.get("/api/peak-times", isAuthenticated, async (_req: Request, res: Response) => {
     const data = await storage.getPeakTimes();
     res.json(data);
   });
 
-  app.post("/api/peak-times", async (req, res) => {
+  app.post("/api/peak-times", isAuthenticated, async (req: Request, res: Response) => {
     const parsed = insertPeakTimeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const peakTime = await storage.createPeakTime(parsed.data);
@@ -456,28 +559,31 @@ Return ONLY valid JSON with no markdown:
   });
 
   // --- Twitter Connection ---
-  app.get("/api/twitter/status", async (_req, res) => {
+  app.get("/api/twitter/status", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const result = await testTwitterConnection();
+      const userId = getUserId(req);
+      const result = await testTwitterConnectionForUser(userId);
       res.json(result);
     } catch (err: any) {
       res.json({ connected: false, error: err.message || "Unknown error" });
     }
   });
 
-  app.get("/api/threads/status", async (_req, res) => {
+  app.get("/api/threads/status", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const result = await testThreadsConnection();
+      const userId = getUserId(req);
+      const result = await testThreadsConnectionForUser(userId);
       res.json(result);
     } catch (err: any) {
       res.json({ connected: false, error: err.message || "Unknown error" });
     }
   });
 
-  app.get("/api/twitter/home-timeline", async (_req, res) => {
-    const twitterClient = getTwitterClient();
+  app.get("/api/twitter/home-timeline", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
     if (!twitterClient) {
-      return res.status(400).json({ message: "Twitter credentials not configured" });
+      return res.status(400).json({ message: "X account not connected" });
     }
 
     try {
@@ -526,10 +632,11 @@ Return ONLY valid JSON with no markdown:
   let metricsCache: { data: any; fetchedAt: number } | null = null;
   const METRICS_CACHE_TTL = 5 * 60 * 1000;
 
-  app.get("/api/twitter/metrics", async (_req, res) => {
-    const twitterClient = getTwitterClient();
+  app.get("/api/twitter/metrics", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
     if (!twitterClient) {
-      return res.json({ error: "Twitter credentials not configured" });
+      return res.json({ error: "X account not connected" });
     }
 
     if (metricsCache && Date.now() - metricsCache.fetchedAt < METRICS_CACHE_TTL) {
@@ -538,10 +645,10 @@ Return ONLY valid JSON with no markdown:
 
     try {
       const me = await twitterClient.v2.me({ "user.fields": ["public_metrics"] });
-      const userId = me.data.id;
+      const twitterUserId = me.data.id;
       const publicMetrics = me.data.public_metrics;
 
-      const timelineResult = await twitterClient.v2.userTimeline(userId, {
+      const timelineResult = await twitterClient.v2.userTimeline(twitterUserId, {
         max_results: 100,
         "tweet.fields": ["public_metrics", "created_at"],
         exclude: ["retweets"],
@@ -616,8 +723,9 @@ Return ONLY valid JSON with no markdown:
   // --- Live Audience Peak Times ---
   let peakCache: { data: any; fetchedAt: number } | null = null;
 
-  app.get("/api/twitter/peak-times", async (_req, res) => {
-    const twitterClient = getTwitterClient();
+  app.get("/api/twitter/peak-times", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
     if (!twitterClient) {
       return res.json({ peakTimes: [], topPeak: null });
     }
@@ -628,9 +736,9 @@ Return ONLY valid JSON with no markdown:
 
     try {
       const me = await twitterClient.v2.me();
-      const userId = me.data.id;
+      const twitterUserId = me.data.id;
 
-      const timelineResult = await twitterClient.v2.userTimeline(userId, {
+      const timelineResult = await twitterClient.v2.userTimeline(twitterUserId, {
         max_results: 100,
         "tweet.fields": ["public_metrics", "created_at"],
         exclude: ["retweets"],
@@ -694,22 +802,24 @@ Return ONLY valid JSON with no markdown:
   });
 
   // --- Settings ---
-  app.get("/api/settings", async (_req, res) => {
-    const data = await storage.getSettings();
+  app.get("/api/settings", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getSettings(userId);
     res.json(data);
   });
 
-  app.put("/api/settings/:key", async (req, res) => {
+  app.put("/api/settings/:key", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const { key } = req.params;
     const { value } = req.body;
     if (!value && value !== "") return res.status(400).json({ message: "value is required" });
-    const setting = await storage.upsertSetting(key, value);
+    const setting = await storage.upsertSetting(key, value, userId);
     res.json(setting);
   });
 
   // --- Media Upload ---
-  app.post("/api/media/upload", (req, res, next) => {
-    upload.single("file")(req, res, (err) => {
+  app.post("/api/media/upload", isAuthenticated, (req: any, res: any, next: any) => {
+    upload.single("file")(req, res, (err: any) => {
       if (err) {
         if (err.code === "LIMIT_FILE_SIZE") {
           return res.status(400).json({ message: "File too large. Maximum size is 50MB." });
@@ -718,13 +828,15 @@ Return ONLY valid JSON with no markdown:
       }
       next();
     });
-  }, async (req, res) => {
+  }, async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const userId = getUserId(req);
       const url = `/uploads/${req.file.filename}`;
       const mood = (req.body.mood as string) || "Neutral";
       const outfit = (req.body.outfit as string) || "Untagged";
       const item = await storage.createMediaItem({
+        userId,
         url,
         mood,
         outfit,
@@ -738,26 +850,34 @@ Return ONLY valid JSON with no markdown:
     }
   });
 
-  // --- Media Delete (with file cleanup) ---
-  app.delete("/api/media/:id", async (req, res) => {
+  // --- Niche Profiles ---
+  app.get("/api/niche-profiles", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getNicheProfiles(userId);
+    res.json(data);
+  });
+
+  app.post("/api/niche-profiles", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const profile = await storage.createNicheProfile({ ...req.body, userId });
+    res.status(201).json(profile);
+  });
+
+  app.delete("/api/niche-profiles/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
     const id = parseInt(req.params.id);
-    const items = await storage.getMediaItems();
-    const item = items.find((m) => m.id === id);
-    if (item && item.url.startsWith("/uploads/")) {
-      const filePath = path.join(process.cwd(), item.url);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    }
-    await storage.deleteMediaItem(id);
+    await storage.deleteNicheProfile(id, userId);
     res.status(204).send();
   });
 
   // --- AI Content Generation (Groq) ---
-  app.post("/api/generate", async (req, res) => {
+  app.post("/api/generate", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      const userId = getUserId(req);
       const { style, topic, seductiveness: sliderValue, imageUrl } = req.body;
       if (!style) return res.status(400).json({ message: "style is required" });
 
-      const settingsData = await storage.getSettings();
+      const settingsData = await storage.getSettings(userId);
       const getSetting = (key: string, fallback: string) => {
         const s = settingsData.find((s) => s.key === key);
         return s ? s.value : fallback;
@@ -803,7 +923,6 @@ Return ONLY valid JSON with no markdown:
             max_tokens: 300,
           });
           imageDescription = visionResult.choices[0]?.message?.content || "";
-          console.log("Vision analysis result:", imageDescription);
         } catch (visionErr: any) {
           console.error("Vision analysis failed, falling back to text-only:", visionErr.message);
         }
@@ -1010,7 +1129,7 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
     }
   }
 
-  app.get("/api/trending-topics", async (req, res) => {
+  app.get("/api/trending-topics", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const geo = (req.query.geo as string) || "US";
       const category = (req.query.category as string) || "all";
@@ -1063,7 +1182,7 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
   });
 
   // --- Analyze Post & Generate Viral Comments (Groq AI) ---
-  app.post("/api/analyze-feed-post", async (req, res) => {
+  app.post("/api/analyze-feed-post", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const {
         postText,
@@ -1084,7 +1203,6 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
       let imageDescription = "";
       if (imageUrl) {
         try {
-          // For feed posts, we always have an absolute URL or it's empty
           const visionResult = await groq.chat.completions.create({
             model: "meta-llama/llama-4-scout-17b-16e-instruct",
             messages: [{
@@ -1214,7 +1332,7 @@ ${hasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 commen
     }
   });
 
-  app.post("/api/analyze-post", async (req, res) => {
+  app.post("/api/analyze-post", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const {
         trendTopic,
@@ -1309,13 +1427,7 @@ Optimize for:
 - Relatability
 - Conversation expansion
 
-If an image is provided, analyze:
-- Scene content
-- Emotional signals
-- Meme structure
-- Cultural references
-- Visual irony or contrast
-Integrate visual analysis into comment strategy.
+If an image is provided, integrate visual analysis into comment strategy.
 
 You MUST return your response as valid JSON with this exact structure:
 {
@@ -1373,9 +1485,6 @@ NICHE:
 ${niche || "General"}
 ${hasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 comments is: "${customPrompt!.trim()}". Follow it exactly.` : ""}`;
 
-      console.log("[analyze-post] customPrompt received:", JSON.stringify(customPrompt || ""));
-      console.log("[analyze-post] styleBlock active:", customPrompt?.trim() ? "CUSTOM OVERRIDE" : "DEFAULT");
-
       const completion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: [
@@ -1402,20 +1511,19 @@ ${hasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 commen
     }
   });
 
-  // --- Screenshot Scan: Upload screenshot of X post, AI extracts everything + generates comments ---
-  app.post("/api/scan-screenshot", (req, res, next) => {
-    upload.single("screenshot")(req, res, (err) => {
+  // --- Screenshot Scan ---
+  app.post("/api/scan-screenshot", isAuthenticated, (req: any, res: any, next: any) => {
+    upload.single("screenshot")(req, res, (err: any) => {
       if (err) return res.status(400).json({ message: err.message || "Upload failed" });
       next();
     });
-  }, async (req, res) => {
+  }, async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No screenshot uploaded" });
 
       const trendTopic = (req.body.trendTopic as string) || "";
       const trendGrowth = (req.body.trendGrowth as string) || "";
       const trendContext = (req.body.trendContext as string) || "";
-      const commentStyle = (req.body.commentStyle as string) || "Balanced";
       const niche = (req.body.niche as string) || "";
       const customPrompt = (req.body.customPrompt as string) || "";
 
@@ -1459,7 +1567,6 @@ Return ONLY the JSON object. No explanation, no markdown code fences.`
       });
 
       const extractedRaw = extractionResult.choices[0]?.message?.content || "";
-      console.log("Vision extraction raw response:", extractedRaw.substring(0, 500));
       let extracted: any;
       try {
         const jsonMatch = extractedRaw.match(/\{[\s\S]*\}/);
@@ -1469,7 +1576,6 @@ Return ONLY the JSON object. No explanation, no markdown code fences.`
           extracted = { postText: extractedRaw.trim() || null };
         }
       } catch (parseErr: any) {
-        console.error("JSON parse failed for vision response:", parseErr.message);
         const textContent = extractedRaw.replace(/```json?\s*/g, "").replace(/```/g, "").trim();
         try {
           extracted = JSON.parse(textContent);
@@ -1485,9 +1591,6 @@ Return ONLY the JSON object. No explanation, no markdown code fences.`
           extracted: { postText: "Could not extract post content from screenshot" },
         });
       }
-
-      console.log("[scan-screenshot] customPrompt received:", JSON.stringify(customPrompt || ""));
-      console.log("[scan-screenshot] styleBlock active:", customPrompt?.trim() ? "CUSTOM OVERRIDE" : "DEFAULT");
 
       const scanHasCustomStyle = customPrompt?.trim();
 
@@ -1610,34 +1713,35 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     }
   });
 
-  // --- Seed endpoint (populate initial data if empty) ---
-  app.post("/api/seed", async (_req, res) => {
-    const existingTweets = await storage.getTweets();
+  // --- Seed endpoint ---
+  app.post("/api/seed", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const existingTweets = await storage.getTweets(userId);
     if (existingTweets.length > 0) {
       return res.json({ message: "Data already seeded" });
     }
 
     await Promise.all([
-      storage.createTweet({ text: "tell me honestly, am i your type? 🥺👉👈", style: "Direct Question", status: "queued", imageUrl: null }),
-      storage.createTweet({ text: "can i dm youuuuu?!! 😩 don't ignore me", style: "Engagement Bait", status: "posted", imageUrl: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=400" }),
-      storage.createTweet({ text: "free pic if you stop scrolling and say hi 😇", style: "Soft Tease", status: "queued", imageUrl: null }),
+      storage.createTweet({ userId, text: "tell me honestly, am i your type? \u{1f97a}\u{1f449}\u{1f448}", style: "Direct Question", status: "queued", imageUrl: null }),
+      storage.createTweet({ userId, text: "can i dm youuuuu?!! \u{1f629} don't ignore me", style: "Engagement Bait", status: "posted", imageUrl: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=400" }),
+      storage.createTweet({ userId, text: "free pic if you stop scrolling and say hi \u{1f607}", style: "Soft Tease", status: "queued", imageUrl: null }),
     ]);
 
     await Promise.all([
-      storage.createMediaItem({ url: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=400", mood: "Playful", outfit: "Summer Dress", usageCount: 2, lastUsed: "3 days ago", risk: "safe" }),
-      storage.createMediaItem({ url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=400", mood: "Confident", outfit: "Streetwear", usageCount: 0, lastUsed: "Never", risk: "safe" }),
-      storage.createMediaItem({ url: "https://images.unsplash.com/photo-1529139513477-3235a14a139b?auto=format&fit=crop&q=80&w=400", mood: "Seductive", outfit: "Evening Wear", usageCount: 5, lastUsed: "12 hours ago", risk: "spicy" }),
+      storage.createMediaItem({ userId, url: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=400", mood: "Playful", outfit: "Summer Dress", usageCount: 2, lastUsed: "3 days ago", risk: "safe" }),
+      storage.createMediaItem({ userId, url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=400", mood: "Confident", outfit: "Streetwear", usageCount: 0, lastUsed: "Never", risk: "safe" }),
+      storage.createMediaItem({ userId, url: "https://images.unsplash.com/photo-1529139513477-3235a14a139b?auto=format&fit=crop&q=80&w=400", mood: "Seductive", outfit: "Evening Wear", usageCount: 5, lastUsed: "12 hours ago", risk: "spicy" }),
     ]);
 
     await Promise.all([
-      storage.createEngagement({ user: "@techbro_99", text: "AI is completely overhyped right now.", sentiment: "neutral", suggestedReply: "Is it? Or are you just not using the right prompts? 😉", time: "2m ago", status: "pending" }),
-      storage.createEngagement({ user: "@founder_x", text: "Just deployed my first Next.js app! So exhausted but worth it.", sentiment: "positive", suggestedReply: "Love that energy. Rest up, you earned it. ☕️🖤", time: "15m ago", status: "pending" }),
-      storage.createEngagement({ user: "@crypto_king", text: "Markets are bleeding today...", sentiment: "negative", suggestedReply: "Perfect time to look away from the charts and focus on building... or other things. 💅", time: "1h ago", status: "pending" }),
+      storage.createEngagement({ userId, user: "@techbro_99", text: "AI is completely overhyped right now.", sentiment: "neutral", suggestedReply: "Is it? Or are you just not using the right prompts? \u{1f609}", time: "2m ago", status: "pending" }),
+      storage.createEngagement({ userId, user: "@founder_x", text: "Just deployed my first Next.js app! So exhausted but worth it.", sentiment: "positive", suggestedReply: "Love that energy. Rest up, you earned it. \u2615\ufe0f\u{1f5a4}", time: "15m ago", status: "pending" }),
+      storage.createEngagement({ userId, user: "@crypto_king", text: "Markets are bleeding today...", sentiment: "negative", suggestedReply: "Perfect time to look away from the charts and focus on building... or other things. \u{1f485}", time: "1h ago", status: "pending" }),
     ]);
 
     await Promise.all([
-      storage.createFollowerInteraction({ user: "@new_fan_1", action: "Followed you", time: "5m ago" }),
-      storage.createFollowerInteraction({ user: "@loyal_supporter", action: "Liked 3 posts", time: "1h ago" }),
+      storage.createFollowerInteraction({ userId, user: "@new_fan_1", action: "Followed you", time: "5m ago" }),
+      storage.createFollowerInteraction({ userId, user: "@loyal_supporter", action: "Liked 3 posts", time: "1h ago" }),
     ]);
 
     await Promise.all([
@@ -1646,8 +1750,6 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       storage.createTrend({ tag: "#BuildInPublic", volume: "45K", fitScore: 88, trending: "up" }),
       storage.createTrend({ tag: "Late Night Coding", volume: "12K", fitScore: 95, trending: "up" }),
     ]);
-
-    // Activity logs, analytics, and peak times are now populated from live Twitter data — no seed needed
 
     const defaultSettings = [
       { key: "seductiveness", value: "60" },
@@ -1662,43 +1764,11 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       { key: "browserFingerprinting", value: "true" },
     ];
     for (const s of defaultSettings) {
-      await storage.upsertSetting(s.key, s.value);
+      await storage.upsertSetting(s.key, s.value, userId);
     }
 
     res.status(201).json({ message: "Seed data created successfully" });
   });
-
-  // Scheduled post runner — checks every 60 seconds for due tweets
-  setInterval(async () => {
-    try {
-      const now = new Date().toISOString();
-      const allTweets = await storage.getTweets();
-      const due = allTweets.filter(
-        t => t.scheduledAt && t.status === "queued" && t.scheduledAt <= now
-      );
-      if (due.length === 0) return;
-      const twitterClient = getTwitterClient();
-      if (!twitterClient) return;
-      for (const tweet of due) {
-        try {
-          await twitterClient.v2.tweet(tweet.text);
-          await storage.updateTweet(tweet.id, { status: "posted" });
-          await storage.createActivityLog({
-            action: "Scheduled Tweet",
-            detail: tweet.text.slice(0, 60) + (tweet.text.length > 60 ? "…" : ""),
-            time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
-            status: "success",
-          });
-          console.log(`[scheduler] Posted tweet ${tweet.id}`);
-        } catch (err: any) {
-          console.error(`[scheduler] Failed tweet ${tweet.id}:`, err.message);
-          await storage.updateTweet(tweet.id, { status: "failed" });
-        }
-      }
-    } catch (err) {
-      console.error("[scheduler] Tick error:", err);
-    }
-  }, 60_000);
 
   return httpServer;
 }

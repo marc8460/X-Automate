@@ -1,22 +1,9 @@
-/**
- * Engagement Poller
- *
- * Background worker that polls the X API every 60 seconds to:
- * 1. Fetch recent mentions/replies → upsert into comment_threads
- * 2. Fetch new followers → upsert into live_follower_interactions
- * 3. Fetch recent retweets → upsert into live_follower_interactions
- *
- * Emits SSE events to connected frontend clients after each poll.
- * Respects X API rate limits by tracking lastCheckedAt per data type.
- */
-
 import { EventEmitter } from "events";
 import type { Response } from "express";
-import { getTwitterClient } from "./twitter";
-import { getThreadsPosts, getThreadsReplies, getThreadsUserMetrics } from "./threads";
+import { getTwitterClient, getTwitterClientForUser } from "./twitter";
+import { getThreadsPosts, getThreadsReplies, getThreadsUserMetrics, getThreadsAccessTokenForUser } from "./threads";
 import { storage } from "./storage";
 
-// SSE client management
 const sseClients = new Set<Response>();
 
 export function addSseClient(res: Response) {
@@ -40,7 +27,6 @@ function broadcastUpdate(payload: object) {
   dead.forEach(c => sseClients.delete(c));
 }
 
-// Poller state
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 let isPaused = false;
 let lastPollAt: Date | null = null;
@@ -50,7 +36,6 @@ export const engagementEmitter = new EventEmitter();
 
 export function startEngagementPoller() {
   if (pollInterval) return;
-  // Run immediately on start, then every 60s
   runPoll();
   pollInterval = setInterval(runPoll, 60_000);
 }
@@ -83,49 +68,36 @@ export function getPollerStatus() {
 async function runPoll() {
   if (isPaused) return;
 
-  const client = getTwitterClient();
-  if (!client) {
-    // Credentials not configured — skip silently, do NOT call any API
-    return;
-  }
-
   try {
-    const me = await client.v2.me({ "user.fields": ["public_metrics"] });
-    const userId = me.data.id;
-    const currentFollowers = me.data.public_metrics?.followers_count ?? 0;
+    const xAccounts = await storage.getAllConnectedAccountsForPlatform("x");
+    const threadsAccounts = await storage.getAllConnectedAccountsForPlatform("threads");
 
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    for (const account of xAccounts) {
+      try {
+        await pollUserX(account.userId);
+      } catch (err: any) {
+        console.error(`[EngagementPoller] X poll error for user ${account.userId}:`, err.message);
+      }
+    }
 
-    const [commentCheckedSetting, followerCheckedSetting] = await Promise.all([
-      storage.getSetting("engagement_comments_last_checked"),
-      storage.getSetting("engagement_followers_last_checked"),
-    ]);
+    if (xAccounts.length === 0) {
+      const legacyClient = getTwitterClient();
+      if (legacyClient) {
+        try {
+          await pollLegacyX(legacyClient);
+        } catch (err: any) {
+          console.error("[EngagementPoller] Legacy X poll error:", err.message);
+        }
+      }
+    }
 
-    const commentsLastChecked = commentCheckedSetting
-      ? new Date(commentCheckedSetting.value)
-      : sevenDaysAgo;
-
-    const followersLastChecked = followerCheckedSetting
-      ? new Date(followerCheckedSetting.value)
-      : new Date(Date.now() - 48 * 60 * 60 * 1000);
-
-    const commentsStartTime = commentsLastChecked > sevenDaysAgo
-      ? commentsLastChecked
-      : sevenDaysAgo;
-
-    await Promise.allSettled([
-      fetchCommentThreads(client, userId, commentsStartTime),
-      fetchFollowerActivityDelta(client, userId, currentFollowers),
-      snapshotMetrics(client, userId),
-      pollThreadsEngagement(),
-    ]);
-
-    // Update timestamps
-    const now = new Date().toISOString();
-    await Promise.all([
-      storage.upsertSetting("engagement_comments_last_checked", now),
-      storage.upsertSetting("engagement_followers_last_checked", now),
-    ]);
+    for (const account of threadsAccounts) {
+      try {
+        await pollUserThreads(account.userId);
+      } catch (err: any) {
+        console.error(`[EngagementPoller] Threads poll error for user ${account.userId}:`, err.message);
+      }
+    }
 
     lastPollAt = new Date();
     pollError = null;
@@ -133,16 +105,142 @@ async function runPoll() {
     broadcastUpdate({ type: "update", timestamp: lastPollAt.toISOString() });
     engagementEmitter.emit("update");
   } catch (err: any) {
-    // Rate limit or auth error — log but don't crash
     pollError = err.message || "Poll failed";
     console.error("[EngagementPoller] Poll error:", pollError);
     broadcastUpdate({ type: "error", message: pollError });
   }
 }
 
-async function fetchCommentThreads(client: any, userId: string, startTime: Date) {
+async function pollUserX(userId: string) {
+  const client = await getTwitterClientForUser(userId);
+  if (!client) return;
+
+  const me = await client.v2.me({ "user.fields": ["public_metrics"] });
+  const twitterUserId = me.data.id;
+  const currentFollowers = me.data.public_metrics?.followers_count ?? 0;
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const [commentCheckedSetting, followerCheckedSetting] = await Promise.all([
+    storage.getSetting("engagement_comments_last_checked", userId),
+    storage.getSetting("engagement_followers_last_checked", userId),
+  ]);
+
+  const commentsLastChecked = commentCheckedSetting
+    ? new Date(commentCheckedSetting.value)
+    : sevenDaysAgo;
+
+  const commentsStartTime = commentsLastChecked > sevenDaysAgo
+    ? commentsLastChecked
+    : sevenDaysAgo;
+
+  await Promise.allSettled([
+    fetchCommentThreads(client, twitterUserId, commentsStartTime, userId),
+    fetchFollowerActivityDelta(client, twitterUserId, currentFollowers, userId),
+    snapshotMetrics(client, twitterUserId, userId),
+  ]);
+
+  const now = new Date().toISOString();
+  await Promise.all([
+    storage.upsertSetting("engagement_comments_last_checked", now, userId),
+    storage.upsertSetting("engagement_followers_last_checked", now, userId),
+  ]);
+}
+
+async function pollLegacyX(client: any) {
+  const me = await client.v2.me({ "user.fields": ["public_metrics"] });
+  const userId = me.data.id;
+  const currentFollowers = me.data.public_metrics?.followers_count ?? 0;
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const [commentCheckedSetting] = await Promise.all([
+    storage.getSetting("engagement_comments_last_checked"),
+  ]);
+
+  const commentsLastChecked = commentCheckedSetting
+    ? new Date(commentCheckedSetting.value)
+    : sevenDaysAgo;
+
+  const commentsStartTime = commentsLastChecked > sevenDaysAgo
+    ? commentsLastChecked
+    : sevenDaysAgo;
+
+  await Promise.allSettled([
+    fetchCommentThreads(client, userId, commentsStartTime),
+    fetchFollowerActivityDelta(client, userId, currentFollowers),
+    snapshotMetrics(client, userId),
+  ]);
+
+  const now = new Date().toISOString();
+  await Promise.all([
+    storage.upsertSetting("engagement_comments_last_checked", now),
+    storage.upsertSetting("engagement_followers_last_checked", now),
+  ]);
+}
+
+async function pollUserThreads(userId: string) {
   try {
-    const result = await client.v2.userMentionTimeline(userId, {
+    const token = await getThreadsAccessTokenForUser(userId);
+    if (!token) return;
+
+    const posts = await getThreadsPosts(token);
+    if (!posts || posts.length === 0) return;
+
+    for (const post of posts.slice(0, 5)) {
+      const replies = await getThreadsReplies(post.id, token);
+      for (const reply of replies) {
+        const createdAt = new Date(reply.timestamp);
+        const existing = await storage.getActiveCommentThreads(userId, "threads");
+        const existingThread = existing.find(t => t.id === reply.id);
+        if (existingThread) continue;
+
+        await storage.upsertCommentThread({
+          id: reply.id,
+          userId,
+          rootTweetId: post.id,
+          lastCommentId: reply.id,
+          lastCommentText: reply.text,
+          lastCommentAuthor: `@${reply.username}`,
+          lastCommentAuthorName: reply.username,
+          lastCommentAt: createdAt,
+          replied: false,
+          needsAttention: true,
+          parentTweetText: post.text || "Threads Post",
+          platform: "threads",
+        });
+      }
+    }
+
+    const metrics = await getThreadsUserMetrics(token);
+    if (metrics) {
+      const currentFollowers = metrics.follower_count || 0;
+      const prevSetting = await storage.getSetting("threads_prev_follower_count", userId);
+      const prevCount = prevSetting ? parseInt(prevSetting.value, 10) : currentFollowers;
+
+      if (currentFollowers > prevCount) {
+        const gained = currentFollowers - prevCount;
+        const eventKey = `threads:follow:delta:${currentFollowers}:${Date.now()}`;
+        await storage.upsertLiveFollowerInteraction({
+          type: "follow",
+          userId,
+          username: `+${gained} new follower${gained > 1 ? "s" : ""}`,
+          tweetId: null,
+          xEventKey: eventKey,
+          seen: false,
+          createdAt: new Date(),
+          platform: "threads",
+        });
+      }
+      await storage.upsertSetting("threads_prev_follower_count", String(currentFollowers), userId);
+    }
+  } catch (err: any) {
+    console.error("[EngagementPoller] Threads poll error:", err.message);
+  }
+}
+
+async function fetchCommentThreads(client: any, twitterUserId: string, startTime: Date, userId?: string) {
+  try {
+    const result = await client.v2.userMentionTimeline(twitterUserId, {
       start_time: startTime.toISOString(),
       max_results: 100,
       "tweet.fields": ["conversation_id", "in_reply_to_user_id", "created_at", "referenced_tweets", "author_id"],
@@ -160,8 +258,7 @@ async function fetchCommentThreads(client: any, userId: string, startTime: Date)
     const refTweetMap: Record<string, string> = {};
     for (const t of refTweets) refTweetMap[t.id] = t.text;
 
-    // Only process replies directed at us (not mentions in general)
-    const replies = tweets.filter((t: any) => t.in_reply_to_user_id === userId);
+    const replies = tweets.filter((t: any) => t.in_reply_to_user_id === twitterUserId);
 
     for (const tweet of replies) {
       const author = userMap[tweet.author_id ?? ""] ?? { name: "Unknown", username: "unknown" };
@@ -170,18 +267,14 @@ async function fetchCommentThreads(client: any, userId: string, startTime: Date)
       const conversationId = tweet.conversation_id ?? tweet.id;
       const createdAt = tweet.created_at ? new Date(tweet.created_at) : new Date();
 
-      // Skip threads where we already replied AND this comment is not newer than our last reply
-      // (The upsert logic handles the "if newer comment arrives, re-open thread" case)
-      const existing = await storage.getActiveCommentThreads();
+      const existing = userId
+        ? await storage.getActiveCommentThreads(userId)
+        : [];
       const existingThread = existing.find(t => t.id === conversationId);
 
-      if (existingThread?.replied && existingThread.lastCommentId === tweet.id) {
-        // Same comment, already replied — skip
-        continue;
-      }
+      if (existingThread?.replied && existingThread.lastCommentId === tweet.id) continue;
 
       if (existingThread?.replied && new Date(tweet.created_at) > existingThread.lastCommentAt) {
-        // New comment in a replied thread — re-open it
         await storage.setThreadNeedsAttention(
           conversationId,
           tweet.id,
@@ -193,13 +286,11 @@ async function fetchCommentThreads(client: any, userId: string, startTime: Date)
         continue;
       }
 
-      if (existingThread?.replied) {
-        // Replied and no newer comment — skip
-        continue;
-      }
+      if (existingThread?.replied) continue;
 
       await storage.upsertCommentThread({
         id: conversationId,
+        userId: userId || null,
         rootTweetId: parentTweetId || conversationId,
         lastCommentId: tweet.id,
         lastCommentText: tweet.text,
@@ -216,10 +307,9 @@ async function fetchCommentThreads(client: any, userId: string, startTime: Date)
   }
 }
 
-async function fetchFollowerActivityDelta(client: any, userId: string, currentFollowers: number) {
-  // --- Follower delta: detect new followers by comparing count ---
+async function fetchFollowerActivityDelta(client: any, twitterUserId: string, currentFollowers: number, userId?: string) {
   try {
-    const prevSetting = await storage.getSetting("prev_follower_count");
+    const prevSetting = await storage.getSetting("prev_follower_count", userId);
     const prevCount = prevSetting ? parseInt(prevSetting.value, 10) : currentFollowers;
 
     if (currentFollowers > prevCount) {
@@ -227,23 +317,22 @@ async function fetchFollowerActivityDelta(client: any, userId: string, currentFo
       const eventKey = `follow:delta:${currentFollowers}`;
       await storage.upsertLiveFollowerInteraction({
         type: "follow",
+        userId: userId || null,
         username: `+${gained} new follower${gained > 1 ? "s" : ""}`,
         tweetId: null,
         xEventKey: eventKey,
         seen: false,
         createdAt: new Date(),
       });
-      console.log(`[EngagementPoller] Detected ${gained} new follower(s) (${prevCount} → ${currentFollowers})`);
     }
 
-    await storage.upsertSetting("prev_follower_count", String(currentFollowers));
+    await storage.upsertSetting("prev_follower_count", String(currentFollowers), userId);
   } catch (err: any) {
     console.error("[EngagementPoller] follower delta error:", err.message);
   }
 
-  // --- Like / Retweet delta: compare tweet public_metrics with stored snapshot ---
   try {
-    const tweetsResult = await client.v2.userTimeline(userId, {
+    const tweetsResult = await client.v2.userTimeline(twitterUserId, {
       max_results: 10,
       "tweet.fields": ["public_metrics", "created_at", "text"],
       exclude: ["retweets"],
@@ -252,7 +341,7 @@ async function fetchFollowerActivityDelta(client: any, userId: string, currentFo
     const userTweets: any[] = tweetsResult.data?.data ?? [];
     if (userTweets.length === 0) return;
 
-    const snapshotSetting = await storage.getSetting("tweet_metrics_snapshot");
+    const snapshotSetting = await storage.getSetting("tweet_metrics_snapshot", userId);
     const prevSnapshot: Record<string, { likes: number; retweets: number }> = snapshotSetting
       ? JSON.parse(snapshotSetting.value)
       : {};
@@ -270,23 +359,23 @@ async function fetchFollowerActivityDelta(client: any, userId: string, currentFo
 
       if (isFirstRun) {
         if (likes > 0) {
-          const eventKey = `like:init:${tweet.id}`;
           await storage.upsertLiveFollowerInteraction({
             type: "like",
+            userId: userId || null,
             username: `${likes} like${likes > 1 ? "s" : ""} on "${tweetText}…"`,
             tweetId: tweet.id,
-            xEventKey: eventKey,
+            xEventKey: `like:init:${tweet.id}`,
             seen: false,
             createdAt: tweet.created_at ? new Date(tweet.created_at) : new Date(),
           });
         }
         if (retweets > 0) {
-          const eventKey = `retweet:init:${tweet.id}`;
           await storage.upsertLiveFollowerInteraction({
             type: "retweet",
+            userId: userId || null,
             username: `${retweets} retweet${retweets > 1 ? "s" : ""} on "${tweetText}…"`,
             tweetId: tweet.id,
-            xEventKey: eventKey,
+            xEventKey: `retweet:init:${tweet.id}`,
             seen: false,
             createdAt: tweet.created_at ? new Date(tweet.created_at) : new Date(),
           });
@@ -301,36 +390,31 @@ async function fetchFollowerActivityDelta(client: any, userId: string, currentFo
       const newRetweets = retweets - prev.retweets;
 
       if (newLikes > 0) {
-        const eventKey = `like:delta:${tweet.id}:${likes}`;
         await storage.upsertLiveFollowerInteraction({
           type: "like",
+          userId: userId || null,
           username: `+${newLikes} new like${newLikes > 1 ? "s" : ""} on "${tweetText}…"`,
           tweetId: tweet.id,
-          xEventKey: eventKey,
+          xEventKey: `like:delta:${tweet.id}:${likes}`,
           seen: false,
           createdAt: new Date(),
         });
-        console.log(`[EngagementPoller] +${newLikes} like(s) on tweet ${tweet.id}`);
       }
 
       if (newRetweets > 0) {
-        const eventKey = `retweet:delta:${tweet.id}:${retweets}`;
         await storage.upsertLiveFollowerInteraction({
           type: "retweet",
+          userId: userId || null,
           username: `+${newRetweets} new retweet${newRetweets > 1 ? "s" : ""} on "${tweetText}…"`,
           tweetId: tweet.id,
-          xEventKey: eventKey,
+          xEventKey: `retweet:delta:${tweet.id}:${retweets}`,
           seen: false,
           createdAt: new Date(),
         });
-        console.log(`[EngagementPoller] +${newRetweets} retweet(s) on tweet ${tweet.id}`);
       }
     }
 
-    await storage.upsertSetting("tweet_metrics_snapshot", JSON.stringify(newSnapshot));
-    if (isFirstRun) {
-      console.log(`[EngagementPoller] Initial tweet metrics snapshot stored (${userTweets.length} tweets)`);
-    }
+    await storage.upsertSetting("tweet_metrics_snapshot", JSON.stringify(newSnapshot), userId);
   } catch (err: any) {
     console.error("[EngagementPoller] tweet metrics delta error:", err.message);
   }
@@ -338,7 +422,7 @@ async function fetchFollowerActivityDelta(client: any, userId: string, currentFo
 
 let lastSnapshotDate = "";
 
-async function snapshotMetrics(client: any, userId: string) {
+async function snapshotMetrics(client: any, twitterUserId: string, userId?: string) {
   try {
     const today = new Date().toISOString().slice(0, 10);
     if (today === lastSnapshotDate) return;
@@ -346,7 +430,7 @@ async function snapshotMetrics(client: any, userId: string) {
     const me = await client.v2.me({ "user.fields": ["public_metrics"] });
     const followers = me.data.public_metrics?.followers_count ?? 0;
 
-    const timelineResult = await client.v2.userTimeline(userId, {
+    const timelineResult = await client.v2.userTimeline(twitterUserId, {
       max_results: 20,
       "tweet.fields": ["public_metrics", "created_at"],
       exclude: ["retweets"],
@@ -364,75 +448,14 @@ async function snapshotMetrics(client: any, userId: string) {
 
     const dayLabel = new Date().toLocaleDateString("en-US", { weekday: "short" });
     await storage.createAnalyticsData({
+      userId: userId || null,
       name: dayLabel,
       engagement: todayEngagement,
       followers,
     });
 
     lastSnapshotDate = today;
-    console.log(`[EngagementPoller] Metrics snapshot: ${dayLabel} engagement=${todayEngagement} followers=${followers}`);
   } catch (err: any) {
     console.error("[EngagementPoller] snapshotMetrics error:", err.message);
-  }
-}
-
-async function pollThreadsEngagement() {
-  try {
-    const posts = await getThreadsPosts();
-    if (!posts || posts.length === 0) return;
-
-    // Poll replies for recent posts
-    for (const post of posts.slice(0, 5)) {
-      const replies = await getThreadsReplies(post.id);
-      for (const reply of replies) {
-        const createdAt = new Date(reply.timestamp);
-        
-        // Check if we already have this thread or if it's new
-        const existing = await storage.getActiveCommentThreads("threads");
-        const existingThread = existing.find(t => t.id === reply.id);
-
-        if (existingThread) continue;
-
-        await storage.upsertCommentThread({
-          id: reply.id,
-          rootTweetId: post.id,
-          lastCommentId: reply.id,
-          lastCommentText: reply.text,
-          lastCommentAuthor: `@${reply.username}`,
-          lastCommentAuthorName: reply.username,
-          lastCommentAt: createdAt,
-          replied: false,
-          needsAttention: true,
-          parentTweetText: post.text || "Threads Post",
-          platform: "threads",
-        });
-      }
-    }
-
-    // Follower delta for Threads
-    const metrics = await getThreadsUserMetrics();
-    if (metrics) {
-      const currentFollowers = metrics.follower_count || 0;
-      const prevSetting = await storage.getSetting("threads_prev_follower_count");
-      const prevCount = prevSetting ? parseInt(prevSetting.value, 10) : currentFollowers;
-
-      if (currentFollowers > prevCount) {
-        const gained = currentFollowers - prevCount;
-        const eventKey = `threads:follow:delta:${currentFollowers}:${Date.now()}`;
-        await storage.upsertLiveFollowerInteraction({
-          type: "follow",
-          username: `+${gained} new follower${gained > 1 ? "s" : ""}`,
-          tweetId: null,
-          xEventKey: eventKey,
-          seen: false,
-          createdAt: new Date(),
-          platform: "threads",
-        });
-        console.log(`[EngagementPoller] Threads: Detected ${gained} new follower(s)`);
-      }
-      await storage.upsertSetting("threads_prev_follower_count", String(currentFollowers));
-    }
-  } catch (err: any) {
-    console.error("[EngagementPoller] Threads poll error:", err.message);
   }
 }
