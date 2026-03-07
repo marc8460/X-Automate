@@ -1,0 +1,169 @@
+Objective
+Implement a realistic **Aura Viral Opportunity Score (0–100)** for tweets detected in the X.com feed.
+The score should identify tweets that are **good opportunities to reply to early**, based on engagement quality, growth speed, and reply competition.
+
+The system should calculate three normalized scores from 0–100 and take their average.
+
+Final formula:
+
+viralScore = (engagementScore + velocityScore + competitionScore) / 3
+
+The extension will display this as the **Aura Score badge** on tweets.
+
+---
+
+1. Engagement Score (0–100)
+
+Purpose: measure how well the tweet is performing relative to its reach.
+
+First calculate engagement:
+
+engagement = likes + replies + reposts
+
+Then engagement rate:
+
+engagement_rate = engagement / views
+
+Use a smooth curve so that very large tweets do not dominate the scale.
+
+Formula:
+
+engagementScore = min((engagement_rate / 0.10) ^ 0.6, 1) * 100
+
+Interpretation:
+
+0.5% engagement → ~15 score
+1% engagement → ~30 score
+3% engagement → ~55 score
+5% engagement → ~70 score
+8% engagement → ~88 score
+10%+ engagement → 100 score
+
+---
+
+2. Velocity Score (0–100)
+
+Purpose: detect if the tweet is currently gaining traction.
+
+Calculate time since posting:
+
+minutes = minutes_since_post
+
+Then calculate velocity:
+
+velocity = engagement / minutes
+
+Use a curve so tweets growing faster get significantly higher scores.
+
+Formula:
+
+velocityScore = min((velocity / 3) ^ 0.7, 1) * 100
+
+Interpretation:
+
+0.05 engagement/min → ~10 score
+0.2 engagement/min → ~30 score
+0.5 engagement/min → ~50 score
+1 engagement/min → ~70 score
+2 engagement/min → ~85 score
+3+ engagement/min → 100 score
+
+---
+
+3. Reply Competition Score (0–100)
+
+Purpose: detect how crowded the replies are.
+
+Calculate reply ratio:
+
+reply_ratio = replies / likes
+
+Lower ratios mean better opportunity to reply.
+
+Formula:
+
+competitionScore = (1 - min(reply_ratio, 1)) * 100
+
+Interpretation:
+
+0.02 → 98 score (very low competition)
+0.10 → 90 score
+0.25 → 75 score
+0.40 → 60 score
+0.70 → 30 score
+1.0 → 0 score
+
+---
+
+4. Final Aura Viral Score
+
+Compute final score:
+
+viralScore = (engagementScore + velocityScore + competitionScore) / 3
+
+Round to nearest integer.
+
+Example:
+
+likes = 485
+replies = 12
+reposts = 22
+views = 10000
+time_since_post = 9h
+
+engagement = 519
+engagement_rate = 5.19%
+engagementScore ≈ 67
+
+velocity = 519 / 540min = 0.96
+velocityScore ≈ 45
+
+reply_ratio = 12 / 485 = 0.024
+competitionScore ≈ 98
+
+viralScore = (67 + 45 + 98) / 3 ≈ 70
+
+Aura badge should show:
+
+🔥 70
+
+---
+
+5. Badge Display in Feed
+
+The extension should render the score on each tweet:
+
+🔥 80+ → green (excellent opportunity)
+🔥 60–79 → yellow (good opportunity)
+🔥 40–59 → gray (average)
+🔥 <40 → hidden or muted
+
+Only show scores if:
+
+views > 100 OR likes > 5
+
+to avoid noise from tiny tweets.
+
+---
+
+6. Implementation Notes
+
+The score should be calculated inside the content script when metrics are extracted from the tweet DOM.
+
+Required inputs:
+
+likes
+replies
+reposts
+views
+tweet age (minutes)
+
+If views are missing, fall back to engagement-only scoring.
+
+The goal is to prioritize tweets that:
+
+* have strong engagement relative to views
+* are growing quickly
+* still have low reply competition
+
+These are the best tweets to reply to for visibility.
