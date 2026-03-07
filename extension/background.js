@@ -31,11 +31,6 @@ async function getAuraStatus() {
   };
 }
 
-async function getBaseUrl() {
-  const result = await chrome.storage.local.get(['auraBaseUrl']);
-  return result.auraBaseUrl || null;
-}
-
 async function handlePost(text, imageUrl) {
   const tab = await chrome.tabs.create({ url: 'https://x.com/compose/tweet' });
   chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
@@ -94,36 +89,49 @@ async function fetchImageBlob(url) {
   }
 }
 
+async function findAuraTab() {
+  const patterns = [
+    'https://*.repl.co/*',
+    'https://*.replit.app/*',
+    'https://*.replit.dev/*'
+  ];
+  for (const pattern of patterns) {
+    try {
+      const tabs = await chrome.tabs.query({ url: pattern });
+      if (tabs.length > 0) return tabs[0];
+    } catch (e) {}
+  }
+  return null;
+}
+
 async function handleGenerateReplies(data) {
   try {
-    let baseUrl = data.baseUrl;
-    if (!baseUrl || baseUrl.includes('x.com') || baseUrl.includes('twitter.com')) {
-      baseUrl = await getBaseUrl();
+    const auraTab = await findAuraTab();
+    if (!auraTab) {
+      return { error: 'Please open your Aura dashboard in another tab first, then try again.' };
     }
-    if (!baseUrl) {
-      return { error: 'Aura dashboard URL not configured. Please open your Aura dashboard first.' };
-    }
-    const response = await fetch(baseUrl + '/api/extension/generate-replies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(data.payload)
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve({ error: 'Request timed out. Please refresh your Aura dashboard tab and try again.' });
+      }, 30000);
+
+      chrome.tabs.sendMessage(auraTab.id, {
+        action: 'aura:api-proxy',
+        endpoint: '/api/extension/generate-replies',
+        method: 'POST',
+        body: data.payload
+      }, (response) => {
+        clearTimeout(timeout);
+        if (chrome.runtime.lastError) {
+          resolve({ error: 'Could not reach Aura dashboard tab. Please refresh your dashboard and try again.' });
+          return;
+        }
+        resolve(response || { error: 'No response from Aura dashboard.' });
+      });
     });
-    const contentType = response.headers.get('content-type') || '';
-    if (!response.ok) {
-      if (contentType.includes('application/json')) {
-        const errBody = await response.json();
-        return { error: errBody.message || `Server error: ${response.status}` };
-      }
-      const text = await response.text();
-      return { error: `Server returned ${response.status}: ${text.substring(0, 100)}` };
-    }
-    if (!contentType.includes('application/json')) {
-      return { error: 'Server returned non-JSON response. Make sure your Aura dashboard URL is correct.' };
-    }
-    return await response.json();
   } catch (error) {
-    console.error('Error proxying generate replies:', error);
+    console.error('Error in handleGenerateReplies:', error);
     return { error: error.message };
   }
 }
