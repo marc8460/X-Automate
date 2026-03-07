@@ -236,7 +236,10 @@ export default function Dashboard() {
                   <div className="space-y-1">
                     <p className="font-medium leading-none">{log.action}</p>
                     <p className="text-xs text-muted-foreground line-clamp-1">{log.detail}</p>
-                    <p className="text-[10px] text-muted-foreground/60">{log.time}</p>
+                    <p className="text-[10px] text-muted-foreground/60">{(() => {
+                      const d = new Date(log.time);
+                      return isNaN(d.getTime()) ? log.time : d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, month: "short", day: "numeric" });
+                    })()}</p>
                   </div>
                 </div>
               ))

@@ -172,7 +172,7 @@ export async function registerRoutes(
           userId,
           action: "Threads Post Published",
           detail: text.trim().slice(0, 60) + (text.trim().length > 60 ? "…" : ""),
-          time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+          time: new Date().toISOString(),
           status: "success",
         });
         return res.json({ success: true, tweetId: result.id });
@@ -241,7 +241,7 @@ export async function registerRoutes(
         userId,
         action: "Tweet Posted",
         detail: text.trim().slice(0, 60) + (text.trim().length > 60 ? "…" : ""),
-        time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+        time: new Date().toISOString(),
         status: "success",
       });
       res.json({ success: true, tweetId: result.data.id });
@@ -268,7 +268,7 @@ export async function registerRoutes(
       userId,
       action: "Media Upload",
       detail: `${parsed.data.mood} / ${parsed.data.outfit}`,
-      time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+      time: new Date().toISOString(),
       status: "success",
     });
     res.status(201).json(item);
@@ -480,7 +480,7 @@ Return ONLY valid JSON with no markdown:
           userId,
           action: "Threads Reply Sent",
           detail: replyText.slice(0, 60) + (replyText.length > 60 ? "…" : ""),
-          time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+          time: new Date().toISOString(),
           status: "success",
         });
         return res.json({ success: true, tweetId: result.id, threadId: resolvedThreadId });
@@ -502,7 +502,7 @@ Return ONLY valid JSON with no markdown:
         userId,
         action: "Reply Sent",
         detail: replyText.slice(0, 60) + (replyText.length > 60 ? "…" : ""),
-        time: new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", ""),
+        time: new Date().toISOString(),
         status: "success",
       });
       res.json({ success: true, tweetId: result.data.id, threadId: resolvedThreadId });
@@ -706,6 +706,7 @@ Return ONLY valid JSON with no markdown:
 
     try {
       let followers = 0, following = 0, tweetCount = 0, listedCount = 0;
+      let apiSucceeded = false;
 
       const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
       if (twitterClient) {
@@ -716,8 +717,19 @@ Return ONLY valid JSON with no markdown:
           following = pm?.following_count ?? 0;
           tweetCount = pm?.tweet_count ?? 0;
           listedCount = (pm as any)?.listed_count ?? 0;
+          apiSucceeded = true;
         } catch (apiErr: any) {
-          console.warn("[dashboard/stats] v2.me() failed:", apiErr.message);
+          console.warn("[dashboard/stats] v2.me() failed, falling back to snapshots:", apiErr.message);
+        }
+      }
+
+      if (!apiSucceeded) {
+        const latestSnaps = await storage.getFollowerSnapshots(userId, 1);
+        if (latestSnaps.length > 0) {
+          const snap = latestSnaps[0];
+          followers = snap.followerCount;
+          following = snap.followingCount;
+          tweetCount = snap.tweetCount;
         }
       }
 
