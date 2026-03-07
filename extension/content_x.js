@@ -1,18 +1,27 @@
-// extension/content_x.js
-// Runs on x.com/twitter.com pages
+// Aura Content Script for X.com
+// Persistent floating widget + in-feed tweet analysis
 
-/**
- * Finds the tweet composer element using multiple fallback selectors.
- * @returns {HTMLElement|null}
- */
+let auraBaseUrl = null;
+let badgesEnabled = true;
+let activePanel = null;
+
+chrome.storage.local.get(['auraBaseUrl', 'aura_badges_enabled'], (result) => {
+  auraBaseUrl = result.auraBaseUrl || null;
+  badgesEnabled = result.aura_badges_enabled !== false;
+  console.log('Aura: Loaded config — baseUrl:', auraBaseUrl, 'badges:', badgesEnabled);
+});
+
+// ─── Text Insertion ───
+
 function findComposer() {
   const selectors = [
     '[data-testid="tweetTextarea_0"]',
+    '[data-testid="tweetTextarea_0RichTextInputContainer"]',
+    '[role="textbox"][data-testid]',
     '[role="textbox"]',
     'div[contenteditable="true"]',
     '.public-DraftEditor-content'
   ];
-
   for (const selector of selectors) {
     const el = document.querySelector(selector);
     if (el) return el;
@@ -20,94 +29,53 @@ function findComposer() {
   return null;
 }
 
-/**
- * Types text character-by-character with small random delays.
- * @param {HTMLElement} element 
- * @param {string} text 
- */
 async function insertText(element, text) {
   element.focus();
-  
-  // Clear existing text if any (optional, but usually better for replacement)
-  // document.execCommand('selectAll', false, null);
-  // document.execCommand('delete', false, null);
-
   for (const char of text) {
-    const delay = Math.floor(Math.random() * 21) + 10; // 10-30ms
+    const delay = Math.floor(Math.random() * 21) + 10;
     await new Promise(resolve => setTimeout(resolve, delay));
-    
-    // Using execCommand for better compatibility with Draft.js/React editors
     document.execCommand('insertText', false, char);
-    
-    // Dispatch input events to trigger React state updates
     element.dispatchEvent(new Event('input', { bubbles: true }));
   }
 }
 
-/**
- * Attaches an image to the tweet composer.
- * @param {Blob} blob 
- * @param {string} filename 
- */
 async function attachImage(blob, filename) {
   const fileInput = document.querySelector('input[data-testid="fileInput"]');
-  if (!fileInput) {
-    console.error('Aura: File input not found');
-    return;
-  }
-
+  if (!fileInput) return;
   const file = new File([blob], filename, { type: blob.type });
   const dataTransfer = new DataTransfer();
   dataTransfer.items.add(file);
-  
   fileInput.files = dataTransfer.files;
   fileInput.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-/**
- * Polls for the composer element with exponential backoff.
- * @param {number} timeout 
- * @returns {Promise<HTMLElement>}
- */
 async function waitForComposer(timeout = 10000) {
   const startTime = Date.now();
   let delay = 100;
-
   while (Date.now() - startTime < timeout) {
     const el = findComposer();
     if (el) return el;
-    
     await new Promise(resolve => setTimeout(resolve, delay));
     delay = Math.min(delay * 1.5, 1000);
   }
-  throw new Error('Aura: Timeout waiting for composer');
+  throw new Error('Timeout waiting for composer');
 }
 
-/**
- * Shows a floating toast message.
- * @param {string} message 
- */
+// ─── Toast ───
+
 function showToast(message) {
   const toast = document.createElement('div');
-  toast.className = 'aura-toast';
   toast.textContent = message;
   toast.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: #1d9bf0;
-    color: white;
-    padding: 12px 24px;
-    border-radius: 9999px;
+    position: fixed; bottom: 80px; right: 20px;
+    background: #7c3aed; color: white;
+    padding: 12px 24px; border-radius: 9999px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-weight: bold;
-    z-index: 100000;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    font-weight: bold; z-index: 2147483647;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     animation: aura-fade-in 0.3s ease-out;
   `;
-
   document.body.appendChild(toast);
-
   setTimeout(() => {
     toast.style.opacity = '0';
     toast.style.transition = 'opacity 0.5s ease-out';
@@ -115,13 +83,124 @@ function showToast(message) {
   }, 4000);
 }
 
-// Global Styles for Aura UI
+// ─── Styles ───
+
 const auraStyles = document.createElement('style');
 auraStyles.textContent = `
   @keyframes aura-fade-in {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  @keyframes aura-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(124, 58, 237, 0); }
+  }
+
+  .aura-fab {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    border: none;
+    cursor: pointer;
+    z-index: 2147483646;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(124, 58, 237, 0.4);
+    transition: transform 0.2s, box-shadow 0.2s;
+    animation: aura-pulse 2s infinite;
+  }
+  .aura-fab:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 24px rgba(124, 58, 237, 0.6);
+  }
+  .aura-fab svg {
+    width: 26px;
+    height: 26px;
+    fill: white;
+  }
+
+  .aura-widget {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    width: 280px;
+    background: #15202b;
+    border: 1px solid #38444d;
+    border-radius: 16px;
+    z-index: 2147483646;
+    color: white;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overflow: hidden;
+    animation: aura-fade-in 0.2s ease-out;
+  }
+  .aura-widget-header {
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: bold;
+    font-size: 15px;
+  }
+  .aura-widget-body {
+    padding: 16px;
+  }
+  .aura-widget-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(56, 68, 77, 0.5);
+    font-size: 13px;
+  }
+  .aura-widget-row:last-child { border-bottom: none; }
+  .aura-widget-label { color: #8899a6; }
+  .aura-widget-value { font-weight: bold; }
+  .aura-status-dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
+  }
+  .aura-status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .aura-status-dot.disconnected { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+  .aura-widget-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-top: 12px;
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    color: white;
+    border: none;
+    border-radius: 9999px;
+    font-weight: bold;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    transition: opacity 0.2s;
+  }
+  .aura-widget-btn:hover { opacity: 0.9; }
+
+  .aura-toggle {
+    position: relative; width: 40px; height: 22px; cursor: pointer;
+  }
+  .aura-toggle input { opacity: 0; width: 0; height: 0; }
+  .aura-toggle-slider {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: #38444d; border-radius: 22px; transition: background 0.2s;
+  }
+  .aura-toggle-slider::before {
+    content: ''; position: absolute; height: 16px; width: 16px;
+    left: 3px; bottom: 3px; background: white; border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .aura-toggle input:checked + .aura-toggle-slider { background: #7c3aed; }
+  .aura-toggle input:checked + .aura-toggle-slider::before { transform: translateX(18px); }
+
   .aura-analyze-btn {
     position: absolute;
     right: 12px;
@@ -141,12 +220,12 @@ auraStyles.textContent = `
     align-items: center;
     gap: 4px;
   }
-  article[data-testid="tweet"]:hover .aura-analyze-btn {
+  article[data-testid="tweet"]:hover .aura-analyze-btn,
+  article:hover .aura-analyze-btn {
     opacity: 1;
   }
-  .aura-analyze-btn:hover {
-    background: #6d28d9;
-  }
+  .aura-analyze-btn:hover { background: #6d28d9; }
+
   .aura-badge {
     display: inline-flex;
     align-items: center;
@@ -154,24 +233,23 @@ auraStyles.textContent = `
     border-radius: 4px;
     font-size: 11px;
     font-weight: bold;
-    margin-right: 8px;
-    margin-top: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
   }
   .aura-badge-high { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
   .aura-badge-med { background: rgba(234, 179, 8, 0.2); color: #eab308; }
   .aura-badge-low { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
-  
+
   .aura-panel {
     position: fixed;
-    top: 50%;
-    left: 50%;
+    top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     width: 450px;
     max-height: 80vh;
     background: #15202b;
     border: 1px solid #38444d;
     border-radius: 16px;
-    z-index: 100001;
+    z-index: 2147483647;
     display: flex;
     flex-direction: column;
     color: white;
@@ -190,13 +268,6 @@ auraStyles.textContent = `
     padding: 16px;
     overflow-y: auto;
     flex: 1;
-  }
-  .aura-panel-footer {
-    padding: 16px;
-    border-top: 1px solid #38444d;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
   }
   .aura-tweet-preview {
     background: #192734;
@@ -219,7 +290,6 @@ auraStyles.textContent = `
   }
   .aura-metric-value { font-weight: bold; font-size: 16px; }
   .aura-metric-label { font-size: 10px; color: #8899a6; text-transform: uppercase; }
-  
   .aura-input {
     width: 100%;
     background: #192734;
@@ -230,6 +300,7 @@ auraStyles.textContent = `
     margin-bottom: 12px;
     font-size: 14px;
     resize: vertical;
+    box-sizing: border-box;
   }
   .aura-replies-list {
     display: flex;
@@ -260,265 +331,420 @@ auraStyles.textContent = `
   .aura-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .aura-btn-primary { background: #7c3aed; color: white; }
   .aura-btn-secondary { background: transparent; border: 1px solid #38444d; color: white; }
+
+  .aura-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 2147483646;
+  }
 `;
 document.head.appendChild(auraStyles);
 
-// Analysis Utility Functions
+// ─── Floating Widget (FAB) ───
+
+function createFloatingWidget() {
+  if (document.getElementById('aura-fab')) return;
+
+  const fab = document.createElement('button');
+  fab.id = 'aura-fab';
+  fab.className = 'aura-fab';
+  fab.title = 'Aura Social Assistant';
+  fab.innerHTML = `<svg viewBox="0 0 24 24"><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="bold" fill="white" font-family="sans-serif">A</text></svg>`;
+
+  let widgetOpen = false;
+  let widgetEl = null;
+
+  fab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (widgetOpen && widgetEl) {
+      widgetEl.remove();
+      widgetEl = null;
+      widgetOpen = false;
+    } else {
+      openWidget();
+    }
+  });
+
+  function openWidget() {
+    if (widgetEl) widgetEl.remove();
+
+    widgetEl = document.createElement('div');
+    widgetEl.className = 'aura-widget';
+    widgetEl.addEventListener('click', (e) => e.stopPropagation());
+
+    chrome.runtime.sendMessage({ action: 'aura:get-status' }, (status) => {
+      const s = status || { connected: false, postsToday: 0, baseUrl: null };
+
+      widgetEl.innerHTML = `
+        <div class="aura-widget-header">
+          <span style="font-size: 18px;">✨</span>
+          <span>Aura</span>
+        </div>
+        <div class="aura-widget-body">
+          <div class="aura-widget-row">
+            <span class="aura-widget-label">Dashboard</span>
+            <span class="aura-widget-value">
+              <span class="aura-status-dot ${s.connected ? 'connected' : 'disconnected'}"></span>
+              ${s.connected ? 'Connected' : 'Not Connected'}
+            </span>
+          </div>
+          <div class="aura-widget-row">
+            <span class="aura-widget-label">Posts Today</span>
+            <span class="aura-widget-value">${s.postsToday}</span>
+          </div>
+          <div class="aura-widget-row">
+            <span class="aura-widget-label">Score Badges</span>
+            <span class="aura-widget-value">
+              <label class="aura-toggle">
+                <input type="checkbox" id="aura-badge-toggle" ${badgesEnabled ? 'checked' : ''}>
+                <span class="aura-toggle-slider"></span>
+              </label>
+            </span>
+          </div>
+          ${s.connected && s.baseUrl ? `<a class="aura-widget-btn" href="${s.baseUrl}" target="_blank">Open Aura Dashboard</a>` : `<div style="color: #8899a6; font-size: 12px; margin-top: 12px; text-align: center;">Open your Aura dashboard once to connect</div>`}
+        </div>
+      `;
+
+      const toggle = widgetEl.querySelector('#aura-badge-toggle');
+      if (toggle) {
+        toggle.addEventListener('change', () => {
+          badgesEnabled = toggle.checked;
+          chrome.storage.local.set({ aura_badges_enabled: badgesEnabled });
+          document.querySelectorAll('.aura-badge, .aura-analyze-btn').forEach(el => {
+            el.style.display = badgesEnabled ? '' : 'none';
+          });
+        });
+      }
+    });
+
+    document.body.appendChild(widgetEl);
+    widgetOpen = true;
+
+    function closeOnOutsideClick(e) {
+      if (widgetEl && !widgetEl.contains(e.target) && e.target !== fab && !fab.contains(e.target)) {
+        widgetEl.remove();
+        widgetEl = null;
+        widgetOpen = false;
+        document.removeEventListener('click', closeOnOutsideClick);
+      }
+    }
+    setTimeout(() => {
+      document.addEventListener('click', closeOnOutsideClick);
+    }, 100);
+  }
+
+  document.body.appendChild(fab);
+}
+
+// ─── Tweet Analysis ───
+
 function parseMetric(text) {
   if (!text) return 0;
-  const match = text.replace(/,/g, '').match(/(\d+(\.\d+)?[KMB]?)/i);
+  const cleaned = text.replace(/,/g, '').trim();
+  const match = cleaned.match(/(\d+(\.\d+)?)\s*([KMB])?/i);
   if (!match) return 0;
-  let val = match[1].toUpperCase();
-  let multiplier = 1;
-  if (val.endsWith('K')) { multiplier = 1000; val = val.slice(0, -1); }
-  else if (val.endsWith('M')) { multiplier = 1000000; val = val.slice(0, -1); }
-  else if (val.endsWith('B')) { multiplier = 1000000000; val = val.slice(0, -1); }
-  return parseFloat(val) * multiplier;
+  let val = parseFloat(match[1]);
+  const suffix = (match[3] || '').toUpperCase();
+  if (suffix === 'K') val *= 1000;
+  else if (suffix === 'M') val *= 1000000;
+  else if (suffix === 'B') val *= 1000000000;
+  return val;
 }
 
 function calculateOpportunityScore(metrics) {
   const { likes, replies, views } = metrics;
   if (views < 100 && likes < 5) return null;
-  
-  // High score if low replies relative to likes/views (low competition)
-  // Higher score if views/likes ratio is high (high engagement)
+
   const replyToLikeRatio = (replies + 1) / (likes + 1);
-  const viewsToLikeRatio = (views + 1) / (likes + 1);
-  
   let score = 50;
-  if (replyToLikeRatio < 0.05) score += 20; // Very few replies
-  if (viewsToLikeRatio > 100) score += 15; // High view count relative to likes
-  if (likes > 1000) score += 10; // High social proof
-  
+  if (replyToLikeRatio < 0.05) score += 20;
+  if (views > 0 && (views / (likes + 1)) > 100) score += 15;
+  if (likes > 1000) score += 10;
+  if (likes > 100) score += 5;
+
   return Math.min(Math.max(Math.round(score), 0), 100);
+}
+
+function extractMetricValue(el) {
+  if (!el) return 0;
+  const ariaLabel = el.getAttribute('aria-label');
+  if (ariaLabel) {
+    const match = ariaLabel.match(/(\d[\d,.]*\s*[KMB]?)/i);
+    if (match) return parseMetric(match[1]);
+  }
+  const textContent = el.innerText || el.textContent || '';
+  return parseMetric(textContent);
 }
 
 function getTweetData(tweetEl) {
   const textEl = tweetEl.querySelector('[data-testid="tweetText"]');
   const userEl = tweetEl.querySelector('[data-testid="User-Name"]');
-  const metricsEls = {
-    replies: tweetEl.querySelector('[data-testid="reply"]'),
-    retweets: tweetEl.querySelector('[data-testid="retweet"]'),
-    likes: tweetEl.querySelector('[data-testid="like"]'),
-    views: tweetEl.querySelector('a[href*="/analytics"]') || tweetEl.querySelector('[data-testid="app-text-transition-container"]')
-  };
+
+  const replyEl = tweetEl.querySelector('[data-testid="reply"]');
+  const retweetEl = tweetEl.querySelector('[data-testid="retweet"]');
+  const likeEl = tweetEl.querySelector('[data-testid="like"]') || tweetEl.querySelector('[data-testid="unlike"]');
+  const viewsEl = tweetEl.querySelector('a[href*="/analytics"]');
 
   const data = {
     text: textEl ? textEl.innerText : '',
-    authorName: userEl ? userEl.innerText.split('\n')[0] : '',
-    authorHandle: userEl ? userEl.innerText.split('\n')[1] : '',
+    authorName: '',
+    authorHandle: '',
     metrics: {
-      replies: parseMetric(metricsEls.replies?.innerText),
-      retweets: parseMetric(metricsEls.retweets?.innerText),
-      likes: parseMetric(metricsEls.likes?.innerText),
-      views: parseMetric(metricsEls.views?.innerText || metricsEls.views?.parentElement?.innerText)
+      replies: extractMetricValue(replyEl),
+      retweets: extractMetricValue(retweetEl),
+      likes: extractMetricValue(likeEl),
+      views: extractMetricValue(viewsEl)
     },
-    url: tweetEl.querySelector('time')?.parentElement?.href || window.location.href,
+    url: '',
     el: tweetEl
   };
+
+  if (userEl) {
+    const parts = userEl.innerText.split('\n').filter(Boolean);
+    data.authorName = parts[0] || '';
+    data.authorHandle = parts.find(p => p.startsWith('@')) || parts[1] || '';
+  }
+
+  const timeEl = tweetEl.querySelector('time');
+  if (timeEl) {
+    const link = timeEl.closest('a');
+    data.url = link ? link.href : window.location.href;
+  }
 
   data.opportunityScore = calculateOpportunityScore(data.metrics);
   return data;
 }
 
-// UI Injection
+// ─── Badge & Button Injection ───
+
 function injectBadges(tweetEl) {
-  if (tweetEl.querySelector('.aura-badge')) return;
+  if (tweetEl.classList.contains('aura-processed')) return;
+  tweetEl.classList.add('aura-processed');
+
   const data = getTweetData(tweetEl);
   if (data.opportunityScore === null) return;
 
-  const badge = document.createElement('div');
-  const colorClass = data.opportunityScore >= 70 ? 'aura-badge-high' : data.opportunityScore >= 40 ? 'aura-badge-med' : 'aura-badge-low';
-  badge.className = `aura-badge ${colorClass}`;
-  badge.innerHTML = `🔥 ${data.opportunityScore}`;
-  
-  // Find a place to inject. Usually near the user name or bottom actions
-  const target = tweetEl.querySelector('[data-testid="User-Name"]');
-  if (target) {
-    target.parentElement.appendChild(badge);
-  }
+  if (badgesEnabled) {
+    const badge = document.createElement('span');
+    const colorClass = data.opportunityScore >= 70 ? 'aura-badge-high' : data.opportunityScore >= 40 ? 'aura-badge-med' : 'aura-badge-low';
+    badge.className = `aura-badge ${colorClass}`;
+    badge.textContent = `🔥 ${data.opportunityScore}`;
 
-  // Add Analyze Button
-  const analyzeBtn = document.createElement('button');
-  analyzeBtn.className = 'aura-analyze-btn';
-  analyzeBtn.innerHTML = `<span>✨ Analyze</span>`;
-  analyzeBtn.onclick = (e) => {
-    e.stopPropagation();
-    openAnalysisPanel(data);
-  };
-  tweetEl.style.position = 'relative';
-  tweetEl.appendChild(analyzeBtn);
+    const userNameEl = tweetEl.querySelector('[data-testid="User-Name"]');
+    if (userNameEl) {
+      const container = userNameEl.querySelector('div') || userNameEl;
+      container.appendChild(badge);
+    }
+
+    const analyzeBtn = document.createElement('button');
+    analyzeBtn.className = 'aura-analyze-btn';
+    analyzeBtn.innerHTML = `<span>✨ Analyze</span>`;
+    analyzeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openAnalysisPanel(data);
+    });
+
+    tweetEl.style.position = 'relative';
+    tweetEl.appendChild(analyzeBtn);
+  }
 }
 
-let activePanel = null;
+// ─── Analysis Panel ───
 
 function openAnalysisPanel(tweetData) {
   if (activePanel) activePanel.remove();
+  const existingOverlay = document.querySelector('.aura-overlay');
+  if (existingOverlay) existingOverlay.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'aura-overlay';
 
   const panel = document.createElement('div');
   panel.className = 'aura-panel';
   panel.innerHTML = `
     <div class="aura-panel-header">
       <div style="display: flex; align-items: center; gap: 8px;">
-        <span style="font-weight: bold; color: #7c3aed;">Aura Analyze</span>
+        <span style="font-weight: bold; color: #7c3aed;">✨ Aura Analyze</span>
         ${tweetData.opportunityScore ? `<span class="aura-badge aura-badge-high" style="margin: 0;">🔥 ${tweetData.opportunityScore}</span>` : ''}
       </div>
       <button class="aura-btn aura-btn-secondary" id="aura-close-panel" style="padding: 4px 8px;">✕</button>
     </div>
     <div class="aura-panel-content">
       <div class="aura-tweet-preview">
-        <div style="font-weight: bold; margin-bottom: 4px;">${tweetData.authorName}</div>
-        <div style="color: #8899a6; font-size: 12px; margin-bottom: 8px;">${tweetData.authorHandle}</div>
-        <div>${tweetData.text.substring(0, 150)}${tweetData.text.length > 150 ? '...' : ''}</div>
+        <div style="font-weight: bold; margin-bottom: 4px;">${escapeHtml(tweetData.authorName)}</div>
+        <div style="color: #8899a6; font-size: 12px; margin-bottom: 8px;">${escapeHtml(tweetData.authorHandle)}</div>
+        <div>${escapeHtml(tweetData.text.substring(0, 200))}${tweetData.text.length > 200 ? '...' : ''}</div>
       </div>
-      
+
       <div class="aura-metrics-grid">
         <div class="aura-metric-item">
-          <div class="aura-metric-value">${tweetData.metrics.views.toLocaleString()}</div>
+          <div class="aura-metric-value">${formatNumber(tweetData.metrics.views)}</div>
           <div class="aura-metric-label">Views</div>
         </div>
         <div class="aura-metric-item">
-          <div class="aura-metric-value">${tweetData.metrics.likes.toLocaleString()}</div>
+          <div class="aura-metric-value">${formatNumber(tweetData.metrics.likes)}</div>
           <div class="aura-metric-label">Likes</div>
+        </div>
+        <div class="aura-metric-item">
+          <div class="aura-metric-value">${formatNumber(tweetData.metrics.retweets)}</div>
+          <div class="aura-metric-label">Reposts</div>
+        </div>
+        <div class="aura-metric-item">
+          <div class="aura-metric-value">${formatNumber(tweetData.metrics.replies)}</div>
+          <div class="aura-metric-label">Replies</div>
         </div>
       </div>
 
       <div style="margin-bottom: 8px; font-weight: bold; font-size: 14px;">Custom Instructions</div>
-      <textarea class="aura-input" id="aura-custom-instructions" placeholder="e.g. 'gen z slang', 'professional', 'funny'"></textarea>
-      
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-weight: bold; font-size: 14px; margin-bottom: 8px;">Screenshot Analysis (Optional)</label>
-        <input type="file" id="aura-screenshot-upload" accept="image/*" style="font-size: 12px; color: #8899a6;">
-      </div>
+      <textarea class="aura-input" id="aura-custom-instructions" rows="2" placeholder="e.g. 'gen z slang', 'professional tone', 'flirty and witty'"></textarea>
 
-      <button class="aura-btn aura-btn-primary" id="aura-generate-btn" style="width: 100%; margin-bottom: 16px;">Generate Viral Replies</button>
-      
+      <button class="aura-btn aura-btn-primary" id="aura-generate-btn" style="width: 100%; margin-bottom: 16px; padding: 10px;">Generate Viral Replies</button>
+
       <div id="aura-replies-container" class="aura-replies-list"></div>
     </div>
   `;
 
+  overlay.addEventListener('click', () => {
+    panel.remove();
+    overlay.remove();
+    activePanel = null;
+  });
+
+  document.body.appendChild(overlay);
   document.body.appendChild(panel);
   activePanel = panel;
 
-  panel.querySelector('#aura-close-panel').onclick = () => {
+  panel.querySelector('#aura-close-panel').addEventListener('click', () => {
     panel.remove();
+    overlay.remove();
     activePanel = null;
-  };
+  });
 
   const generateBtn = panel.querySelector('#aura-generate-btn');
   const repliesContainer = panel.querySelector('#aura-replies-container');
   const instructionsInput = panel.querySelector('#aura-custom-instructions');
-  const fileInput = panel.querySelector('#aura-screenshot-upload');
 
-  generateBtn.onclick = async () => {
+  generateBtn.addEventListener('click', async () => {
+    if (!auraBaseUrl) {
+      const stored = await new Promise(r => chrome.storage.local.get(['auraBaseUrl'], r));
+      auraBaseUrl = stored.auraBaseUrl;
+    }
+
+    if (!auraBaseUrl) {
+      repliesContainer.innerHTML = '<div style="color: #ff4444; text-align: center; padding: 12px;">Please open your Aura dashboard first to connect the extension.</div>';
+      return;
+    }
+
     generateBtn.disabled = true;
     generateBtn.innerText = 'Analyzing...';
-    repliesContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #8899a6;">Generating magical replies...</div>';
-
-    let screenshotBase64 = null;
-    if (fileInput.files[0]) {
-      const reader = new FileReader();
-      screenshotBase64 = await new Promise(resolve => {
-        reader.onload = (e) => resolve(e.target.result);
-        reader.readAsDataURL(fileInput.files[0]);
-      });
-    }
+    repliesContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #8899a6;">✨ Generating viral replies...</div>';
 
     const payload = {
       tweetText: tweetData.text,
       authorName: tweetData.authorName,
       metrics: tweetData.metrics,
-      customInstruction: instructionsInput.value,
-      screenshotBase64
+      customInstruction: instructionsInput.value
     };
 
     chrome.runtime.sendMessage({
       action: 'aura:generate-replies',
-      data: {
-        baseUrl: window.location.origin.includes('repl.co') || window.location.origin.includes('replit.app') 
-                 ? window.location.origin 
-                 : 'https://' + window.location.hostname, // This might need adjustment based on actual deployment
-        payload
-      }
+      data: { baseUrl: auraBaseUrl, payload }
     }, (response) => {
       generateBtn.disabled = false;
       generateBtn.innerText = 'Regenerate Replies';
-      
-      if (response && response.replies) {
+
+      if (response && response.replies && response.replies.length > 0) {
         repliesContainer.innerHTML = '';
         response.replies.forEach(reply => {
           const card = document.createElement('div');
           card.className = 'aura-reply-card';
           card.innerHTML = `
-            <div>${reply}</div>
+            <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(reply)}</div>
             <div class="aura-reply-actions">
-              <button class="aura-btn aura-btn-secondary aura-copy-btn">Copy</button>
-              <button class="aura-btn aura-btn-primary aura-insert-btn">Insert Reply</button>
+              <button class="aura-btn aura-btn-secondary aura-copy-btn">📋 Copy</button>
+              <button class="aura-btn aura-btn-primary aura-insert-btn">⚡ Insert Reply</button>
             </div>
           `;
-          
-          card.querySelector('.aura-copy-btn').onclick = () => {
+
+          card.querySelector('.aura-copy-btn').addEventListener('click', () => {
             navigator.clipboard.writeText(reply);
             showToast('Copied to clipboard');
-          };
-          
-          card.querySelector('.aura-insert-btn').onclick = () => {
+          });
+
+          card.querySelector('.aura-insert-btn').addEventListener('click', () => {
             handleInsertReply(tweetData, reply);
             panel.remove();
+            overlay.remove();
             activePanel = null;
-          };
-          
+          });
+
           repliesContainer.appendChild(card);
         });
       } else {
-        repliesContainer.innerHTML = '<div style="color: #ff4444; text-align: center;">Error generating replies. Please try again.</div>';
+        const errMsg = response?.error || 'Error generating replies. Please try again.';
+        repliesContainer.innerHTML = `<div style="color: #ff4444; text-align: center; padding: 12px;">${escapeHtml(errMsg)}</div>`;
       }
     });
-  };
+  });
 }
 
 async function handleInsertReply(tweetData, replyText) {
   try {
-    // 1. Find the reply button on the tweet element and click it
     const replyBtn = tweetData.el.querySelector('[data-testid="reply"]');
     if (replyBtn) {
       replyBtn.click();
-    } else {
-      // Fallback: Navigate to tweet URL and wait for composer
-      window.location.href = tweetData.url;
     }
 
     const composer = await waitForComposer();
     await insertText(composer, replyText);
-    showToast("Reply inserted by Aura — click Post when ready");
+    showToast("Reply inserted — click Post when ready");
   } catch (err) {
-    showToast("Error inserting reply: " + err.message);
+    showToast("Error: " + err.message);
   }
 }
 
-// Observer for new tweets
-const observer = new MutationObserver((mutations) => {
-  for (const mutation of mutations) {
-    for (const node of mutation.addedNodes) {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const tweets = node.querySelectorAll ? node.querySelectorAll('article[data-testid="tweet"]') : [];
-        tweets.forEach(injectBadges);
-        if (node.matches && node.matches('article[data-testid="tweet"]')) {
-          injectBadges(node);
-        }
-      }
-    }
+// ─── Helpers ───
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function formatNumber(num) {
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
+}
+
+// ─── Tweet Scanner ───
+
+function scanTweets() {
+  const tweets = document.querySelectorAll('article[data-testid="tweet"]:not(.aura-processed), article[role="article"]:not(.aura-processed)');
+  let processed = 0;
+  tweets.forEach(tweet => {
+    injectBadges(tweet);
+    processed++;
+  });
+  if (processed > 0) {
+    console.log(`Aura: Processed ${processed} new tweets`);
   }
+}
+
+const observer = new MutationObserver(() => {
+  scanTweets();
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
 
-// Initial run
-document.querySelectorAll('article[data-testid="tweet"]').forEach(injectBadges);
+setTimeout(scanTweets, 2000);
+setTimeout(scanTweets, 5000);
+setInterval(scanTweets, 4000);
 
-/**
- * Handles the "insert" message from the background script.
- */
+// ─── Message Handler ───
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "insert") {
     handleInsertAction(request).then(() => {
@@ -527,23 +753,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.error('Aura Extension Error:', err);
       sendResponse({ status: "error", message: err.message });
     });
-    return true; // Keep channel open for async response
+    return true;
   }
 });
 
 async function handleInsertAction(data) {
   const { text, imageBlob, filename } = data;
-  
   try {
     const composer = await waitForComposer();
-    
-    // If there's an image, handle it
+
     if (imageBlob) {
-      // Background script sends data URL which we convert back to blob
       const response = await fetch(imageBlob);
       const blob = await response.blob();
       await attachImage(blob, filename || 'aura_image.jpg');
-      // Brief wait for image processing
       await new Promise(r => setTimeout(r, 1000));
     }
 
@@ -559,4 +781,7 @@ async function handleInsertAction(data) {
   }
 }
 
-console.log('Aura Content Script Loaded on X.com');
+// ─── Init ───
+
+createFloatingWidget();
+console.log('Aura Content Script loaded on X.com');

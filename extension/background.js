@@ -1,5 +1,3 @@
-// background.js
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'aura:post') {
     handlePost(message.text, message.imageUrl);
@@ -9,21 +7,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     fetchImageBlob(message.imageUrl).then(blobData => {
       sendResponse({ blob: blobData });
     });
-    return true; // Keep message channel open
+    return true;
   } else if (message.action === 'aura:generate-replies') {
-    proxyGenerateReplies(message.data).then(result => {
+    handleGenerateReplies(message.data).then(result => {
       sendResponse(result);
     });
-    return true; // Keep message channel open
+    return true;
+  } else if (message.action === 'aura:get-status') {
+    getAuraStatus().then(status => {
+      sendResponse(status);
+    });
+    return true;
   }
 });
+
+async function getAuraStatus() {
+  const result = await chrome.storage.local.get(['auraBaseUrl', 'posts_today', 'last_post_date']);
+  const today = new Date().toISOString().split('T')[0];
+  return {
+    connected: !!result.auraBaseUrl,
+    baseUrl: result.auraBaseUrl || null,
+    postsToday: result.last_post_date === today ? (result.posts_today || 0) : 0
+  };
+}
+
+async function getBaseUrl() {
+  const result = await chrome.storage.local.get(['auraBaseUrl']);
+  return result.auraBaseUrl || null;
+}
 
 async function handlePost(text, imageUrl) {
   const tab = await chrome.tabs.create({ url: 'https://x.com/compose/tweet' });
   chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
     if (tabId === tab.id && info.status === 'complete') {
       chrome.tabs.onUpdated.removeListener(listener);
-      // Wait a bit for the page scripts to initialize
       setTimeout(() => {
         chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageUrl });
         updateStats();
@@ -37,7 +54,6 @@ async function handleReply(text, tweetUrl, imageUrl) {
   chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
     if (tabId === tab.id && info.status === 'complete') {
       chrome.tabs.onUpdated.removeListener(listener);
-      // Wait a bit for the page scripts to initialize
       setTimeout(() => {
         chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageUrl, replyToUrl: tweetUrl });
         updateStats();
@@ -49,14 +65,14 @@ async function handleReply(text, tweetUrl, imageUrl) {
 async function updateStats() {
   const today = new Date().toISOString().split('T')[0];
   const result = await chrome.storage.local.get(['posts_today', 'last_post_date']);
-  
+
   let count = 0;
   if (result.last_post_date === today) {
     count = (result.posts_today || 0) + 1;
   } else {
     count = 1;
   }
-  
+
   await chrome.storage.local.set({
     posts_today: count,
     last_post_date: today
@@ -67,7 +83,6 @@ async function fetchImageBlob(url) {
   try {
     const response = await fetch(url);
     const blob = await response.blob();
-    // Convert to base64 to send across message channel
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result);
@@ -79,10 +94,16 @@ async function fetchImageBlob(url) {
   }
 }
 
-async function proxyGenerateReplies(data) {
+async function handleGenerateReplies(data) {
   try {
-    // Get the base URL from the sender's tab if it's from Aura
-    const response = await fetch(data.baseUrl + '/api/extension/generate-replies', {
+    let baseUrl = data.baseUrl;
+    if (!baseUrl || baseUrl.includes('x.com') || baseUrl.includes('twitter.com')) {
+      baseUrl = await getBaseUrl();
+    }
+    if (!baseUrl) {
+      return { error: 'Aura dashboard URL not configured. Please open your Aura dashboard first.' };
+    }
+    const response = await fetch(baseUrl + '/api/extension/generate-replies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data.payload)

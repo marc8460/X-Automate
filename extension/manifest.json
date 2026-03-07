@@ -12,7 +12,8 @@
     "https://x.com/*",
     "https://twitter.com/*",
     "https://*.repl.co/*",
-    "https://*.replit.app/*"
+    "https://*.replit.app/*",
+    "https://*.replit.dev/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -31,7 +32,8 @@
     {
       "matches": [
         "https://*.repl.co/*",
-        "https://*.replit.app/*"
+        "https://*.replit.app/*",
+        "https://*.replit.dev/*"
       ],
       "js": [
         "content_aura.js"

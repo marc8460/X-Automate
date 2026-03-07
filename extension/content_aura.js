@@ -7,7 +7,10 @@
 (function() {
   console.log('Aura Extension: Content script (Aura dashboard) loaded.');
 
-  // 1. Inject connection indicator
+  chrome.storage.local.set({ auraBaseUrl: window.location.origin }, () => {
+    console.log('Aura Extension: Saved dashboard URL:', window.location.origin);
+  });
+
   function injectConnectionIndicator() {
     if (document.getElementById('aura-extension-status')) return;
 
