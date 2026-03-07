@@ -31,6 +31,7 @@ export default function MediaVault() {
   const [uploadOutfit, setUploadOutfit] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [removeMetadata, setRemoveMetadata] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -98,6 +99,7 @@ export default function MediaVault() {
         formData.append("file", compressed);
         formData.append("mood", uploadMood);
         formData.append("outfit", uploadOutfit || "Untagged");
+        formData.append("removeMetadata", removeMetadata ? "true" : "false");
         await uploadMutation.mutateAsync(formData);
         done++;
         setUploadProgress({ done, total });
@@ -193,6 +195,21 @@ export default function MediaVault() {
                     data-testid="input-outfit-tag"
                   />
                 </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-3 cursor-pointer select-none" data-testid="toggle-remove-metadata">
+                  <div
+                    className={`relative w-10 h-5 rounded-full transition-colors ${removeMetadata ? 'bg-primary' : 'bg-muted'}`}
+                    onClick={() => setRemoveMetadata(!removeMetadata)}
+                  >
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${removeMetadata ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium">Remove Metadata</span>
+                    <span className="text-xs text-green-400 ml-1.5">(Recommended)</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">Strips camera, GPS, and software data without affecting image quality</p>
+                  </div>
+                </label>
               </div>
               <div className="flex gap-3">
                 <input

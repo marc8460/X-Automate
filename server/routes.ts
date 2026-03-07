@@ -41,6 +41,8 @@ const upload = multer({
   },
 });
 
+import sharp from "sharp";
+
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 function getUserId(req: Request): string {
@@ -1052,6 +1054,28 @@ Return ONLY valid JSON with no markdown:
   }, async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const removeMetadata = req.body.removeMetadata === "true";
+      if (removeMetadata) {
+        const filePath = req.file.path;
+        try {
+          const image = sharp(filePath);
+          const metadata = await image.metadata();
+          let pipeline = sharp(filePath).rotate();
+          if (metadata.format === "jpeg") {
+            pipeline = pipeline.jpeg({ quality: 100, mozjpeg: false });
+          } else if (metadata.format === "png") {
+            pipeline = pipeline.png({ compressionLevel: 0 });
+          } else if (metadata.format === "webp") {
+            pipeline = pipeline.webp({ quality: 100, lossless: true });
+          }
+          const buffer = await pipeline.toBuffer();
+          fs.writeFileSync(filePath, buffer);
+        } catch (stripErr: any) {
+          console.error("[media/upload] metadata strip error:", stripErr.message);
+        }
+      }
+
       const userId = getUserId(req);
       const url = `/uploads/${req.file.filename}`;
       const mood = (req.body.mood as string) || "Neutral";

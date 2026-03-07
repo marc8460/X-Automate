@@ -10,7 +10,7 @@ Multi-user SaaS AI influencer automation dashboard. Users sign in via Replit Aut
 - **AI**: Groq SDK — `llama-3.3-70b-versatile` for text generation, `meta-llama/llama-4-scout-17b-16e-instruct` for vision/image analysis
 - **Twitter**: `twitter-api-v2` — OAuth 2.0 PKCE for user connections, OAuth 1.0a legacy for dev account
 - **Threads**: Meta Threads API via REST — OAuth for user connections
-- **File Uploads**: Multer with disk storage to `uploads/` directory, served statically
+- **File Uploads**: Multer with disk storage to `uploads/` directory, served statically. Optional metadata stripping via `sharp` (EXIF/GPS/XMP removal)
 - **Fonts**: Outfit (display) + Inter (UI)
 
 ## Authentication & Multi-User
