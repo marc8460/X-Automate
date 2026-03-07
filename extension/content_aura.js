@@ -85,12 +85,15 @@
       const { endpoint, method, body } = request;
       console.log('Aura Extension: Proxying API call to', endpoint);
 
-      fetch(endpoint, {
+      const fetchOpts = {
         method: method || 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: body ? JSON.stringify(body) : undefined
-      })
+      };
+      if (body && method !== 'GET') {
+        fetchOpts.headers = { 'Content-Type': 'application/json' };
+        fetchOpts.body = JSON.stringify(body);
+      }
+      fetch(endpoint, fetchOpts)
         .then(async (response) => {
           const contentType = response.headers.get('content-type') || '';
           if (!response.ok) {

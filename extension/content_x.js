@@ -371,6 +371,66 @@ auraStyles.textContent = `
   .aura-btn-secondary { background: transparent; border: 1px solid #38444d; color: white; }
   .aura-btn-post { background: #22c55e; color: white; }
   .aura-btn-post:hover { background: #16a34a; }
+  .aura-btn-attach { background: transparent; border: 1px solid #7c3aed; color: #a78bfa; font-size: 12px; padding: 4px 12px; }
+  .aura-btn-attach:hover { background: rgba(124, 58, 237, 0.15); }
+
+  .aura-attach-section {
+    margin-top: 8px;
+    margin-bottom: 4px;
+  }
+  .aura-attach-preview {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding: 6px;
+    background: rgba(124, 58, 237, 0.1);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    border-radius: 8px;
+  }
+  .aura-media-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 6px;
+    background: #15202b;
+    border: 1px solid #38444d;
+    border-radius: 8px;
+  }
+  .aura-media-thumb {
+    cursor: pointer;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 2px solid transparent;
+    transition: border-color 0.2s;
+    position: relative;
+  }
+  .aura-media-thumb:hover {
+    border-color: #7c3aed;
+  }
+  .aura-media-thumb img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    display: block;
+  }
+  .aura-media-mood {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    color: #a78bfa;
+    font-size: 9px;
+    padding: 2px 4px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .aura-vision-tag {
     display: inline-flex;
@@ -827,11 +887,16 @@ function openAnalysisPanel(tweetData) {
 
       if (response && response.replies && response.replies.length > 0) {
         repliesContainer.innerHTML = '';
-        response.replies.forEach(reply => {
+        response.replies.forEach((reply, idx) => {
           const card = document.createElement('div');
           card.className = 'aura-reply-card';
           card.innerHTML = `
             <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(reply)}</div>
+            <div class="aura-attach-section" id="aura-attach-${idx}">
+              <button class="aura-btn aura-btn-attach aura-attach-btn" data-idx="${idx}">📷 Attach Photo</button>
+              <div class="aura-attach-preview" id="aura-attach-preview-${idx}" style="display: none;"></div>
+              <div class="aura-media-grid" id="aura-media-grid-${idx}" style="display: none;"></div>
+            </div>
             <div class="aura-reply-actions">
               <button class="aura-btn aura-btn-secondary aura-copy-btn">📋 Copy</button>
               <button class="aura-btn aura-btn-primary aura-insert-btn">✏️ Insert</button>
@@ -839,20 +904,62 @@ function openAnalysisPanel(tweetData) {
             </div>
           `;
 
+          let selectedImageUrl = null;
+
+          card.querySelector('.aura-attach-btn').addEventListener('click', () => {
+            const grid = card.querySelector(`#aura-media-grid-${idx}`);
+            if (grid.style.display !== 'none') {
+              grid.style.display = 'none';
+              return;
+            }
+            grid.innerHTML = '<div style="text-align: center; padding: 12px; color: #8899a6; font-size: 12px;">Loading media vault...</div>';
+            grid.style.display = 'grid';
+
+            chrome.runtime.sendMessage({ action: 'aura:fetch-media-vault' }, (res) => {
+              if (res && res.items && res.items.length > 0) {
+                grid.innerHTML = '';
+                res.items.forEach(item => {
+                  const thumb = document.createElement('div');
+                  thumb.className = 'aura-media-thumb';
+                  thumb.innerHTML = `<img src="${item.url}" alt="${item.mood || ''}" /><div class="aura-media-mood">${escapeHtml(item.mood || '')}</div>`;
+                  thumb.addEventListener('click', () => {
+                    selectedImageUrl = item.url;
+                    grid.style.display = 'none';
+                    const preview = card.querySelector(`#aura-attach-preview-${idx}`);
+                    preview.style.display = 'flex';
+                    preview.innerHTML = `
+                      <img src="${item.url}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #7c3aed;" />
+                      <span style="font-size: 12px; color: #a78bfa;">${escapeHtml(item.mood || 'Photo')} attached</span>
+                      <button class="aura-btn aura-btn-secondary aura-remove-img" style="padding: 2px 6px; font-size: 11px; margin-left: auto;">✕</button>
+                    `;
+                    preview.querySelector('.aura-remove-img').addEventListener('click', () => {
+                      selectedImageUrl = null;
+                      preview.style.display = 'none';
+                      preview.innerHTML = '';
+                    });
+                  });
+                  grid.appendChild(thumb);
+                });
+              } else {
+                grid.innerHTML = `<div style="text-align: center; padding: 12px; color: #8899a6; font-size: 12px;">${res?.error || 'No images in your media vault.'}</div>`;
+              }
+            });
+          });
+
           card.querySelector('.aura-copy-btn').addEventListener('click', () => {
             navigator.clipboard.writeText(reply);
             showToast('Copied to clipboard');
           });
 
           card.querySelector('.aura-insert-btn').addEventListener('click', () => {
-            handleInsertReply(tweetData, reply, false);
+            handleInsertReply(tweetData, reply, false, selectedImageUrl);
             panel.remove();
             overlay.remove();
             activePanel = null;
           });
 
           card.querySelector('.aura-post-btn').addEventListener('click', () => {
-            handleInsertReply(tweetData, reply, true);
+            handleInsertReply(tweetData, reply, true, selectedImageUrl);
             panel.remove();
             overlay.remove();
             activePanel = null;
@@ -868,7 +975,7 @@ function openAnalysisPanel(tweetData) {
   });
 }
 
-async function handleInsertReply(tweetData, replyText, autoPost) {
+async function handleInsertReply(tweetData, replyText, autoPost, imageUrl) {
   try {
     const replyBtn = tweetData.el.querySelector('[data-testid="reply"]');
     if (replyBtn) {
@@ -878,19 +985,37 @@ async function handleInsertReply(tweetData, replyText, autoPost) {
     await new Promise(r => setTimeout(r, 500));
 
     const composer = await waitForComposer();
-    await insertText(composer, replyText);
+
+    if (imageUrl) {
+      showToast("Attaching image...");
+      const blobDataUrl = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'aura:image', imageUrl }, (res) => {
+          resolve(res?.blob || null);
+        });
+      });
+
+      if (blobDataUrl) {
+        const response = await fetch(blobDataUrl);
+        const blob = await response.blob();
+        await attachImage(blob, 'aura_reply_image.jpg');
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
+    const composerEl = findComposer() || composer;
+    await insertText(composerEl, replyText);
 
     if (autoPost) {
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 500));
       const postBtn = document.querySelector('[data-testid="tweetButton"]') || document.querySelector('[data-testid="tweetButtonInline"]');
       if (postBtn && !postBtn.disabled) {
         postBtn.click();
-        showToast("Reply posted by Aura ⚡");
+        showToast("Reply posted by Aura ⚡" + (imageUrl ? " (with photo)" : ""));
       } else {
         showToast("Reply inserted — Post button not ready, click it manually");
       }
     } else {
-      showToast("Reply inserted — click Post when ready");
+      showToast("Reply inserted" + (imageUrl ? " with photo" : "") + " — click Post when ready");
     }
   } catch (err) {
     showToast("Error: " + err.message);

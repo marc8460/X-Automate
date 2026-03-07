@@ -13,6 +13,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse(result);
     });
     return true;
+  } else if (message.action === 'aura:fetch-media-vault') {
+    handleFetchMediaVault().then(result => {
+      sendResponse(result);
+    });
+    return true;
   } else if (message.action === 'aura:get-status') {
     getAuraStatus().then(status => {
       sendResponse(status);
@@ -112,6 +117,37 @@ async function findAuraTab() {
     } catch (e) {}
   }
   return null;
+}
+
+async function handleFetchMediaVault() {
+  try {
+    const auraTab = await findAuraTab();
+    if (!auraTab) {
+      return { error: 'Please open your Aura dashboard first.' };
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve({ error: 'Request timed out.' });
+      }, 15000);
+
+      chrome.tabs.sendMessage(auraTab.id, {
+        action: 'aura:api-proxy',
+        endpoint: '/api/extension/media-vault',
+        method: 'GET',
+        body: null
+      }, (response) => {
+        clearTimeout(timeout);
+        if (chrome.runtime.lastError) {
+          resolve({ error: 'Could not reach Aura dashboard tab.' });
+          return;
+        }
+        resolve(response || { error: 'No response from Aura dashboard.' });
+      });
+    });
+  } catch (error) {
+    return { error: error.message };
+  }
 }
 
 async function handleGenerateReplies(data) {

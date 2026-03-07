@@ -1697,6 +1697,24 @@ ${hasCustomStyle ? `\nREMINDER — Style instruction: "${customInstruction!.trim
     }
   });
 
+  app.get("/api/extension/media-vault", async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const items = await storage.getMediaItems(userId);
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const result = items.map((item) => ({
+        id: item.id,
+        url: item.url.startsWith("http") ? item.url : `${baseUrl}${item.url}`,
+        mood: item.mood,
+        outfit: item.outfit,
+      }));
+      res.json({ items: result });
+    } catch (err: any) {
+      console.error("[extension/media-vault] error:", err.message);
+      res.status(500).json({ message: err.message || "Failed to fetch media" });
+    }
+  });
+
   app.post("/api/analyze-post", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const {
