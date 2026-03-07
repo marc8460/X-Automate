@@ -723,7 +723,8 @@ function injectBadges(tweetEl) {
   analyzeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     e.preventDefault();
-    openAnalysisPanel(data);
+    const freshData = getTweetData(tweetEl);
+    openAnalysisPanel(freshData);
   });
 
   tweetEl.style.position = 'relative';
