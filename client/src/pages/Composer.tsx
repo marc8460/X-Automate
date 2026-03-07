@@ -242,20 +242,18 @@ export default function Composer() {
     try {
       const platform = composerTab === "threads" ? "threads" : "x";
       await PostViaExtension(draftText, attachedImage || undefined, platform);
-      
-      // Log activity
-      await apiRequest("POST", "/api/activity-logs", {
-        type: "post",
-        platform,
-        content: draftText,
-        status: "success",
-        metadata: { via: "extension" }
-      });
 
       setDraftText("");
       setAttachedImage(null);
       setDraftSchedule("");
       toast({ title: "Sent to Extension", description: "Follow the instructions in the new tab to post." });
+
+      apiRequest("POST", "/api/activity-logs", {
+        action: `Posted to ${platform} via Aura extension`,
+        detail: draftText,
+        time: new Date().toLocaleString(),
+        status: "success",
+      }).catch(() => {});
     } catch (err: any) {
       toast({ title: "Extension failed", description: err.message, variant: "destructive" });
     } finally {
