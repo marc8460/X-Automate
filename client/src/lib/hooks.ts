@@ -126,6 +126,28 @@ export function useTwitterPeakTimes() {
   });
 }
 
+export type DashboardStats = {
+  followers: number;
+  following: number;
+  tweetCount: number;
+  listedCount: number;
+  postsToday: number;
+  postsThisWeek: number;
+  repliesToday: number;
+  repliesThisWeek: number;
+  followerGrowthToday: number;
+  followerGrowthWeek: number;
+  followerHistory: { date: string; followers: number; following: number; tweets: number }[];
+  postingHistory: { date: string; posts: number }[];
+};
+
+export function useDashboardStats() {
+  return useQuery<DashboardStats>({
+    queryKey: ["/api/dashboard/stats"],
+    refetchInterval: 2 * 60 * 1000,
+  });
+}
+
 export function useSettings() {
   return useQuery<Setting[]>({ queryKey: ["/api/settings"] });
 }

@@ -692,6 +692,121 @@ Return ONLY valid JSON with no markdown:
     }
   });
 
+  // --- Dashboard Stats (Free tier + internal data, cached 2 min) ---
+  const dashStatsCacheMap = new Map<string, { data: any; fetchedAt: number }>();
+  const DASH_STATS_TTL = 2 * 60 * 1000;
+
+  app.get("/api/dashboard/stats", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+
+    const cached = dashStatsCacheMap.get(userId);
+    if (cached && Date.now() - cached.fetchedAt < DASH_STATS_TTL) {
+      return res.json(cached.data);
+    }
+
+    try {
+      let followers = 0, following = 0, tweetCount = 0, listedCount = 0;
+
+      const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
+      if (twitterClient) {
+        try {
+          const me = await twitterClient.v2.me({ "user.fields": ["public_metrics", "listed_count"] });
+          const pm = me.data.public_metrics;
+          followers = pm?.followers_count ?? 0;
+          following = pm?.following_count ?? 0;
+          tweetCount = pm?.tweet_count ?? 0;
+          listedCount = (pm as any)?.listed_count ?? 0;
+        } catch (apiErr: any) {
+          console.warn("[dashboard/stats] v2.me() failed:", apiErr.message);
+        }
+      }
+
+      const allLogs = await storage.getActivityLogs(userId);
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const weekStart = new Date(todayStart);
+      weekStart.setDate(weekStart.getDate() - 7);
+
+      let postsToday = 0, postsThisWeek = 0, repliesToday = 0, repliesThisWeek = 0;
+      const postingMap: Record<string, number> = {};
+
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(todayStart);
+        d.setDate(d.getDate() - i);
+        postingMap[d.toISOString().slice(0, 10)] = 0;
+      }
+
+      for (const log of allLogs) {
+        const logDate = new Date(log.time);
+        const dayKey = logDate.toISOString().slice(0, 10);
+        const isPost = log.action.toLowerCase().includes("post") || log.action.toLowerCase().includes("tweet");
+        const isReply = log.action.toLowerCase().includes("reply") || log.action.toLowerCase().includes("comment");
+
+        if (dayKey in postingMap) {
+          postingMap[dayKey] += 1;
+        }
+
+        if (logDate >= todayStart) {
+          if (isPost) postsToday++;
+          if (isReply) repliesToday++;
+        }
+        if (logDate >= weekStart) {
+          if (isPost) postsThisWeek++;
+          if (isReply) repliesThisWeek++;
+        }
+      }
+
+      const postingHistory = Object.entries(postingMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, count]) => ({
+          date: new Date(date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+          posts: count,
+        }));
+
+      const snapshots = await storage.getFollowerSnapshots(userId, 60);
+      const followerHistory = snapshots.reverse().map(s => ({
+        date: new Date(s.recordedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+        followers: s.followerCount,
+        following: s.followingCount,
+        tweets: s.tweetCount,
+      }));
+
+      let followerGrowthToday = 0, followerGrowthWeek = 0;
+      if (snapshots.length > 0) {
+        const latestFollowers = snapshots[snapshots.length - 1].followerCount;
+        const todaySnaps = snapshots.filter(s => new Date(s.recordedAt) >= todayStart);
+        if (todaySnaps.length > 0) {
+          followerGrowthToday = latestFollowers - todaySnaps[0].followerCount;
+        }
+        const weekSnaps = snapshots.filter(s => new Date(s.recordedAt) >= weekStart);
+        if (weekSnaps.length > 0) {
+          followerGrowthWeek = latestFollowers - weekSnaps[0].followerCount;
+        }
+      }
+
+      const data = {
+        followers,
+        following,
+        tweetCount,
+        listedCount,
+        postsToday,
+        postsThisWeek,
+        repliesToday,
+        repliesThisWeek,
+        followerGrowthToday,
+        followerGrowthWeek,
+        followerHistory,
+        postingHistory,
+      };
+
+      dashStatsCacheMap.set(userId, { data, fetchedAt: Date.now() });
+      res.json(data);
+    } catch (err: any) {
+      console.error("[dashboard/stats] error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // --- Live Twitter Metrics (cached 5 min) ---
   const metricsCacheMap = new Map<string, { data: any; fetchedAt: number }>();
   const METRICS_CACHE_TTL = 5 * 60 * 1000;

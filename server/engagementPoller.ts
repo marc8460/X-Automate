@@ -117,7 +117,22 @@ async function pollUserX(userId: string) {
 
   const me = await client.v2.me({ "user.fields": ["public_metrics"] });
   const twitterUserId = me.data.id;
-  const currentFollowers = me.data.public_metrics?.followers_count ?? 0;
+  const pm = me.data.public_metrics;
+  const currentFollowers = pm?.followers_count ?? 0;
+  const currentFollowing = pm?.following_count ?? 0;
+  const currentTweetCount = pm?.tweet_count ?? 0;
+
+  try {
+    await storage.createFollowerSnapshot({
+      userId,
+      followerCount: currentFollowers,
+      followingCount: currentFollowing,
+      tweetCount: currentTweetCount,
+      recordedAt: new Date(),
+    });
+  } catch (err: any) {
+    console.error("[EngagementPoller] follower snapshot save error:", err.message);
+  }
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 

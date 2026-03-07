@@ -33,7 +33,7 @@ Multi-user SaaS AI influencer automation dashboard. Users sign in via Replit Aut
 - **Hooks**: `useLiveCommentThreads(platform)` and `useLiveFollowerInteractions(platform)` accept optional platform filter
 
 ## Database Schema (shared/schema.ts)
-Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, settings
+Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, follower_snapshots (userId, followerCount, followingCount, tweetCount, recordedAt), settings
 
 ## Project Structure
 ```

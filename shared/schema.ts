@@ -197,6 +197,19 @@ export const insertTrendingPostSchema = createInsertSchema(trendingPosts).omit({
 export type InsertTrendingPost = z.infer<typeof insertTrendingPostSchema>;
 export type TrendingPost = typeof trendingPosts.$inferSelect;
 
+export const followerSnapshots = pgTable("follower_snapshots", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  followerCount: integer("follower_count").notNull(),
+  followingCount: integer("following_count").notNull().default(0),
+  tweetCount: integer("tweet_count").notNull().default(0),
+  recordedAt: timestamp("recorded_at").notNull().defaultNow(),
+});
+
+export const insertFollowerSnapshotSchema = createInsertSchema(followerSnapshots).omit({ id: true });
+export type InsertFollowerSnapshot = z.infer<typeof insertFollowerSnapshotSchema>;
+export type FollowerSnapshot = typeof followerSnapshots.$inferSelect;
+
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
   userId: text("user_id"),

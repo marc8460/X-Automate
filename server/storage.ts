@@ -15,6 +15,7 @@ import {
   trendingPosts, type TrendingPost, type InsertTrendingPost,
   settings, type Setting, type InsertSetting,
   connectedAccounts, type ConnectedAccount, type InsertConnectedAccount,
+  followerSnapshots, type FollowerSnapshot, type InsertFollowerSnapshot,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -82,6 +83,9 @@ export interface IStorage {
   upsertConnectedAccount(data: InsertConnectedAccount): Promise<ConnectedAccount>;
   deleteConnectedAccount(userId: string, platform: string): Promise<void>;
   getAllConnectedAccountsForPlatform(platform: string): Promise<ConnectedAccount[]>;
+
+  createFollowerSnapshot(data: InsertFollowerSnapshot): Promise<FollowerSnapshot>;
+  getFollowerSnapshots(userId: string, limit?: number): Promise<FollowerSnapshot[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -392,6 +396,18 @@ export class DatabaseStorage implements IStorage {
 
   async getAllConnectedAccountsForPlatform(platform: string): Promise<ConnectedAccount[]> {
     return db.select().from(connectedAccounts).where(eq(connectedAccounts.platform, platform));
+  }
+
+  async createFollowerSnapshot(data: InsertFollowerSnapshot): Promise<FollowerSnapshot> {
+    const [result] = await db.insert(followerSnapshots).values(data).returning();
+    return result;
+  }
+
+  async getFollowerSnapshots(userId: string, limit = 30): Promise<FollowerSnapshot[]> {
+    return db.select().from(followerSnapshots)
+      .where(eq(followerSnapshots.userId, userId))
+      .orderBy(desc(followerSnapshots.recordedAt))
+      .limit(limit);
   }
 }
 
