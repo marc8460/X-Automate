@@ -7,12 +7,28 @@
 (function() {
   console.log('Aura Extension: Content script (Aura dashboard) loaded.');
 
-  chrome.storage.local.set({ auraBaseUrl: window.location.origin }, () => {
-    console.log('Aura Extension: Saved dashboard URL:', window.location.origin);
-  });
+  function isRealAuraDashboard() {
+    if (document.querySelector('#root')) return true;
+    if (document.title && document.title.toLowerCase().includes('aura')) return true;
+    if (document.querySelector('[data-aura-app]')) return true;
+    return false;
+  }
+
+  function trySaveBaseUrl() {
+    if (isRealAuraDashboard()) {
+      chrome.storage.local.set({ auraBaseUrl: window.location.origin }, () => {
+        console.log('Aura Extension: Saved dashboard URL:', window.location.origin);
+      });
+    } else {
+      console.log('Aura Extension: Page does not appear to be Aura dashboard, skipping URL save.');
+    }
+  }
+
+  setTimeout(trySaveBaseUrl, 1000);
 
   function injectConnectionIndicator() {
     if (document.getElementById('aura-extension-status')) return;
+    if (!isRealAuraDashboard()) return;
 
     const indicator = document.createElement('div');
     indicator.id = 'aura-extension-status';
@@ -48,7 +64,6 @@
     document.body.appendChild(indicator);
   }
 
-  // Listen for messages from the Aura web app (postMessage bridge)
   window.addEventListener('message', function(event) {
     if (event.source !== window) return;
     const data = event.data;
@@ -65,8 +80,6 @@
     }
   });
 
-  // Listen for API proxy requests from background.js
-  // This makes same-origin API calls on behalf of the extension
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'aura:api-proxy') {
       const { endpoint, method, body } = request;

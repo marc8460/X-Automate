@@ -90,10 +90,20 @@ async function fetchImageBlob(url) {
 }
 
 async function findAuraTab() {
+  const storage = await chrome.storage.local.get(['auraBaseUrl']);
+  const baseUrl = storage.auraBaseUrl;
+
+  if (baseUrl) {
+    try {
+      const tabs = await chrome.tabs.query({ url: baseUrl + '/*' });
+      if (tabs.length > 0) return tabs[0];
+    } catch (e) {}
+  }
+
   const patterns = [
+    'https://*.replit.dev/*',
     'https://*.repl.co/*',
-    'https://*.replit.app/*',
-    'https://*.replit.dev/*'
+    'https://*.replit.app/*'
   ];
   for (const pattern of patterns) {
     try {
