@@ -1,0 +1,107 @@
+Objective
+Add an optional **“Remove Metadata” feature** to the Aura Media Vault upload pipeline.
+When users upload images to Media Vault, they should be able to choose whether the system removes embedded metadata (EXIF/XMP/IPTC) before storing the file.
+
+The feature must **not change image quality, resolution, or visual pixels** — it should only strip metadata fields.
+
+---
+
+Feature Overview
+
+When uploading an image in Media Vault:
+
+User sees a toggle:
+
+Remove Metadata (Recommended for privacy)
+
+If enabled:
+
+• Strip EXIF metadata
+• Strip XMP metadata
+• Strip IPTC metadata
+• Remove GPS coordinates if present
+• Remove software tags
+
+The resulting image should keep:
+
+• identical resolution
+• identical color profile if possible
+• identical visual quality
+
+Only metadata blocks are removed.
+
+---
+
+Upload Flow
+
+User uploads image
+↓
+Aura server receives file
+↓
+If "Remove Metadata" enabled
+→ strip metadata
+↓
+Store cleaned image in Media Vault
+↓
+Return image URL
+
+---
+
+Implementation
+
+Use server-side image processing to load the file and re-save it without metadata blocks.
+
+Recommended approach:
+
+1. Read the uploaded image buffer
+2. Remove EXIF / metadata blocks
+3. Write the cleaned image back to disk or storage
+4. Return the processed file
+
+Important: Do NOT recompress the image or change resolution.
+
+---
+
+Frontend Changes
+
+File: MediaVaultUpload.tsx
+
+Add toggle switch:
+
+[ ] Remove Metadata (Recommended)
+
+Default: enabled
+
+Tooltip:
+
+Removes embedded camera and software metadata from the image without affecting visual quality.
+
+---
+
+Backend Changes
+
+Files:
+server/routes.ts
+or server/mediaUpload.ts
+
+When receiving the uploaded file:
+
+If removeMetadata === true
+
+Process image to strip metadata before saving.
+
+Ensure the final stored image contains:
+
+• no EXIF
+• no GPS
+• no editing software tags
+
+---
+
+Acceptance Criteria
+
+• Images upload successfully
+• Metadata fields are removed when toggle is enabled
+• Resolution and visual quality remain identical
+• Feature works for PNG, JPG, and WebP images
+• Media Vault stores the cleaned image version
