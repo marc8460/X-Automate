@@ -1,0 +1,240 @@
+Objective
+Extend the Aura Chrome extension with **in-feed tweet analysis and viral reply generation directly on X.com**.
+Users should be able to analyze tweets, generate viral comments, customize the tone, and insert replies directly into the composer.
+
+This feature should work **while the user scrolls their X feed**, without needing to open the Aura dashboard.
+
+---
+
+New Feature Overview
+
+When a user scrolls X.com:
+
+1. The extension detects tweet elements in the feed.
+2. When hovering a tweet, an **“Analyze with Aura” button** appears.
+3. Clicking it opens an **Aura analysis panel**.
+4. The panel shows:
+
+• Tweet text
+• Author
+• Likes
+• Replies
+• Retweets
+• Views
+
+The extension extracts these metrics **directly from the DOM**, without using the X API.
+
+---
+
+Aura Opportunity Score
+
+The extension should display an **Aura Opportunity Score** directly on tweets.
+
+Example:
+
+🔥 Opportunity Score: 87
+
+or insight badges such as:
+
+Low reply competition
+High engagement velocity
+
+This score helps users quickly identify **tweets worth replying to**.
+
+The score can be calculated using:
+
+• likes
+• replies
+• retweets
+• views
+• tweet age
+
+These metrics can be extracted from the tweet DOM.
+
+---
+
+Tweet Analysis Panel
+
+Clicking **Analyze with Aura** opens a floating panel containing:
+
+Tweet preview
+Metrics
+Opportunity score
+
+Below that:
+
+Generate Viral Replies button
+
+When clicked, the extension sends the tweet text and metrics to the Aura backend AI.
+
+The AI returns **5 viral reply suggestions**.
+
+---
+
+Custom Instruction Prompt
+
+The panel should include a text input labeled:
+
+Custom Instructions
+
+Example input:
+
+"flirty gen z girl"
+
+The extension sends this instruction together with the tweet text to the AI:
+
+tweet_text + custom_instruction
+
+This allows users to control the tone of the generated replies.
+
+---
+
+Reply Generation Result
+
+The panel displays 5 generated replies.
+
+Each reply has:
+
+Copy button
+Insert Reply button
+
+Insert Reply triggers the extension reply workflow.
+
+---
+
+Post Comment Workflow
+
+When the user clicks **Insert Reply**:
+
+1. The extension opens the tweet URL if needed.
+2. The extension waits for the reply composer.
+3. The generated text is inserted character-by-character.
+4. If the user selected an image, the extension attaches it.
+
+A message appears:
+
+“Reply inserted by Aura — click Post when ready.”
+
+The extension **does not click the Post button** (human-in-the-loop).
+
+---
+
+Screenshot Mode
+
+The extension should also support **tweet screenshots**.
+
+Users can upload a screenshot into the extension panel.
+
+The screenshot is sent to the Aura backend for AI vision processing.
+
+The system extracts:
+
+tweet text
+metrics if visible
+
+Then generates viral replies in the same way as normal tweet analysis.
+
+---
+
+Tasks
+
+T007: Inject Aura Analyze button into tweets
+Blocked By: [T002]
+
+Details:
+Modify extension/content_x.js to detect tweet elements using a MutationObserver.
+
+When hovering a tweet:
+
+• show an “Analyze with Aura” button
+• attach the tweet ID and text
+
+Files: extension/content_x.js
+
+Acceptance: Hovering a tweet shows the Aura analyze button.
+
+---
+
+T008: Build tweet analysis floating panel
+Blocked By: [T007]
+
+Details:
+Create a floating panel UI injected into X.com pages.
+
+Panel includes:
+
+tweet preview
+metrics
+opportunity score
+generate replies button
+custom instruction input
+
+Files: extension/content_x.js
+
+Acceptance: Clicking analyze opens the panel with tweet data.
+
+---
+
+T009: Generate viral replies via Aura backend
+Blocked By: [T008]
+
+Details:
+Send tweet text, metrics, and custom instructions to the Aura backend AI endpoint.
+
+Receive 5 reply suggestions and render them in the panel.
+
+Files: extension/content_x.js
+
+Acceptance: Clicking Generate Replies returns 5 suggestions.
+
+---
+
+T010: Insert generated reply into tweet composer
+Blocked By: [T009]
+
+Details:
+When clicking Insert Reply:
+
+• open tweet URL if needed
+• wait for reply composer
+• type text character-by-character
+• show toast message
+
+Do not auto-click Post.
+
+Files: extension/content_x.js
+
+Acceptance: Generated reply appears in composer.
+
+---
+
+T011: Display Aura Opportunity Score on tweets
+Blocked By: [T007]
+
+Details:
+Calculate an opportunity score from tweet metrics.
+
+Render a small badge on each tweet showing the score.
+
+Example:
+
+🔥 87
+
+Files: extension/content_x.js
+
+Acceptance: Tweets in feed show Aura score indicators.
+
+---
+
+Important Constraint
+
+This feature must **extend the existing extension architecture** already defined in the previous tasks.
+
+Do not redesign the extension architecture.
+
+Use the current system:
+
+Aura dashboard
+→ extension bridge
+→ background script
+→ X.com content script
