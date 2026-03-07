@@ -710,7 +710,7 @@ Return ONLY valid JSON with no markdown:
       const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
       if (twitterClient) {
         try {
-          const me = await twitterClient.v2.me({ "user.fields": ["public_metrics", "listed_count"] });
+          const me = await twitterClient.v2.me({ "user.fields": ["public_metrics"] });
           const pm = me.data.public_metrics;
           followers = pm?.followers_count ?? 0;
           following = pm?.following_count ?? 0;
@@ -736,9 +736,12 @@ Return ONLY valid JSON with no markdown:
         postingMap[d.toISOString().slice(0, 10)] = 0;
       }
 
+      const todayKey = todayStart.toISOString().slice(0, 10);
+
       for (const log of allLogs) {
         const logDate = new Date(log.time);
-        const dayKey = logDate.toISOString().slice(0, 10);
+        const validDate = !isNaN(logDate.getTime());
+        const dayKey = validDate ? logDate.toISOString().slice(0, 10) : todayKey;
         const isPost = log.action.toLowerCase().includes("post") || log.action.toLowerCase().includes("tweet");
         const isReply = log.action.toLowerCase().includes("reply") || log.action.toLowerCase().includes("comment");
 
@@ -746,11 +749,11 @@ Return ONLY valid JSON with no markdown:
           postingMap[dayKey] += 1;
         }
 
-        if (logDate >= todayStart) {
+        if (!validDate || logDate >= todayStart) {
           if (isPost) postsToday++;
           if (isReply) repliesToday++;
         }
-        if (logDate >= weekStart) {
+        if (!validDate || logDate >= weekStart) {
           if (isPost) postsThisWeek++;
           if (isReply) repliesThisWeek++;
         }
