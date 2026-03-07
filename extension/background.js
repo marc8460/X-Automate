@@ -106,6 +106,7 @@ async function handleGenerateReplies(data) {
     const response = await fetch(baseUrl + '/api/extension/generate-replies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data.payload)
     });
     return await response.json();

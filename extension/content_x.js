@@ -1,5 +1,5 @@
 // Aura Content Script for X.com
-// Persistent floating widget + in-feed tweet analysis
+// Persistent floating widget + in-feed tweet analysis + vision + direct posting
 
 let auraBaseUrl = null;
 let badgesEnabled = true;
@@ -94,6 +94,10 @@ auraStyles.textContent = `
   @keyframes aura-pulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.4); }
     50% { box-shadow: 0 0 0 8px rgba(124, 58, 237, 0); }
+  }
+  @keyframes aura-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .aura-fab {
@@ -244,8 +248,8 @@ auraStyles.textContent = `
     position: fixed;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    width: 450px;
-    max-height: 80vh;
+    width: 480px;
+    max-height: 85vh;
     background: #15202b;
     border: 1px solid #38444d;
     border-radius: 16px;
@@ -276,20 +280,54 @@ auraStyles.textContent = `
     margin-bottom: 16px;
     font-size: 14px;
   }
+  .aura-tweet-image {
+    width: 100%;
+    max-height: 280px;
+    object-fit: cover;
+    border-radius: 12px;
+    margin-top: 10px;
+    border: 1px solid #38444d;
+  }
   .aura-metrics-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 8px;
     margin-bottom: 16px;
   }
   .aura-metric-item {
     background: #192734;
+    padding: 8px 4px;
+    border-radius: 8px;
+    text-align: center;
+  }
+  .aura-metric-value { font-weight: bold; font-size: 14px; }
+  .aura-metric-label { font-size: 9px; color: #8899a6; text-transform: uppercase; margin-top: 2px; }
+
+  .aura-score-breakdown {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .aura-score-item {
+    background: #192734;
     padding: 8px;
     border-radius: 8px;
     text-align: center;
   }
-  .aura-metric-value { font-weight: bold; font-size: 16px; }
-  .aura-metric-label { font-size: 10px; color: #8899a6; text-transform: uppercase; }
+  .aura-score-bar {
+    height: 4px;
+    background: #38444d;
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .aura-score-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
   .aura-input {
     width: 100%;
     background: #192734;
@@ -331,12 +369,37 @@ auraStyles.textContent = `
   .aura-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .aura-btn-primary { background: #7c3aed; color: white; }
   .aura-btn-secondary { background: transparent; border: 1px solid #38444d; color: white; }
+  .aura-btn-post { background: #22c55e; color: white; }
+  .aura-btn-post:hover { background: #16a34a; }
+
+  .aura-vision-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(124, 58, 237, 0.15);
+    color: #a78bfa;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    margin-top: 8px;
+  }
 
   .aura-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(0,0,0,0.5);
     z-index: 2147483646;
+  }
+
+  .aura-loading-spinner {
+    width: 20px; height: 20px;
+    border: 2px solid #38444d;
+    border-top-color: #7c3aed;
+    border-radius: 50%;
+    animation: aura-spin 0.8s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 8px;
   }
 `;
 document.head.appendChild(auraStyles);
@@ -452,18 +515,38 @@ function parseMetric(text) {
   return val;
 }
 
-function calculateOpportunityScore(metrics) {
-  const { likes, replies, views } = metrics;
+function calculateViralScore(metrics, minutesSincePost) {
+  const { likes, replies, retweets, views } = metrics;
+
   if (views < 100 && likes < 5) return null;
 
-  const replyToLikeRatio = (replies + 1) / (likes + 1);
-  let score = 50;
-  if (replyToLikeRatio < 0.05) score += 20;
-  if (views > 0 && (views / (likes + 1)) > 100) score += 15;
-  if (likes > 1000) score += 10;
-  if (likes > 100) score += 5;
+  const engagement = likes + replies + retweets;
 
-  return Math.min(Math.max(Math.round(score), 0), 100);
+  let engagementScore = 0;
+  if (views > 0) {
+    const engagementRate = engagement / views;
+    engagementScore = Math.min(Math.pow(engagementRate / 0.10, 0.6), 1) * 100;
+  } else {
+    engagementScore = Math.min(engagement / 50, 1) * 100;
+  }
+
+  let velocityScore = 50;
+  if (minutesSincePost > 0) {
+    const velocity = engagement / minutesSincePost;
+    velocityScore = Math.min(Math.pow(velocity / 3, 0.7), 1) * 100;
+  }
+
+  const replyRatio = likes > 0 ? replies / likes : 1;
+  const competitionScore = (1 - Math.min(replyRatio, 1)) * 100;
+
+  const viralScore = Math.round((engagementScore + velocityScore + competitionScore) / 3);
+
+  return {
+    total: Math.min(Math.max(viralScore, 0), 100),
+    engagement: Math.round(engagementScore),
+    velocity: Math.round(velocityScore),
+    competition: Math.round(competitionScore)
+  };
 }
 
 function extractMetricValue(el) {
@@ -490,14 +573,18 @@ function getTweetData(tweetEl) {
     text: textEl ? textEl.innerText : '',
     authorName: '',
     authorHandle: '',
+    imageUrls: [],
     metrics: {
       replies: extractMetricValue(replyEl),
       retweets: extractMetricValue(retweetEl),
       likes: extractMetricValue(likeEl),
       views: extractMetricValue(viewsEl)
     },
+    minutesSincePost: 0,
     url: '',
-    el: tweetEl
+    el: tweetEl,
+    scoreBreakdown: null,
+    opportunityScore: null
   };
 
   if (userEl) {
@@ -510,9 +597,38 @@ function getTweetData(tweetEl) {
   if (timeEl) {
     const link = timeEl.closest('a');
     data.url = link ? link.href : window.location.href;
+
+    const datetime = timeEl.getAttribute('datetime');
+    if (datetime) {
+      const postDate = new Date(datetime);
+      const now = new Date();
+      data.minutesSincePost = Math.max(1, Math.round((now - postDate) / 60000));
+    }
   }
 
-  data.opportunityScore = calculateOpportunityScore(data.metrics);
+  const photoContainers = tweetEl.querySelectorAll('[data-testid="tweetPhoto"] img, [data-testid="tweetPhoto"] video');
+  photoContainers.forEach(media => {
+    if (media.tagName === 'IMG' && media.src && !media.src.includes('emoji') && !media.src.includes('profile_images')) {
+      data.imageUrls.push(media.src);
+    }
+    if (media.tagName === 'VIDEO' && media.poster) {
+      data.imageUrls.push(media.poster);
+    }
+  });
+
+  if (data.imageUrls.length === 0) {
+    const cardImg = tweetEl.querySelector('[data-testid="card.layoutLarge.media"] img, [data-testid="card.layoutSmall.media"] img');
+    if (cardImg && cardImg.src) {
+      data.imageUrls.push(cardImg.src);
+    }
+  }
+
+  const scoreResult = calculateViralScore(data.metrics, data.minutesSincePost);
+  if (scoreResult) {
+    data.opportunityScore = scoreResult.total;
+    data.scoreBreakdown = scoreResult;
+  }
+
   return data;
 }
 
@@ -525,33 +641,41 @@ function injectBadges(tweetEl) {
   const data = getTweetData(tweetEl);
   if (data.opportunityScore === null) return;
 
-  if (badgesEnabled) {
-    const badge = document.createElement('span');
-    const colorClass = data.opportunityScore >= 70 ? 'aura-badge-high' : data.opportunityScore >= 40 ? 'aura-badge-med' : 'aura-badge-low';
-    badge.className = `aura-badge ${colorClass}`;
-    badge.textContent = `🔥 ${data.opportunityScore}`;
+  if (!badgesEnabled) return;
 
-    const userNameEl = tweetEl.querySelector('[data-testid="User-Name"]');
-    if (userNameEl) {
-      const container = userNameEl.querySelector('div') || userNameEl;
-      container.appendChild(badge);
-    }
+  if (data.opportunityScore < 40) return;
 
-    const analyzeBtn = document.createElement('button');
-    analyzeBtn.className = 'aura-analyze-btn';
-    analyzeBtn.innerHTML = `<span>✨ Analyze</span>`;
-    analyzeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      openAnalysisPanel(data);
-    });
+  const badge = document.createElement('span');
+  const colorClass = data.opportunityScore >= 80 ? 'aura-badge-high' : data.opportunityScore >= 60 ? 'aura-badge-med' : 'aura-badge-low';
+  badge.className = `aura-badge ${colorClass}`;
+  badge.textContent = `🔥 ${data.opportunityScore}`;
 
-    tweetEl.style.position = 'relative';
-    tweetEl.appendChild(analyzeBtn);
+  const userNameEl = tweetEl.querySelector('[data-testid="User-Name"]');
+  if (userNameEl) {
+    const container = userNameEl.querySelector('div') || userNameEl;
+    container.appendChild(badge);
   }
+
+  const analyzeBtn = document.createElement('button');
+  analyzeBtn.className = 'aura-analyze-btn';
+  analyzeBtn.innerHTML = `<span>✨ Analyze</span>`;
+  analyzeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    openAnalysisPanel(data);
+  });
+
+  tweetEl.style.position = 'relative';
+  tweetEl.appendChild(analyzeBtn);
 }
 
 // ─── Analysis Panel ───
+
+function getScoreColor(score) {
+  if (score >= 70) return '#22c55e';
+  if (score >= 40) return '#eab308';
+  return '#6b7280';
+}
 
 function openAnalysisPanel(tweetData) {
   if (activePanel) activePanel.remove();
@@ -561,13 +685,18 @@ function openAnalysisPanel(tweetData) {
   const overlay = document.createElement('div');
   overlay.className = 'aura-overlay';
 
+  const sb = tweetData.scoreBreakdown || { engagement: 0, velocity: 0, competition: 0 };
+  const imageHtml = tweetData.imageUrls.length > 0
+    ? `<img class="aura-tweet-image" src="${tweetData.imageUrls[0]}" alt="Tweet image" />${tweetData.imageUrls.length > 1 ? `<div style="color: #8899a6; font-size: 11px; margin-top: 4px;">+${tweetData.imageUrls.length - 1} more image${tweetData.imageUrls.length > 2 ? 's' : ''}</div>` : ''}`
+    : '';
+
   const panel = document.createElement('div');
   panel.className = 'aura-panel';
   panel.innerHTML = `
     <div class="aura-panel-header">
       <div style="display: flex; align-items: center; gap: 8px;">
         <span style="font-weight: bold; color: #7c3aed;">✨ Aura Analyze</span>
-        ${tweetData.opportunityScore ? `<span class="aura-badge aura-badge-high" style="margin: 0;">🔥 ${tweetData.opportunityScore}</span>` : ''}
+        ${tweetData.opportunityScore !== null ? `<span class="aura-badge ${tweetData.opportunityScore >= 80 ? 'aura-badge-high' : tweetData.opportunityScore >= 60 ? 'aura-badge-med' : 'aura-badge-low'}" style="margin: 0;">🔥 ${tweetData.opportunityScore}</span>` : ''}
       </div>
       <button class="aura-btn aura-btn-secondary" id="aura-close-panel" style="padding: 4px 8px;">✕</button>
     </div>
@@ -575,7 +704,9 @@ function openAnalysisPanel(tweetData) {
       <div class="aura-tweet-preview">
         <div style="font-weight: bold; margin-bottom: 4px;">${escapeHtml(tweetData.authorName)}</div>
         <div style="color: #8899a6; font-size: 12px; margin-bottom: 8px;">${escapeHtml(tweetData.authorHandle)}</div>
-        <div>${escapeHtml(tweetData.text.substring(0, 200))}${tweetData.text.length > 200 ? '...' : ''}</div>
+        <div>${escapeHtml(tweetData.text.substring(0, 300))}${tweetData.text.length > 300 ? '...' : ''}</div>
+        ${imageHtml}
+        ${tweetData.imageUrls.length > 0 ? '<div class="aura-vision-tag">👁 AI Vision will analyze this image</div>' : ''}
       </div>
 
       <div class="aura-metrics-grid">
@@ -597,11 +728,30 @@ function openAnalysisPanel(tweetData) {
         </div>
       </div>
 
+      <div class="aura-score-breakdown">
+        <div class="aura-score-item">
+          <div style="font-size: 11px; color: #8899a6;">Engagement</div>
+          <div style="font-weight: bold; color: ${getScoreColor(sb.engagement)}">${sb.engagement}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.engagement}%; background: ${getScoreColor(sb.engagement)};"></div></div>
+        </div>
+        <div class="aura-score-item">
+          <div style="font-size: 11px; color: #8899a6;">Velocity</div>
+          <div style="font-weight: bold; color: ${getScoreColor(sb.velocity)}">${sb.velocity}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.velocity}%; background: ${getScoreColor(sb.velocity)};"></div></div>
+        </div>
+        <div class="aura-score-item">
+          <div style="font-size: 11px; color: #8899a6;">Competition</div>
+          <div style="font-weight: bold; color: ${getScoreColor(sb.competition)}">${sb.competition}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.competition}%; background: ${getScoreColor(sb.competition)};"></div></div>
+        </div>
+      </div>
+
       <div style="margin-bottom: 8px; font-weight: bold; font-size: 14px;">Custom Instructions</div>
-      <textarea class="aura-input" id="aura-custom-instructions" rows="2" placeholder="e.g. 'gen z slang', 'professional tone', 'flirty and witty'"></textarea>
+      <textarea class="aura-input" id="aura-custom-instructions" rows="2" placeholder="e.g. 'gen z slang', 'flirty and witty', 'professional tone'"></textarea>
 
       <button class="aura-btn aura-btn-primary" id="aura-generate-btn" style="width: 100%; margin-bottom: 16px; padding: 10px;">Generate Viral Replies</button>
 
+      <div id="aura-vision-result" style="display: none; margin-bottom: 12px;"></div>
       <div id="aura-replies-container" class="aura-replies-list"></div>
     </div>
   `;
@@ -625,6 +775,7 @@ function openAnalysisPanel(tweetData) {
   const generateBtn = panel.querySelector('#aura-generate-btn');
   const repliesContainer = panel.querySelector('#aura-replies-container');
   const instructionsInput = panel.querySelector('#aura-custom-instructions');
+  const visionResultEl = panel.querySelector('#aura-vision-result');
 
   generateBtn.addEventListener('click', async () => {
     if (!auraBaseUrl) {
@@ -638,14 +789,22 @@ function openAnalysisPanel(tweetData) {
     }
 
     generateBtn.disabled = true;
-    generateBtn.innerText = 'Analyzing...';
+    generateBtn.innerHTML = '<span class="aura-loading-spinner"></span> Analyzing' + (tweetData.imageUrls.length > 0 ? ' image + text...' : '...');
     repliesContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #8899a6;">✨ Generating viral replies...</div>';
 
     const payload = {
       tweetText: tweetData.text,
       authorName: tweetData.authorName,
-      metrics: tweetData.metrics,
-      customInstruction: instructionsInput.value
+      authorUsername: tweetData.authorHandle,
+      metrics: {
+        likes: tweetData.metrics.likes,
+        replies: tweetData.metrics.replies,
+        retweets: tweetData.metrics.retweets,
+        views: tweetData.metrics.views,
+        minutesSincePost: tweetData.minutesSincePost
+      },
+      customInstruction: instructionsInput.value,
+      imageUrl: tweetData.imageUrls.length > 0 ? tweetData.imageUrls[0] : null
     };
 
     chrome.runtime.sendMessage({
@@ -654,6 +813,16 @@ function openAnalysisPanel(tweetData) {
     }, (response) => {
       generateBtn.disabled = false;
       generateBtn.innerText = 'Regenerate Replies';
+
+      if (response && response.imageDescription) {
+        visionResultEl.style.display = 'block';
+        visionResultEl.innerHTML = `
+          <div style="background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 10px; padding: 10px;">
+            <div style="font-size: 12px; font-weight: bold; color: #a78bfa; margin-bottom: 4px;">👁 AI Vision Analysis</div>
+            <div style="font-size: 13px; color: #d1d5db; line-height: 1.4;">${escapeHtml(response.imageDescription)}</div>
+          </div>
+        `;
+      }
 
       if (response && response.replies && response.replies.length > 0) {
         repliesContainer.innerHTML = '';
@@ -664,7 +833,8 @@ function openAnalysisPanel(tweetData) {
             <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(reply)}</div>
             <div class="aura-reply-actions">
               <button class="aura-btn aura-btn-secondary aura-copy-btn">📋 Copy</button>
-              <button class="aura-btn aura-btn-primary aura-insert-btn">⚡ Insert Reply</button>
+              <button class="aura-btn aura-btn-primary aura-insert-btn">✏️ Insert</button>
+              <button class="aura-btn aura-btn-post aura-post-btn">⚡ Post Reply</button>
             </div>
           `;
 
@@ -674,7 +844,14 @@ function openAnalysisPanel(tweetData) {
           });
 
           card.querySelector('.aura-insert-btn').addEventListener('click', () => {
-            handleInsertReply(tweetData, reply);
+            handleInsertReply(tweetData, reply, false);
+            panel.remove();
+            overlay.remove();
+            activePanel = null;
+          });
+
+          card.querySelector('.aura-post-btn').addEventListener('click', () => {
+            handleInsertReply(tweetData, reply, true);
             panel.remove();
             overlay.remove();
             activePanel = null;
@@ -683,23 +860,37 @@ function openAnalysisPanel(tweetData) {
           repliesContainer.appendChild(card);
         });
       } else {
-        const errMsg = response?.error || 'Error generating replies. Please try again.';
+        const errMsg = response?.error || response?.message || 'Error generating replies. Please try again.';
         repliesContainer.innerHTML = `<div style="color: #ff4444; text-align: center; padding: 12px;">${escapeHtml(errMsg)}</div>`;
       }
     });
   });
 }
 
-async function handleInsertReply(tweetData, replyText) {
+async function handleInsertReply(tweetData, replyText, autoPost) {
   try {
     const replyBtn = tweetData.el.querySelector('[data-testid="reply"]');
     if (replyBtn) {
       replyBtn.click();
     }
 
+    await new Promise(r => setTimeout(r, 500));
+
     const composer = await waitForComposer();
     await insertText(composer, replyText);
-    showToast("Reply inserted — click Post when ready");
+
+    if (autoPost) {
+      await new Promise(r => setTimeout(r, 300));
+      const postBtn = document.querySelector('[data-testid="tweetButton"]') || document.querySelector('[data-testid="tweetButtonInline"]');
+      if (postBtn && !postBtn.disabled) {
+        postBtn.click();
+        showToast("Reply posted by Aura ⚡");
+      } else {
+        showToast("Reply inserted — Post button not ready, click it manually");
+      }
+    } else {
+      showToast("Reply inserted — click Post when ready");
+    }
   } catch (err) {
     showToast("Error: " + err.message);
   }

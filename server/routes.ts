@@ -1554,80 +1554,70 @@ ${hasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 commen
   });
 
   // --- Extension: Generate Viral Replies ---
-  app.post("/api/extension/generate-replies", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/extension/generate-replies", async (req: Request, res: Response) => {
     try {
       const {
         tweetText,
         authorName,
         authorUsername,
-        likes,
-        replies,
-        retweets,
-        views,
         customInstruction,
-        screenshotBase64,
+        imageUrl,
+        metrics,
       } = req.body;
 
-      let extractedText = tweetText || "";
-      let extractedMetrics: any = { likes, replies, retweets, views };
-      let imageDescription = "";
+      const likeCount = metrics?.likes ?? req.body.likes ?? 0;
+      const replyCount = metrics?.replies ?? req.body.replies ?? 0;
+      const retweetCount = metrics?.retweets ?? req.body.retweets ?? 0;
+      const viewCount = metrics?.views ?? req.body.views ?? 0;
+      const minutesSincePost = metrics?.minutesSincePost ?? req.body.minutesSincePost ?? 0;
 
-      if (screenshotBase64 && !tweetText) {
+      const extractedText = tweetText || "";
+      if (!extractedText) {
+        return res.status(400).json({ message: "tweetText is required" });
+      }
+
+      let imageDescription = "";
+      if (imageUrl) {
         try {
           const visionResult = await groq.chat.completions.create({
             model: "meta-llama/llama-4-scout-17b-16e-instruct",
             messages: [{
               role: "user",
               content: [
-                { type: "image_url", image_url: { url: screenshotBase64 } },
-                { type: "text", text: "Extract from this tweet screenshot: 1) The tweet text 2) Author name and handle 3) Metrics (likes, replies, retweets, views if visible). Return as JSON: {\"tweetText\": \"...\", \"authorName\": \"...\", \"authorUsername\": \"...\", \"likes\": 0, \"replies\": 0, \"retweets\": 0, \"views\": 0}" },
+                { type: "image_url", image_url: { url: imageUrl } },
+                { type: "text", text: "Analyze this image from a tweet in detail. Describe: scene content, people/subjects, emotional tone, meme potential, cultural references, visual irony or contrast. Be specific and concise, 3-4 sentences." },
               ],
             }],
-            temperature: 0.2,
-            max_tokens: 500,
+            temperature: 0.3,
+            max_tokens: 400,
           });
-          const visionRaw = visionResult.choices[0]?.message?.content || "";
-          try {
-            const jsonMatch = visionRaw.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              extractedText = parsed.tweetText || extractedText;
-              extractedMetrics = {
-                likes: parsed.likes ?? likes ?? 0,
-                replies: parsed.replies ?? replies ?? 0,
-                retweets: parsed.retweets ?? retweets ?? 0,
-                views: parsed.views ?? views ?? 0,
-              };
-            }
-          } catch { /* keep original values */ }
+          imageDescription = visionResult.choices[0]?.message?.content || "";
         } catch (visionErr: any) {
           console.error("[extension/generate-replies] Vision error:", visionErr.message);
+          imageDescription = "";
         }
       }
 
-      if (!extractedText) {
-        return res.status(400).json({ message: "tweetText or screenshotBase64 is required" });
+      const engagement = likeCount + replyCount + retweetCount;
+      const engagementRate = viewCount > 0 ? engagement / viewCount : 0;
+      const engagementScore = Math.min(Math.pow(engagementRate / 0.10, 0.6), 1) * 100;
+
+      let velocityScore = 50;
+      if (minutesSincePost > 0) {
+        const velocity = engagement / minutesSincePost;
+        velocityScore = Math.min(Math.pow(velocity / 3, 0.7), 1) * 100;
       }
 
-      const likeCount = extractedMetrics.likes || 0;
-      const replyCount = extractedMetrics.replies || 0;
-      const retweetCount = extractedMetrics.retweets || 0;
-      const viewCount = extractedMetrics.views || 0;
+      const replyRatio = likeCount > 0 ? replyCount / likeCount : 1;
+      const competitionScore = (1 - Math.min(replyRatio, 1)) * 100;
 
-      const replyRatio = likeCount > 0 ? replyCount / likeCount : 0;
-      const engagementRate = viewCount > 0 ? ((likeCount + replyCount + retweetCount) / viewCount) * 100 : 0;
-      let opportunityScore = 50;
-      if (replyRatio < 0.05 && likeCount > 10) opportunityScore += 20;
-      if (engagementRate > 2) opportunityScore += 15;
-      if (viewCount > 1000 && replyCount < 20) opportunityScore += 10;
-      if (likeCount > 50) opportunityScore += 5;
-      opportunityScore = Math.min(100, Math.max(0, opportunityScore));
+      const opportunityScore = Math.round((engagementScore + velocityScore + competitionScore) / 3);
 
       const insights: string[] = [];
-      if (replyRatio < 0.05 && likeCount > 5) insights.push("Low reply competition");
-      if (engagementRate > 3) insights.push("High engagement velocity");
+      if (competitionScore > 80) insights.push("Low reply competition");
+      if (velocityScore > 60) insights.push("High engagement velocity");
+      if (engagementScore > 60) insights.push("Strong engagement rate");
       if (viewCount > 5000 && replyCount < 30) insights.push("Viral potential — under-replied");
-      if (likeCount > 100) insights.push("High-visibility post");
 
       const hasCustomStyle = customInstruction?.trim();
 
@@ -1646,7 +1636,7 @@ Do NOT fall back to generic or safe defaults.\n`
 - No emoji overload
 - Add insight, curiosity, perspective, or subtle authority
 - Replies must expand the conversation\n`}
-
+${imageDescription ? `IMAGE CONTEXT:\nThe tweet contains an image. Here is a description of the image:\n"${imageDescription}"\nYour replies should reference or play off the visual content when relevant. Do NOT just describe the image — react to it naturally.\n` : ""}
 Generate 5 different reply options with varied strategies:
 1. Authority/Expert angle
 2. Curious/Question angle
@@ -1669,6 +1659,7 @@ Likes: ${likeCount}
 Replies: ${replyCount}
 Reposts: ${retweetCount}
 Views: ${viewCount}
+Aura Viral Score: ${opportunityScore}/100
 ${hasCustomStyle ? `\nREMINDER — Style instruction: "${customInstruction!.trim()}". Follow it exactly for all 5 replies.` : ""}`;
 
       const completion = await groq.chat.completions.create({
@@ -1697,6 +1688,7 @@ ${hasCustomStyle ? `\nREMINDER — Style instruction: "${customInstruction!.trim
         replies: replySuggestions,
         opportunityScore,
         insights,
+        imageDescription: imageDescription || null,
         tweetText: extractedText,
       });
     } catch (err: any) {
