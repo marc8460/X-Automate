@@ -1,11 +1,29 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { queryClient, apiRequest } from "./queryClient";
+import { isExtensionConnected } from "./extensionBridge";
 import type {
   Tweet, MediaItem, Engagement, FollowerInteraction,
   LiveFollowerInteraction, CommentThread,
   Trend, ActivityLog, AnalyticsData, PeakTime, Setting,
 } from "@shared/schema";
+
+export function useExtensionStatus() {
+  const [isConnected, setIsConnected] = useState(isExtensionConnected());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const currentStatus = isExtensionConnected();
+      if (currentStatus !== isConnected) {
+        setIsConnected(currentStatus);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isConnected]);
+
+  return isConnected;
+}
 
 export function useTweets() {
   return useQuery<Tweet[]>({ queryKey: ["/api/tweets"] });

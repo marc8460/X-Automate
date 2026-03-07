@@ -42,17 +42,25 @@ client/src/
   components/     - UI (shadcn), layout (Layout, Sidebar, TopNav, PlatformSwitcher), platform (PlatformBadge)
   contexts/       - PlatformContext, AccountContext
   types/          - platform.ts (platform types and config)
-  lib/            - hooks.ts (TanStack Query hooks), queryClient.ts
+  lib/            - hooks.ts (TanStack Query hooks), queryClient.ts, extensionBridge.ts (Chrome extension communication)
 server/
   index.ts        - Express entry + static serving for /uploads
-  routes.ts       - REST API endpoints + file upload + AI generation + viral analysis + Twitter/Threads status + home timeline + seed
+  routes.ts       - REST API endpoints + file upload + AI generation + viral analysis + Twitter/Threads status + home timeline + extension API + seed
   twitter.ts      - Twitter API client module (getTwitterClient, testTwitterConnection)
   threads.ts      - Threads API client (getThreadsClient, testThreadsConnection, fetchUserProfile, fetchUserPosts, fetchPostReplies)
-  engagementPoller.ts - Polls X mentions + Threads replies, delta-tracks likes/retweets/followers
+  engagementPoller.ts - Polls X mentions + Threads replies, delta-tracks likes/retweets/followers, saves follower snapshots
   storage.ts      - DatabaseStorage with IStorage interface (platform-filtered queries)
   db.ts           - Drizzle + pg pool
+  ranking.ts      - Comment Opportunity Score (0-100) for Viral Engine feed
 shared/
   schema.ts       - Drizzle schema + Zod insert schemas + types
+extension/        - Chrome extension (Manifest V3)
+  manifest.json   - Extension config: permissions, content scripts, background worker
+  background.js   - Service worker: handles post/reply/image/generate-replies actions
+  content_x.js    - X.com content script: tweet detection, opportunity scores, analysis panel, reply insertion
+  content_aura.js - Aura dashboard bridge: postMessage relay between web app and extension
+  popup.html/js   - Extension popup UI with status and stats
+  icons/          - Extension icons (16/48/128px)
 uploads/          - User-uploaded media files (served statically)
 ```
 
@@ -94,9 +102,11 @@ uploads/          - User-uploaded media files (served statically)
 - GET: /api/twitter/metrics, /api/twitter/peak-times
 - GET: /api/twitter/home-timeline (X For You / Following feed)
 - GET: /api/trending-topics?geo=US&category=all&timeWindow=24h&sortBy=volume
+- GET: /api/dashboard/stats (Free tier metrics + internal activity stats, cached 2 min)
 - POST: /api/analyze-post (AI post analysis + viral comment generation)
 - POST: /api/analyze-feed-post (structured feed post → AI viral comments)
 - POST: /api/scan-screenshot (screenshot → vision extraction + comments)
+- POST: /api/extension/generate-replies (Chrome extension viral reply generation + opportunity scoring)
 - GET: /api/engagement/live-comments?platform=x (platform-filtered)
 - GET: /api/engagement/live-interactions?platform=x (platform-filtered)
 - GET: /api/engagement/status
@@ -115,6 +125,15 @@ uploads/          - User-uploaded media files (served statically)
 - TWITTER_ACCESS_SECRET — Twitter OAuth 1.0a Access Secret (legacy dev account fallback)
 - THREADS_APP_ID — Meta Threads App ID (for "Connect Threads" user flow, optional)
 - THREADS_APP_SECRET — Meta Threads App Secret (for "Connect Threads" user flow, optional)
+
+## Chrome Extension (extension/)
+- **Manifest V3**: Permissions for `activeTab`, `storage`, `scripting`; host permissions for x.com, twitter.com, and Replit domains
+- **Communication flow**: Aura web app → `window.postMessage` → content_aura.js → `chrome.runtime.sendMessage` → background.js → content_x.js
+- **In-feed features**: MutationObserver detects tweets, extracts metrics from DOM, calculates Opportunity Score, shows Analyze button on hover
+- **Analysis panel**: Floating glass-panel UI on X.com with tweet metrics, score, AI reply generation (5 suggestions), custom instruction input, screenshot upload
+- **Human-in-the-loop**: Extension inserts text into composer but never clicks Post — user makes final decision
+- **Extension bridge** (`client/src/lib/extensionBridge.ts`): `isExtensionConnected()`, `PostViaExtension()`, `ReplyViaExtension()`, `useExtensionStatus()` hook
+- **Composer/UnifiedInbox**: "Post with Aura" and "Reply with Extension" buttons appear when extension is detected
 
 ## Content Generation
 - `/api/generate` reads persona settings (seductiveness, playfulness, dominance) from settings table

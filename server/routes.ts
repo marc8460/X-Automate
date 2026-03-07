@@ -1553,6 +1553,158 @@ ${hasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 commen
     }
   });
 
+  // --- Extension: Generate Viral Replies ---
+  app.post("/api/extension/generate-replies", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const {
+        tweetText,
+        authorName,
+        authorUsername,
+        likes,
+        replies,
+        retweets,
+        views,
+        customInstruction,
+        screenshotBase64,
+      } = req.body;
+
+      let extractedText = tweetText || "";
+      let extractedMetrics: any = { likes, replies, retweets, views };
+      let imageDescription = "";
+
+      if (screenshotBase64 && !tweetText) {
+        try {
+          const visionResult = await groq.chat.completions.create({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: screenshotBase64 } },
+                { type: "text", text: "Extract from this tweet screenshot: 1) The tweet text 2) Author name and handle 3) Metrics (likes, replies, retweets, views if visible). Return as JSON: {\"tweetText\": \"...\", \"authorName\": \"...\", \"authorUsername\": \"...\", \"likes\": 0, \"replies\": 0, \"retweets\": 0, \"views\": 0}" },
+              ],
+            }],
+            temperature: 0.2,
+            max_tokens: 500,
+          });
+          const visionRaw = visionResult.choices[0]?.message?.content || "";
+          try {
+            const jsonMatch = visionRaw.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              extractedText = parsed.tweetText || extractedText;
+              extractedMetrics = {
+                likes: parsed.likes ?? likes ?? 0,
+                replies: parsed.replies ?? replies ?? 0,
+                retweets: parsed.retweets ?? retweets ?? 0,
+                views: parsed.views ?? views ?? 0,
+              };
+            }
+          } catch { /* keep original values */ }
+        } catch (visionErr: any) {
+          console.error("[extension/generate-replies] Vision error:", visionErr.message);
+        }
+      }
+
+      if (!extractedText) {
+        return res.status(400).json({ message: "tweetText or screenshotBase64 is required" });
+      }
+
+      const likeCount = extractedMetrics.likes || 0;
+      const replyCount = extractedMetrics.replies || 0;
+      const retweetCount = extractedMetrics.retweets || 0;
+      const viewCount = extractedMetrics.views || 0;
+
+      const replyRatio = likeCount > 0 ? replyCount / likeCount : 0;
+      const engagementRate = viewCount > 0 ? ((likeCount + replyCount + retweetCount) / viewCount) * 100 : 0;
+      let opportunityScore = 50;
+      if (replyRatio < 0.05 && likeCount > 10) opportunityScore += 20;
+      if (engagementRate > 2) opportunityScore += 15;
+      if (viewCount > 1000 && replyCount < 20) opportunityScore += 10;
+      if (likeCount > 50) opportunityScore += 5;
+      opportunityScore = Math.min(100, Math.max(0, opportunityScore));
+
+      const insights: string[] = [];
+      if (replyRatio < 0.05 && likeCount > 5) insights.push("Low reply competition");
+      if (engagementRate > 3) insights.push("High engagement velocity");
+      if (viewCount > 5000 && replyCount < 30) insights.push("Viral potential — under-replied");
+      if (likeCount > 100) insights.push("High-visibility post");
+
+      const hasCustomStyle = customInstruction?.trim();
+
+      const systemPrompt = `You are an elite social engagement strategist. Generate 5 viral reply suggestions for a tweet on X (Twitter).
+
+${hasCustomStyle
+  ? `REPLY STYLE — MANDATORY:
+Every reply MUST follow these style instructions from the user:
+"${customInstruction!.trim()}"
+This is the #1 priority. Apply it to tone, vocabulary, energy, length, slang, emoji usage, and personality.
+Do NOT fall back to generic or safe defaults.\n`
+  : `REPLY STYLE:
+- Replies must feel 100% human-written
+- No generic praise ("Love this!", "So true!")
+- No spammy tone or bot-like enthusiasm
+- No emoji overload
+- Add insight, curiosity, perspective, or subtle authority
+- Replies must expand the conversation\n`}
+
+Generate 5 different reply options with varied strategies:
+1. Authority/Expert angle
+2. Curious/Question angle
+3. Relatable/Personal angle
+4. Witty/Clever angle
+5. Contrarian/Fresh perspective angle
+
+Return ONLY a JSON object with this structure:
+{
+  "replies": ["reply1", "reply2", "reply3", "reply4", "reply5"]
+}
+
+Return ONLY the JSON. No markdown, no extra text.`;
+
+      const userPrompt = `TWEET TO REPLY TO:
+"${extractedText}"
+
+Author: ${authorName || "Unknown"} (@${authorUsername || "unknown"})
+Likes: ${likeCount}
+Replies: ${replyCount}
+Reposts: ${retweetCount}
+Views: ${viewCount}
+${hasCustomStyle ? `\nREMINDER — Style instruction: "${customInstruction!.trim()}". Follow it exactly for all 5 replies.` : ""}`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.85,
+        max_tokens: 1024,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{}";
+      let replySuggestions: string[] = [];
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          replySuggestions = parsed.replies || [];
+        }
+      } catch {
+        replySuggestions = [raw.trim()];
+      }
+
+      res.json({
+        replies: replySuggestions,
+        opportunityScore,
+        insights,
+        tweetText: extractedText,
+      });
+    } catch (err: any) {
+      console.error("[extension/generate-replies] error:", err.message);
+      res.status(500).json({ message: err.message || "Failed to generate replies" });
+    }
+  });
+
   app.post("/api/analyze-post", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const {

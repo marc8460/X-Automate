@@ -11,12 +11,14 @@ import { useState, useCallback, useEffect } from "react";
 import {
   useLiveCommentThreads, useLiveFollowerInteractions, useEngagementStatus,
   useEngagementSSE, useGenerateEngagementReply, useSendEngagementReply,
-  usePauseEngagement, useResumeEngagement,
+  usePauseEngagement, useResumeEngagement, useExtensionStatus,
 } from "@/lib/hooks";
 import type { CommentThread } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { PlatformBadge } from "@/components/platform/PlatformBadge";
+import { ReplyViaExtension } from "@/lib/extensionBridge";
+import { apiRequest } from "@/lib/queryClient";
 import type { Platform } from "@/types/platform";
 import { usePlatform } from "@/contexts/PlatformContext";
 
@@ -107,6 +109,7 @@ export default function UnifiedInbox() {
 
   const [customPrompt, setCustomPrompt] = useState("");
   const [cardStates, setCardStates] = useState<Record<string, CardState>>({});
+  const isExtensionConnected = useExtensionStatus();
 
   useEngagementSSE();
 
@@ -179,6 +182,44 @@ export default function UnifiedInbox() {
       );
     },
     [cardStates, sendReply, updateCard, toast, qc],
+  );
+
+  const handleReplyWithExtension = useCallback(
+    async (thread: CommentThread) => {
+      const card = cardStates[thread.id] ?? EMPTY_CARD;
+      const replyText = card.editedReply || card.generatedReply;
+      if (!replyText) return;
+
+      const platform = thread.platform || "x";
+      if (platform !== "x") {
+        toast({ title: "Not supported", description: "Extension reply currently only supported for X.", variant: "destructive" });
+        return;
+      }
+
+      const tweetUrl = `https://x.com/${thread.lastCommentAuthor.replace("@", "")}/status/${thread.lastCommentId}`;
+
+      updateCard(thread.id, { isSending: true });
+      try {
+        await ReplyViaExtension(replyText, tweetUrl);
+
+        // Log activity
+        await apiRequest("POST", "/api/activity-logs", {
+          type: "reply",
+          platform: "x",
+          content: replyText,
+          status: "success",
+          metadata: { via: "extension", threadId: thread.id }
+        });
+
+        updateCard(thread.id, { isSent: true, isSending: false });
+        toast({ title: "Sent to Extension", description: "Follow instructions in the new tab to reply." });
+        setTimeout(() => qc.invalidateQueries({ queryKey: ["/api/engagement/live-comments"] }), 1500);
+      } catch (err: any) {
+        toast({ title: "Extension failed", description: err.message, variant: "destructive" });
+        updateCard(thread.id, { isSending: false });
+      }
+    },
+    [cardStates, updateCard, toast, qc]
   );
 
   const allThreads = threadsData?.threads ?? [];
@@ -493,18 +534,37 @@ export default function UnifiedInbox() {
                               >
                                 <SkipForward size={12} /> Skip
                               </Button>
-                              <Button
-                                size="sm"
-                                className="h-8 bg-accent/20 text-accent hover:bg-accent/30 gap-1.5 ml-auto"
-                                onClick={() => handleApprove(thread)}
-                                disabled={card.isSending}
-                              >
-                                {card.isSending ? (
-                                  <><RefreshCw size={12} className="animate-spin" /> Sending…</>
-                                ) : (
-                                  <><Send size={12} /> Approve & Send</>
+                              <div className="flex gap-2 ml-auto">
+                                {isExtensionConnected && thread.platform === "x" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 border-primary/40 text-primary hover:bg-primary/10 gap-1.5"
+                                    onClick={() => handleReplyWithExtension(thread)}
+                                    disabled={card.isSending}
+                                    data-testid={`button-reply-extension-${thread.id}`}
+                                  >
+                                    {card.isSending ? (
+                                      <RefreshCw size={12} className="animate-spin" />
+                                    ) : (
+                                      <Sparkles size={12} />
+                                    )}
+                                    Reply with Extension
+                                  </Button>
                                 )}
-                              </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-8 bg-accent/20 text-accent hover:bg-accent/30 gap-1.5"
+                                  onClick={() => handleApprove(thread)}
+                                  disabled={card.isSending}
+                                >
+                                  {card.isSending ? (
+                                    <><RefreshCw size={12} className="animate-spin" /> Sending…</>
+                                  ) : (
+                                    <><Send size={12} /> Approve & Send</>
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           )}
                         </>
