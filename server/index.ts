@@ -27,6 +27,16 @@ app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
+app.use("/api/extension", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

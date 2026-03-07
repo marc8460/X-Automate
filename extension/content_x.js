@@ -645,6 +645,8 @@ function injectBadges(tweetEl) {
 
   if (data.opportunityScore < 40) return;
 
+  if (tweetEl.querySelector('.aura-badge')) return;
+
   const badge = document.createElement('span');
   const colorClass = data.opportunityScore >= 80 ? 'aura-badge-high' : data.opportunityScore >= 60 ? 'aura-badge-med' : 'aura-badge-low';
   badge.className = `aura-badge ${colorClass}`;
@@ -652,8 +654,7 @@ function injectBadges(tweetEl) {
 
   const userNameEl = tweetEl.querySelector('[data-testid="User-Name"]');
   if (userNameEl) {
-    const container = userNameEl.querySelector('div') || userNameEl;
-    container.appendChild(badge);
+    userNameEl.insertAdjacentElement('afterend', badge);
   }
 
   const analyzeBtn = document.createElement('button');

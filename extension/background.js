@@ -109,6 +109,18 @@ async function handleGenerateReplies(data) {
       credentials: 'include',
       body: JSON.stringify(data.payload)
     });
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok) {
+      if (contentType.includes('application/json')) {
+        const errBody = await response.json();
+        return { error: errBody.message || `Server error: ${response.status}` };
+      }
+      const text = await response.text();
+      return { error: `Server returned ${response.status}: ${text.substring(0, 100)}` };
+    }
+    if (!contentType.includes('application/json')) {
+      return { error: 'Server returned non-JSON response. Make sure your Aura dashboard URL is correct.' };
+    }
     return await response.json();
   } catch (error) {
     console.error('Error proxying generate replies:', error);
