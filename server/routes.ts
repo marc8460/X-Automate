@@ -693,7 +693,7 @@ Return ONLY valid JSON with no markdown:
   });
 
   // --- Live Twitter Metrics (cached 5 min) ---
-  let metricsCache: { data: any; fetchedAt: number } | null = null;
+  const metricsCacheMap = new Map<string, { data: any; fetchedAt: number }>();
   const METRICS_CACHE_TTL = 5 * 60 * 1000;
 
   app.get("/api/twitter/metrics", isAuthenticated, async (req: Request, res: Response) => {
@@ -703,8 +703,9 @@ Return ONLY valid JSON with no markdown:
       return res.json({ error: "X account not connected" });
     }
 
-    if (metricsCache && Date.now() - metricsCache.fetchedAt < METRICS_CACHE_TTL) {
-      return res.json(metricsCache.data);
+    const cached = metricsCacheMap.get(userId);
+    if (cached && Date.now() - cached.fetchedAt < METRICS_CACHE_TTL) {
+      return res.json(cached.data);
     }
 
     try {
@@ -712,46 +713,61 @@ Return ONLY valid JSON with no markdown:
       const twitterUserId = me.data.id;
       const publicMetrics = me.data.public_metrics;
 
-      const timelineResult = await twitterClient.v2.userTimeline(twitterUserId, {
-        max_results: 100,
-        "tweet.fields": ["public_metrics", "created_at"],
-        exclude: ["retweets"],
-      });
-
-      const tweets: any[] = timelineResult.data?.data ?? [];
-
       let totalImpressions = 0;
       let totalLikes = 0;
       let totalRetweets = 0;
       let totalReplies = 0;
+      let dailyMetrics: any[] = [];
 
-      const dailyMap: Record<string, { date: string; engagement: number; impressions: number; likes: number; retweets: number; replies: number; tweetCount: number }> = {};
+      try {
+        const timelineResult = await twitterClient.v2.userTimeline(twitterUserId, {
+          max_results: 100,
+          "tweet.fields": ["public_metrics", "created_at"],
+          exclude: ["retweets"],
+        });
 
-      for (const tweet of tweets) {
-        const pm = tweet.public_metrics ?? {};
-        const impressions = pm.impression_count ?? 0;
-        const likes = pm.like_count ?? 0;
-        const rts = pm.retweet_count ?? 0;
-        const replies = pm.reply_count ?? 0;
+        const tweets: any[] = timelineResult.data?.data ?? [];
+        const dailyMap: Record<string, { date: string; engagement: number; impressions: number; likes: number; retweets: number; replies: number; tweetCount: number }> = {};
 
-        totalImpressions += impressions;
-        totalLikes += likes;
-        totalRetweets += rts;
-        totalReplies += replies;
+        for (const tweet of tweets) {
+          const pm = tweet.public_metrics ?? {};
+          const impressions = pm.impression_count ?? 0;
+          const likes = pm.like_count ?? 0;
+          const rts = pm.retweet_count ?? 0;
+          const replies = pm.reply_count ?? 0;
 
-        if (tweet.created_at) {
-          const d = new Date(tweet.created_at);
-          const dayKey = d.toISOString().slice(0, 10);
-          const dayLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-          if (!dailyMap[dayKey]) {
-            dailyMap[dayKey] = { date: dayLabel, engagement: 0, impressions: 0, likes: 0, retweets: 0, replies: 0, tweetCount: 0 };
+          totalImpressions += impressions;
+          totalLikes += likes;
+          totalRetweets += rts;
+          totalReplies += replies;
+
+          if (tweet.created_at) {
+            const d = new Date(tweet.created_at);
+            const dayKey = d.toISOString().slice(0, 10);
+            const dayLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+            if (!dailyMap[dayKey]) {
+              dailyMap[dayKey] = { date: dayLabel, engagement: 0, impressions: 0, likes: 0, retweets: 0, replies: 0, tweetCount: 0 };
+            }
+            dailyMap[dayKey].engagement += likes + rts + replies;
+            dailyMap[dayKey].impressions += impressions;
+            dailyMap[dayKey].likes += likes;
+            dailyMap[dayKey].retweets += rts;
+            dailyMap[dayKey].replies += replies;
+            dailyMap[dayKey].tweetCount += 1;
           }
-          dailyMap[dayKey].engagement += likes + rts + replies;
-          dailyMap[dayKey].impressions += impressions;
-          dailyMap[dayKey].likes += likes;
-          dailyMap[dayKey].retweets += rts;
-          dailyMap[dayKey].replies += replies;
-          dailyMap[dayKey].tweetCount += 1;
+        }
+
+        dailyMetrics = Object.entries(dailyMap)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([, v]) => v);
+      } catch (timelineErr: any) {
+        console.warn("[twitter/metrics] Timeline unavailable (likely needs Basic tier):", timelineErr.message);
+        if (cached) {
+          totalImpressions = cached.data.impressions ?? 0;
+          totalLikes = cached.data.likes ?? 0;
+          totalRetweets = cached.data.retweets ?? 0;
+          totalReplies = cached.data.replies ?? 0;
+          dailyMetrics = cached.data.dailyMetrics ?? [];
         }
       }
 
@@ -759,10 +775,6 @@ Return ONLY valid JSON with no markdown:
       const engagementRate = totalImpressions > 0
         ? ((totalEngagement / totalImpressions) * 100).toFixed(2)
         : "0";
-
-      const dailyMetrics = Object.entries(dailyMap)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([, v]) => v);
 
       const result = {
         followers: publicMetrics?.followers_count ?? 0,
@@ -776,16 +788,19 @@ Return ONLY valid JSON with no markdown:
         dailyMetrics,
       };
 
-      metricsCache = { data: result, fetchedAt: Date.now() };
+      metricsCacheMap.set(userId, { data: result, fetchedAt: Date.now() });
       res.json(result);
     } catch (err: any) {
       console.error("[twitter/metrics] Error:", err.message);
+      if (cached) {
+        return res.json(cached.data);
+      }
       res.status(500).json({ error: err.message || "Failed to fetch metrics" });
     }
   });
 
   // --- Live Audience Peak Times ---
-  let peakCache: { data: any; fetchedAt: number } | null = null;
+  const peakCacheMap = new Map<string, { data: any; fetchedAt: number }>();
 
   app.get("/api/twitter/peak-times", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
@@ -794,21 +809,30 @@ Return ONLY valid JSON with no markdown:
       return res.json({ peakTimes: [], topPeak: null });
     }
 
-    if (peakCache && Date.now() - peakCache.fetchedAt < METRICS_CACHE_TTL) {
-      return res.json(peakCache.data);
+    const cached = peakCacheMap.get(userId);
+    if (cached && Date.now() - cached.fetchedAt < METRICS_CACHE_TTL) {
+      return res.json(cached.data);
     }
 
     try {
       const me = await twitterClient.v2.me();
       const twitterUserId = me.data.id;
 
-      const timelineResult = await twitterClient.v2.userTimeline(twitterUserId, {
-        max_results: 100,
-        "tweet.fields": ["public_metrics", "created_at"],
-        exclude: ["retweets"],
-      });
-
-      const tweets: any[] = timelineResult.data?.data ?? [];
+      let tweets: any[] = [];
+      try {
+        const timelineResult = await twitterClient.v2.userTimeline(twitterUserId, {
+          max_results: 100,
+          "tweet.fields": ["public_metrics", "created_at"],
+          exclude: ["retweets"],
+        });
+        tweets = timelineResult.data?.data ?? [];
+      } catch (timelineErr: any) {
+        console.warn("[twitter/peak-times] Timeline unavailable (likely needs Basic tier):", timelineErr.message);
+        if (cached) {
+          return res.json(cached.data);
+        }
+        return res.json({ peakTimes: [], topPeak: null });
+      }
 
       const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const slots: Record<string, { totalEngagement: number; count: number; hours: number[] }> = {};
@@ -857,10 +881,13 @@ Return ONLY valid JSON with no markdown:
       const topPeak = peakTimesData.reduce((best, t) => t.score > (best?.score ?? 0) ? t : best, peakTimesData[0]);
 
       const result = { peakTimes: peakTimesData, topPeak };
-      peakCache = { data: result, fetchedAt: Date.now() };
+      peakCacheMap.set(userId, { data: result, fetchedAt: Date.now() });
       res.json(result);
     } catch (err: any) {
       console.error("[twitter/peak-times] Error:", err.message);
+      if (cached) {
+        return res.json(cached.data);
+      }
       res.status(500).json({ error: err.message || "Failed to fetch peak times" });
     }
   });
