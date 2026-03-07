@@ -2128,11 +2128,7 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       return res.json({ message: "Data already seeded" });
     }
 
-    await Promise.all([
-      storage.createTweet({ userId, text: "tell me honestly, am i your type? \u{1f97a}\u{1f449}\u{1f448}", style: "Direct Question", status: "queued", imageUrl: null }),
-      storage.createTweet({ userId, text: "can i dm youuuuu?!! \u{1f629} don't ignore me", style: "Engagement Bait", status: "posted", imageUrl: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=400" }),
-      storage.createTweet({ userId, text: "free pic if you stop scrolling and say hi \u{1f607}", style: "Soft Tease", status: "queued", imageUrl: null }),
-    ]);
+    // No seed tweets — users create their own content
 
     await Promise.all([
       storage.createMediaItem({ userId, url: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=400", mood: "Playful", outfit: "Summer Dress", usageCount: 2, lastUsed: "3 days ago", risk: "safe" }),

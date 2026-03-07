@@ -37,12 +37,25 @@ async function getAuraStatus() {
 }
 
 async function handlePost(text, imageUrl) {
+  let imageBlob = null;
+  if (imageUrl) {
+    let fullUrl = imageUrl;
+    if (imageUrl.startsWith('/')) {
+      const storage = await chrome.storage.local.get(['auraBaseUrl']);
+      const baseUrl = storage.auraBaseUrl;
+      if (baseUrl) {
+        fullUrl = baseUrl.replace(/\/$/, '') + imageUrl;
+      }
+    }
+    imageBlob = await fetchImageBlob(fullUrl);
+  }
+
   const tab = await chrome.tabs.create({ url: 'https://x.com/compose/tweet' });
   chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
     if (tabId === tab.id && info.status === 'complete') {
       chrome.tabs.onUpdated.removeListener(listener);
       setTimeout(() => {
-        chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageUrl });
+        chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageBlob, filename: 'aura_image.jpg' });
         updateStats();
       }, 1000);
     }
@@ -50,12 +63,25 @@ async function handlePost(text, imageUrl) {
 }
 
 async function handleReply(text, tweetUrl, imageUrl) {
+  let imageBlob = null;
+  if (imageUrl) {
+    let fullUrl = imageUrl;
+    if (imageUrl.startsWith('/')) {
+      const storage = await chrome.storage.local.get(['auraBaseUrl']);
+      const baseUrl = storage.auraBaseUrl;
+      if (baseUrl) {
+        fullUrl = baseUrl.replace(/\/$/, '') + imageUrl;
+      }
+    }
+    imageBlob = await fetchImageBlob(fullUrl);
+  }
+
   const tab = await chrome.tabs.create({ url: tweetUrl });
   chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
     if (tabId === tab.id && info.status === 'complete') {
       chrome.tabs.onUpdated.removeListener(listener);
       setTimeout(() => {
-        chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageUrl, replyToUrl: tweetUrl });
+        chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageBlob, filename: 'aura_image.jpg', replyToUrl: tweetUrl });
         updateStats();
       }, 1000);
     }

@@ -513,7 +513,7 @@ export default function Composer() {
               )}
             </AnimatePresence>
 
-            {/* Schedule trigger */}
+            {composerTab !== "x" && (
             <div className="flex items-center gap-3 mb-4">
               <button
                 onClick={() => setShowDraftModal(true)}
@@ -528,6 +528,7 @@ export default function Composer() {
                 </button>
               )}
             </div>
+            )}
 
             {/* Actions */}
             <div className="flex items-center justify-between">
@@ -554,36 +555,40 @@ export default function Composer() {
                     Post with Aura
                   </Button>
                 )}
-                <Button
-                  onClick={handlePostNowDraft}
-                  disabled={postNowMutation.isPending || !draftText.trim() || isOverLimit}
-                  variant="outline"
-                  className="border-accent/40 text-accent hover:bg-accent/10 gap-1.5"
-                >
-                  {postNowMutation.isPending && !postingNowId ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Zap className="w-4 h-4" />
-                  )}
-                  Post Now
-                </Button>
-                <Button
-                  onClick={handleSaveDraft}
-                  disabled={createTweetMutation.isPending || !draftText.trim() || isOverLimit}
-                  className="bg-primary/20 text-primary hover:bg-primary/30"
-                >
-                  {createTweetMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Plus className="w-4 h-4 mr-2" />
-                  )}
-                  {draftSchedule ? "Schedule" : "Save to Queue"}
-                </Button>
+                {composerTab !== "x" && (
+                  <>
+                    <Button
+                      onClick={handlePostNowDraft}
+                      disabled={postNowMutation.isPending || !draftText.trim() || isOverLimit}
+                      variant="outline"
+                      className="border-accent/40 text-accent hover:bg-accent/10 gap-1.5"
+                    >
+                      {postNowMutation.isPending && !postingNowId ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Zap className="w-4 h-4" />
+                      )}
+                      Post Now
+                    </Button>
+                    <Button
+                      onClick={handleSaveDraft}
+                      disabled={createTweetMutation.isPending || !draftText.trim() || isOverLimit}
+                      className="bg-primary/20 text-primary hover:bg-primary/30"
+                    >
+                      {createTweetMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Plus className="w-4 h-4 mr-2" />
+                      )}
+                      {draftSchedule ? "Schedule" : "Save to Queue"}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </Card>
 
-          {/* Post Queue */}
+          {composerTab !== "x" && (
           <div className="space-y-4">
             <h3 className="text-lg font-display font-medium">Post Queue</h3>
 
@@ -754,10 +759,12 @@ export default function Composer() {
                 ))
             )}
           </div>
+          )}
         </div>
 
         {/* Right sidebar */}
         <div className="space-y-6">
+          {composerTab !== "x" && (
           <Card className="p-5 glass-panel bg-secondary/10">
             <h3 className="font-display font-medium mb-3 text-sm uppercase tracking-wider text-muted-foreground">
               Queue Status
@@ -792,6 +799,7 @@ export default function Composer() {
               </div>
             </div>
           </Card>
+          )}
 
           <Card className="p-5 glass-panel border-border/30">
             <h3 className="font-display font-medium mb-3 text-sm uppercase tracking-wider text-muted-foreground">
