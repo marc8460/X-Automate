@@ -1,0 +1,105 @@
+Objective
+Extend an **existing SaaS application called Aura** by adding a **browser extension** that integrates with the current system. The goal is **not to rebuild Aura**, but to create an extension that works together with the existing Aura web app.
+
+Current Situation
+Aura already exists and includes:
+
+• Viral Engine (finding high-opportunity posts)
+• AI reply generation
+• Composer for writing posts
+• Media Vault for storing images
+• Dashboard interface
+
+These features already work inside the Aura web application.
+
+The new task is to build a **browser extension that connects to the existing Aura system**.
+
+---
+
+Purpose of the Browser Extension
+
+The browser extension should act as the **execution layer** that performs actions on social media platforms directly in the user's browser, using their logged-in session.
+
+The extension should:
+
+• Post replies on X.com
+• Create posts on X.com
+• Upload images to posts
+• Work with Threads.com in the future
+
+This allows Aura to perform actions **without using the X API**, avoiding API costs.
+
+---
+
+Integration Between Aura Web App and Extension
+
+The extension must communicate with the existing Aura web app.
+
+Example workflow:
+
+1. User opens Aura dashboard.
+2. User finds a tweet in the Viral Engine.
+3. User generates a reply.
+4. User selects an image from Media Vault.
+5. User clicks **"Reply with Aura"**.
+
+Aura then sends a message to the browser extension containing:
+
+{
+"platform": "x",
+"action": "reply",
+"postId": "123456",
+"text": "Generated reply text",
+"imageUrl": "https://aura.app/media/image123.jpg"
+}
+
+The browser extension then:
+
+1. Opens the relevant platform page (e.g. x.com).
+2. Locates the reply composer field.
+3. Inserts the reply text.
+4. Downloads and uploads the image from Media Vault.
+5. Clicks the post button.
+
+---
+
+Platform Modes
+
+The extension should support different platform modes depending on the website:
+
+If the user opens:
+
+• x.com → extension runs in **X mode**
+• threads.com → extension runs in **Threads mode**
+
+Aura should open the correct platform page when the user clicks actions like:
+
+• "Reply with Aura"
+• "Post with Aura"
+
+---
+
+Media Vault Integration
+
+The extension must support attaching images from Aura’s Media Vault.
+
+Workflow:
+
+1. User selects an image in Aura.
+2. Aura sends the image URL to the extension.
+3. Extension downloads the image file.
+4. Extension uploads the image through the platform’s file input field.
+
+---
+
+Important Constraint
+
+The goal is **only to extend Aura with a browser extension**.
+
+Do NOT redesign or rebuild the existing Aura system.
+
+The focus should be:
+
+• creating the browser extension
+• connecting it to the existing Aura backend
+• enabling communication between the web app and the extension.
