@@ -185,40 +185,53 @@ export async function replyToThreadsComment(mediaId: string, replyText: string, 
     throw new Error(err.error?.message || "Failed to create Threads reply container");
   }
   const { id: creationId } = await containerRes.json();
-  console.log(`[threads/reply] Container created: ${creationId}, waiting for FINISHED status...`);
+  console.log(`[threads/reply] Container created: ${creationId}, attempting immediate publish...`);
 
-  const maxAttempts = 6;
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, i === 0 ? 500 : 800));
+  const publishParams = new URLSearchParams({ creation_id: creationId, access_token: token });
+
+  const tryPublish = async (): Promise<{ id: string }> => {
+    const res = await fetch(
+      `https://graph.threads.net/v1.0/${userId}/threads_publish`,
+      { method: "POST", body: publishParams },
+    );
+    if (res.ok) {
+      const { id } = await res.json();
+      return { id };
+    }
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to publish Threads reply");
+  };
+
+  try {
+    const result = await tryPublish();
+    console.log(`[threads/reply] Reply published immediately: ${result.id}`);
+    return result;
+  } catch (immediateErr: any) {
+    console.log(`[threads/reply] Immediate publish failed (${immediateErr.message}), polling for ready status...`);
+  }
+
+  for (let i = 0; i < 4; i++) {
+    await new Promise(r => setTimeout(r, 800));
     const statusRes = await fetch(
       `https://graph.threads.net/v1.0/${creationId}?fields=status,error_message&access_token=${token}`
     );
     if (statusRes.ok) {
       const statusData = await statusRes.json();
-      console.log(`[threads/reply] Container status check ${i + 1}/${maxAttempts}: ${statusData.status}`);
-      if (statusData.status === "FINISHED") break;
+      console.log(`[threads/reply] Status check ${i + 1}/4: ${statusData.status}`);
       if (statusData.status === "ERROR") {
         throw new Error(statusData.error_message || "Container creation failed");
       }
-    }
-    if (i === maxAttempts - 1) {
-      console.warn(`[threads/reply] Container did not reach FINISHED after ${maxAttempts} attempts, attempting publish anyway`);
+      if (statusData.status === "FINISHED") {
+        const result = await tryPublish();
+        console.log(`[threads/reply] Reply published after polling: ${result.id}`);
+        return result;
+      }
     }
   }
 
-  const publishParams = new URLSearchParams({ creation_id: creationId, access_token: token });
-  const publishRes = await fetch(
-    `https://graph.threads.net/v1.0/${userId}/threads_publish`,
-    { method: "POST", body: publishParams },
-  );
-  if (!publishRes.ok) {
-    const err = await publishRes.json().catch(() => ({}));
-    console.error(`[threads/reply] Publish failed for creation_id=${creationId}:`, err);
-    throw new Error(err.error?.message || "Failed to publish Threads reply");
-  }
-  const { id } = await publishRes.json();
-  console.log(`[threads/reply] Reply published successfully: ${id}`);
-  return { id };
+  const finalResult = await tryPublish();
+  console.log(`[threads/reply] Reply published on final attempt: ${finalResult.id}`);
+  return finalResult;
 }
 
 export function generateThreadsOAuthUrl(userId: string, callbackUrl: string): { url: string; state: string } {
