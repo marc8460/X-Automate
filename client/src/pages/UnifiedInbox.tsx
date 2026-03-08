@@ -37,6 +37,7 @@ type CardState = {
   isGenerating: boolean;
   isSending: boolean;
   sentiment: string;
+  sentReplyText: string;
 };
 
 const EMPTY_CARD: CardState = {
@@ -50,6 +51,7 @@ const EMPTY_CARD: CardState = {
   isGenerating: false,
   isSending: false,
   sentiment: "",
+  sentReplyText: "",
 };
 
 const promptTextareaClass =
@@ -193,12 +195,11 @@ export default function UnifiedInbox() {
       const card = threadsCardStates[commentId] ?? EMPTY_CARD;
       const replyText = card.editedReply || card.generatedReply;
       if (!replyText) return;
-      updateThreadsCard(commentId, { isSending: true });
+      updateThreadsCard(commentId, { isSent: true, isSending: false, sentReplyText: replyText });
       threadsSendReply.mutate(
         { postId, commentId, replyText },
         {
           onSuccess: () => {
-            updateThreadsCard(commentId, { isSent: true, isSending: false });
             setTimeout(() => {
               qc.invalidateQueries({ queryKey: ["/api/threads/inbox"] });
               qc.invalidateQueries({ queryKey: ["/api/threads/posts"] });
@@ -207,7 +208,7 @@ export default function UnifiedInbox() {
           },
           onError: (err: any) => {
             toast({ title: "Failed to send", description: err.message, variant: "destructive" });
-            updateThreadsCard(commentId, { isSending: false });
+            updateThreadsCard(commentId, { isSent: false, isSending: false });
           },
         },
       );
@@ -256,17 +257,16 @@ export default function UnifiedInbox() {
       const card = cardStates[thread.id] ?? EMPTY_CARD;
       const replyText = card.editedReply || card.generatedReply;
       if (!replyText) return;
-      updateCard(thread.id, { isSending: true });
+      updateCard(thread.id, { isSent: true, isSending: false, sentReplyText: replyText });
       sendReply.mutate(
         { commentId: thread.lastCommentId, threadId: thread.id, replyText, platform: thread.platform ?? "x" },
         {
           onSuccess: () => {
-            updateCard(thread.id, { isSent: true, isSending: false });
             setTimeout(() => qc.invalidateQueries({ queryKey: ["/api/engagement/live-comments"] }), 1500);
           },
           onError: (err: any) => {
             toast({ title: "Failed to send", description: err.message, variant: "destructive" });
-            updateCard(thread.id, { isSending: false });
+            updateCard(thread.id, { isSent: false, isSending: false });
           },
         },
       );
@@ -825,7 +825,7 @@ export default function UnifiedInbox() {
                                                       </Badge>
                                                     </div>
                                                     <p className="text-sm text-emerald-300/80 italic">
-                                                      {card.editedReply || card.generatedReply}
+                                                      {card.sentReplyText || card.editedReply || card.generatedReply}
                                                     </p>
                                                   </div>
                                                 </div>
