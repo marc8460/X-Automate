@@ -162,6 +162,24 @@ export default function MediaVault() {
     setSelectedIds(new Set());
   };
 
+  // Filtered items based on active folder
+  const displayedItems = useMemo(() => {
+    if (!mediaItems) return [];
+    if (activeFolderId === "all") return mediaItems;
+    if (activeFolderId === null) return mediaItems.filter((i) => i.folderId == null);
+    return mediaItems.filter((i) => i.folderId === activeFolderId);
+  }, [mediaItems, activeFolderId]);
+
+  const allSelected = displayedItems.length > 0 && displayedItems.every((i) => selectedIds.has(i.id));
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayedItems.map((i) => i.id)));
+    }
+  };
+
   const handleBulkMove = (folderId: number | null) => {
     bulkMove.mutate({ itemIds: Array.from(selectedIds), folderId }, {
       onSuccess: () => {
@@ -170,14 +188,6 @@ export default function MediaVault() {
       },
     });
   };
-
-  // Filtered items based on active folder
-  const displayedItems = useMemo(() => {
-    if (!mediaItems) return [];
-    if (activeFolderId === "all") return mediaItems;
-    if (activeFolderId === null) return mediaItems.filter((i) => i.folderId == null);
-    return mediaItems.filter((i) => i.folderId === activeFolderId);
-  }, [mediaItems, activeFolderId]);
 
   const compressImage = useCallback((file: File, maxWidth = 1600, quality = 0.8): Promise<File> => {
     return new Promise((resolve) => {
@@ -464,6 +474,17 @@ export default function MediaVault() {
             <CheckCircle2 className="w-4 h-4 mr-1.5" />
             {selectMode ? "Cancel" : "Select"}
           </Button>
+          {selectMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSelectAll}
+              className="border-border/50"
+              data-testid="button-select-all"
+            >
+              {allSelected ? "Deselect All" : `Select All (${displayedItems.length})`}
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="cursor-pointer hover:bg-secondary transition-colors" data-testid="badge-filter-safe">Safe</Badge>
