@@ -1,0 +1,34 @@
+Description: I'm unable to save OAuth redirect callback URLs in the Threads API use case settings. When I attempt to save a valid redirect URL, I receive a generic error "Form can't be saved - Please verify all information is entered correctly and try again."
+
+Steps to Reproduce: Go to Meta App Dashboard Navigate to Use cases → Access the Threads API → Settings Enter a valid redirect callback URL in the "Redirect Callback URLs" field (e.g., https://hub.thebookon.ca/_api/social/threads/callback) Click the "Save" button Error appears: "Form can't be saved" Technical Details: Browser console shows:
+
+Failed to load resource: /apps/1519467459265776/async/threads-login/setting/save/ server responded with a status of 404 Expected Behavior: The OAuth redirect callback URL should be saved successfully, allowing OAuth flow to work for the Threads API.
+
+Actual Behavior: The save operation fails with a 404 error from Meta's backend endpoint, preventing OAuth configuration.
+
+Additional Context: App is currently in Development/Unpublished mode App domains are properly configured in App Settings → Basic All required app settings are complete (no pending required actions) Threads API permissions show "Ready for testing" Test user creation is also "disabled temporarily" (possibly related) The redirect URL follows all requirements (absolute URI, HTTPS, exact match) Impact: This completely blocks the ability to set up OAuth authentication for the Threads API, preventing development and testing of Threads integration features.
+
+Environment: Meta App Dashboard (latest version) Tested on multiple browsers (Chrome, Firefox, etc.)
+
+App ID: : 1519467459265776
+
+Developer Tools
+
+David
+Asked about 3 months ago
+Selected Answer
+1
+I had the same issue, but was able to resolve it by also providing URLs for the Uninstall and Delete callback's.
+
+Seems like they don't allow you to simply provide the Redirect Callback URL on it's own.
+
+Hope that helps!
+
+January 14 at 4:12 AM
+
+Zameer
+
+Raydia
+same. I am also having the same issue, and unable to solve it
+
+January 16 at 8:09 PM
