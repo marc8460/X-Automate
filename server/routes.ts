@@ -108,6 +108,20 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/auth/threads/deauthorize", async (req: Request, res: Response) => {
+    console.log("[Threads] Deauthorize callback received:", JSON.stringify(req.body));
+    res.json({ success: true });
+  });
+
+  app.post("/api/auth/threads/delete-data", async (req: Request, res: Response) => {
+    console.log("[Threads] Data deletion request received:", JSON.stringify(req.body));
+    const confirmationCode = `aura_del_${Date.now()}`;
+    res.json({
+      url: `https://${req.hostname}/settings`,
+      confirmation_code: confirmationCode,
+    });
+  });
+
   app.delete("/api/auth/disconnect/:platform", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
     const { platform } = req.params;
