@@ -404,6 +404,44 @@ export function useSeedData() {
   });
 }
 
+export type DailyGoal = {
+  action: string;
+  label: string;
+  target: number;
+  emoji: string;
+  current: number;
+};
+
+export type DailyGoalsResponse = {
+  platform: string;
+  date: string;
+  goals: DailyGoal[];
+};
+
+export function useDailyGoals(platform: string) {
+  const localDate = new Date().toLocaleDateString("en-CA");
+  return useQuery<DailyGoalsResponse>({
+    queryKey: ["/api/daily-goals", platform, localDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/daily-goals?platform=${platform}&date=${localDate}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    refetchInterval: 30_000,
+  });
+}
+
+export function useLogActivity() {
+  return useMutation({
+    mutationFn: async (data: { action: string; platform: string }) => {
+      const localDate = new Date().toLocaleDateString("en-CA");
+      const res = await apiRequest("POST", "/api/extension/activity", { ...data, localDate });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/daily-goals"] }),
+  });
+}
+
 // Legacy type kept for backward compat
 export type XComment = {
   commentId: string;

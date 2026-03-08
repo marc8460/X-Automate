@@ -220,3 +220,16 @@ export const settings = pgTable("settings", {
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true });
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
 export type Setting = typeof settings.$inferSelect;
+
+export const dailyActivityEvents = pgTable("daily_activity_events", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  platform: text("platform").notNull(),
+  action: text("action").notNull(),
+  localDate: text("local_date").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertDailyActivityEventSchema = createInsertSchema(dailyActivityEvents).omit({ id: true, createdAt: true });
+export type InsertDailyActivityEvent = z.infer<typeof insertDailyActivityEventSchema>;
+export type DailyActivityEvent = typeof dailyActivityEvents.$inferSelect;

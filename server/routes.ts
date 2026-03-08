@@ -2152,6 +2152,66 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     }
   });
 
+  // --- Daily Goals ---
+  const PLATFORM_GOALS: Record<string, { action: string; label: string; target: number; emoji: string }[]> = {
+    x: [
+      { action: "reply_posted", label: "Replies posted", target: 30, emoji: "💬" },
+      { action: "post_created", label: "Posts created", target: 3, emoji: "✍️" },
+      { action: "quote_tweet", label: "Quote tweets", target: 5, emoji: "🔁" },
+      { action: "like_given", label: "Likes given", target: 20, emoji: "❤️" },
+    ],
+    threads: [
+      { action: "reply_posted", label: "Replies posted", target: 15, emoji: "💬" },
+      { action: "post_created", label: "Threads posted", target: 2, emoji: "✍️" },
+      { action: "like_given", label: "Likes given", target: 20, emoji: "❤️" },
+      { action: "conversation_started", label: "Conversations started", target: 5, emoji: "🗣️" },
+    ],
+    instagram: [
+      { action: "post_created", label: "Posts uploaded", target: 1, emoji: "📸" },
+      { action: "story_posted", label: "Stories posted", target: 3, emoji: "⚡" },
+      { action: "comment_written", label: "Comments written", target: 10, emoji: "💬" },
+      { action: "reel_uploaded", label: "Reels uploaded", target: 1, emoji: "🎬" },
+    ],
+  };
+
+  app.post("/api/extension/activity", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { insertDailyActivityEventSchema } = await import("@shared/schema");
+      const parsed = insertDailyActivityEventSchema.safeParse({ ...req.body, userId });
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+      const event = await storage.logActivityEvent(parsed.data);
+      res.status(201).json(event);
+    } catch (err: any) {
+      console.error("[extension/activity] error:", err.message);
+      res.status(500).json({ message: err.message || "Failed to log activity" });
+    }
+  });
+
+  app.get("/api/daily-goals", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const platform = (req.query.platform as string) || "x";
+      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+
+      const goalDefs = PLATFORM_GOALS[platform] ?? PLATFORM_GOALS.x;
+      const progress = await storage.getActivityProgress(userId, platform, date);
+
+      const goals = goalDefs.map((g) => ({
+        action: g.action,
+        label: g.label,
+        target: g.target,
+        emoji: g.emoji,
+        current: progress[g.action] ?? 0,
+      }));
+
+      res.json({ platform, date, goals });
+    } catch (err: any) {
+      console.error("[daily-goals] error:", err.message);
+      res.status(500).json({ message: err.message || "Failed to fetch goals" });
+    }
+  });
+
   // --- Seed endpoint ---
   app.post("/api/seed", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);

@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   Home, PenSquare, Inbox, Flame, BarChart2, Settings,
-  Image, Users, Zap, Hash, Bot, Key, ChevronRight,
+  Image, Users, Zap, Hash, Bot, Key, ChevronRight, Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +41,7 @@ const NAV: NavSection[] = [
   {
     label: "Growth",
     items: [
+      { href: "/goals", label: "Daily Goals", icon: Target },
       { href: "/boost", label: "Boost Pods", icon: Zap, soon: true },
       { href: "/keywords", label: "Keyword Scanner", icon: Hash, soon: true },
     ],

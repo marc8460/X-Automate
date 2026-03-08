@@ -16,6 +16,7 @@ import {
   settings, type Setting, type InsertSetting,
   connectedAccounts, type ConnectedAccount, type InsertConnectedAccount,
   followerSnapshots, type FollowerSnapshot, type InsertFollowerSnapshot,
+  dailyActivityEvents, type DailyActivityEvent, type InsertDailyActivityEvent,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -86,6 +87,9 @@ export interface IStorage {
 
   createFollowerSnapshot(data: InsertFollowerSnapshot): Promise<FollowerSnapshot>;
   getFollowerSnapshots(userId: string, limit?: number): Promise<FollowerSnapshot[]>;
+
+  logActivityEvent(data: InsertDailyActivityEvent): Promise<DailyActivityEvent>;
+  getActivityProgress(userId: string, platform: string, localDate: string): Promise<Record<string, number>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -408,6 +412,34 @@ export class DatabaseStorage implements IStorage {
       .where(eq(followerSnapshots.userId, userId))
       .orderBy(desc(followerSnapshots.recordedAt))
       .limit(limit);
+  }
+
+  async logActivityEvent(data: InsertDailyActivityEvent): Promise<DailyActivityEvent> {
+    const [result] = await db.insert(dailyActivityEvents).values(data).returning();
+    return result;
+  }
+
+  async getActivityProgress(userId: string, platform: string, localDate: string): Promise<Record<string, number>> {
+    const rows = await db
+      .select({
+        action: dailyActivityEvents.action,
+        count: sql<number>`cast(count(*) as integer)`,
+      })
+      .from(dailyActivityEvents)
+      .where(
+        and(
+          eq(dailyActivityEvents.userId, userId),
+          eq(dailyActivityEvents.platform, platform),
+          eq(dailyActivityEvents.localDate, localDate),
+        ),
+      )
+      .groupBy(dailyActivityEvents.action);
+
+    const progress: Record<string, number> = {};
+    for (const row of rows) {
+      progress[row.action] = row.count;
+    }
+    return progress;
   }
 }
 
