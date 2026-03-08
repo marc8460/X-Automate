@@ -38,17 +38,60 @@ export async function getThreadsUserMetrics(accessToken?: string | null) {
   return res.json();
 }
 
-export async function getThreadsPosts(accessToken?: string | null) {
+export async function getThreadsPosts(accessToken?: string | null, limit = 25) {
   const token = accessToken || await getThreadsAccessToken();
   if (!token) return [];
 
-  const res = await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,media_product_type,media_type,text,timestamp,shortcode,is_quote_post&access_token=${token}`);
+  const res = await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,media_product_type,media_type,media_url,thumbnail_url,text,timestamp,shortcode,is_quote_post,like_count,reply_count,quote_count,repost_count&limit=${limit}&access_token=${token}`);
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.error?.message || "Failed to fetch Threads posts");
   }
   const data = await res.json();
   return data.data || [];
+}
+
+export async function getThreadsPostInsights(mediaId: string, accessToken?: string | null) {
+  const token = accessToken || await getThreadsAccessToken();
+  if (!token) return null;
+
+  const res = await fetch(`https://graph.threads.net/v1.0/${mediaId}?fields=id,text,timestamp,media_type,media_url,thumbnail_url,like_count,reply_count,quote_count,repost_count&access_token=${token}`);
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || "Failed to fetch post insights");
+  }
+  return res.json();
+}
+
+export async function getThreadsConversation(mediaId: string, accessToken?: string | null) {
+  const token = accessToken || await getThreadsAccessToken();
+  if (!token) return [];
+
+  const res = await fetch(`https://graph.threads.net/v1.0/${mediaId}/conversation?fields=id,text,timestamp,username,media_url,thumbnail_url&access_token=${token}`);
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || "Failed to fetch conversation");
+  }
+  const data = await res.json();
+  return data.data || [];
+}
+
+export async function getThreadsPostMetrics(mediaId: string, accessToken?: string | null) {
+  const token = accessToken || await getThreadsAccessToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`https://graph.threads.net/v1.0/${mediaId}/insights?metric=views,likes,replies,reposts,quotes&access_token=${token}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const metrics: Record<string, number> = {};
+    for (const entry of data.data || []) {
+      metrics[entry.name] = entry.values?.[0]?.value ?? 0;
+    }
+    return metrics;
+  } catch {
+    return null;
+  }
 }
 
 export async function getThreadsReplies(mediaId: string, accessToken?: string | null) {

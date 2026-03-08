@@ -6,7 +6,7 @@ import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
 import { getTwitterClient, getTwitterClientForUser, testTwitterConnectionForUser, generateTwitterOAuthUrl, handleTwitterOAuthCallback } from "./twitter";
-import { testThreadsConnectionForUser, getThreadsAccessTokenForUser, createThreadsPost, replyToThreadsComment, generateThreadsOAuthUrl, storeThreadsOAuthState, handleThreadsOAuthCallback } from "./threads";
+import { testThreadsConnectionForUser, getThreadsAccessTokenForUser, createThreadsPost, replyToThreadsComment, generateThreadsOAuthUrl, storeThreadsOAuthState, handleThreadsOAuthCallback, getThreadsPosts, getThreadsPostInsights, getThreadsConversation, getThreadsPostMetrics, getThreadsProfile, getThreadsUserMetrics } from "./threads";
 import { storage } from "./storage";
 import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
 import { rankTweets } from "./ranking";
@@ -771,7 +771,6 @@ Return ONLY valid JSON with no markdown:
 
       if (platform === "threads") {
         try {
-          const { getThreadsUserMetrics, getThreadsAccessTokenForUser } = await import("./threads");
           const token = await getThreadsAccessTokenForUser(userId);
           if (token) {
             const metrics = await getThreadsUserMetrics(token);
@@ -780,6 +779,92 @@ Return ONLY valid JSON with no markdown:
               following = metrics.following_count ?? 0;
               tweetCount = metrics.post_count ?? 0;
               apiSucceeded = true;
+            }
+
+            try {
+              const posts = await getThreadsPosts(token, 25);
+              const now = new Date();
+              const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              const weekStart = new Date(todayStart);
+              weekStart.setDate(weekStart.getDate() - 7);
+
+              let threadPostsToday = 0, threadPostsThisWeek = 0;
+              let totalLikes = 0, totalReplies = 0, totalViews = 0;
+              const threadPostingMap: Record<string, number> = {};
+
+              for (let i = 13; i >= 0; i--) {
+                const d = new Date(todayStart);
+                d.setDate(d.getDate() - i);
+                threadPostingMap[d.toISOString().slice(0, 10)] = 0;
+              }
+
+              for (const post of posts) {
+                const ts = new Date(post.timestamp);
+                const dayKey = ts.toISOString().slice(0, 10);
+                if (dayKey in threadPostingMap) threadPostingMap[dayKey]++;
+                if (ts >= todayStart) threadPostsToday++;
+                if (ts >= weekStart) threadPostsThisWeek++;
+                totalLikes += post.like_count ?? 0;
+                totalReplies += post.reply_count ?? 0;
+              }
+
+              const postInsightPromises = posts.slice(0, 10).map((p: any) =>
+                getThreadsPostMetrics(p.id, token).catch(() => null)
+              );
+              const insights = await Promise.all(postInsightPromises);
+              for (const m of insights) {
+                if (m) totalViews += m.views ?? 0;
+              }
+
+              postsToday = threadPostsToday;
+              postsThisWeek = threadPostsThisWeek;
+
+              const threadPostingHistory = Object.entries(threadPostingMap)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([date, count]) => ({
+                  date: new Date(date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+                  posts: count,
+                }));
+
+              const snapshots2 = await storage.getFollowerSnapshots(userId, 60);
+              const filteredSnaps = snapshots2.filter(s => s.platform === "threads" || (!s.platform && platform === "threads"));
+              const followerHistory2 = filteredSnaps.reverse().map(s => ({
+                date: new Date(s.recordedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+                followers: s.followerCount,
+                following: s.followingCount,
+                tweets: s.tweetCount,
+              }));
+
+              let fg2Today = 0, fg2Week = 0;
+              if (filteredSnaps.length > 0) {
+                const latest2 = filteredSnaps[filteredSnaps.length - 1].followerCount;
+                const todaySnaps2 = filteredSnaps.filter(s => new Date(s.recordedAt) >= todayStart);
+                if (todaySnaps2.length > 0) fg2Today = latest2 - todaySnaps2[0].followerCount;
+                const weekSnaps2 = filteredSnaps.filter(s => new Date(s.recordedAt) >= weekStart);
+                if (weekSnaps2.length > 0) fg2Week = latest2 - weekSnaps2[0].followerCount;
+              }
+
+              const threadData = {
+                followers,
+                following,
+                tweetCount,
+                listedCount: 0,
+                postsToday: threadPostsToday,
+                postsThisWeek: threadPostsThisWeek,
+                repliesToday: 0,
+                repliesThisWeek: 0,
+                followerGrowthToday: fg2Today,
+                followerGrowthWeek: fg2Week,
+                followerHistory: followerHistory2,
+                postingHistory: threadPostingHistory,
+                totalLikes,
+                totalReplies,
+                totalViews,
+              };
+              dashStatsCacheMap.set(cacheKey, { data: threadData, fetchedAt: Date.now() });
+              return res.json(threadData);
+            } catch (postsErr: any) {
+              console.warn("[dashboard/stats] Threads posts enrichment failed:", postsErr.message);
             }
           }
         } catch (threadsErr: any) {
@@ -1005,6 +1090,272 @@ Return ONLY valid JSON with no markdown:
         return res.json(cached.data);
       }
       res.status(500).json({ error: err.message || "Failed to fetch metrics" });
+    }
+  });
+
+  // --- Threads Metrics (Analytics page) ---
+  const threadsMetricsCacheMap = new Map<string, { data: any; fetchedAt: number }>();
+
+  app.get("/api/threads/metrics", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const token = await getThreadsAccessTokenForUser(userId);
+    if (!token) {
+      return res.json({ error: "Threads account not connected" });
+    }
+
+    const cached = threadsMetricsCacheMap.get(userId);
+    if (cached && Date.now() - cached.fetchedAt < METRICS_CACHE_TTL) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const [profileMetrics, posts] = await Promise.all([
+        getThreadsUserMetrics(token),
+        getThreadsPosts(token, 50),
+      ]);
+
+      let totalLikes = 0, totalReplies = 0, totalViews = 0, totalQuotes = 0, totalReposts = 0;
+
+      const dailyMap: Record<string, { date: string; engagement: number; views: number; likes: number; replies: number; quotes: number; reposts: number; postCount: number }> = {};
+
+      for (const post of posts) {
+        totalLikes += post.like_count ?? 0;
+        totalReplies += post.reply_count ?? 0;
+        totalQuotes += post.quote_count ?? 0;
+        totalReposts += post.repost_count ?? 0;
+
+        if (post.timestamp) {
+          const d = new Date(post.timestamp);
+          const dayKey = d.toISOString().slice(0, 10);
+          const dayLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+          if (!dailyMap[dayKey]) {
+            dailyMap[dayKey] = { date: dayLabel, engagement: 0, views: 0, likes: 0, replies: 0, quotes: 0, reposts: 0, postCount: 0 };
+          }
+          dailyMap[dayKey].likes += post.like_count ?? 0;
+          dailyMap[dayKey].replies += post.reply_count ?? 0;
+          dailyMap[dayKey].quotes += post.quote_count ?? 0;
+          dailyMap[dayKey].reposts += post.repost_count ?? 0;
+          dailyMap[dayKey].engagement += (post.like_count ?? 0) + (post.reply_count ?? 0) + (post.quote_count ?? 0) + (post.repost_count ?? 0);
+          dailyMap[dayKey].postCount += 1;
+        }
+      }
+
+      const insightPromises = posts.slice(0, 15).map((p: any) =>
+        getThreadsPostMetrics(p.id, token).catch(() => null)
+      );
+      const insights = await Promise.all(insightPromises);
+      for (const [i, m] of insights.entries()) {
+        if (m) {
+          totalViews += m.views ?? 0;
+          const post = posts[i];
+          if (post?.timestamp) {
+            const dayKey = new Date(post.timestamp).toISOString().slice(0, 10);
+            if (dailyMap[dayKey]) dailyMap[dayKey].views += m.views ?? 0;
+          }
+        }
+      }
+
+      const dailyMetrics = Object.entries(dailyMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, v]) => v);
+
+      const totalEngagement = totalLikes + totalReplies + totalQuotes + totalReposts;
+      const engagementRate = totalViews > 0
+        ? ((totalEngagement / totalViews) * 100).toFixed(2)
+        : "0";
+
+      const topPosts = posts.slice(0, 20).map((p: any) => ({
+        id: p.id,
+        text: p.text?.slice(0, 120) ?? "",
+        timestamp: p.timestamp,
+        media_type: p.media_type,
+        media_url: p.media_url,
+        thumbnail_url: p.thumbnail_url,
+        likes: p.like_count ?? 0,
+        replies: p.reply_count ?? 0,
+        quotes: p.quote_count ?? 0,
+        reposts: p.repost_count ?? 0,
+      }));
+
+      const result = {
+        followers: profileMetrics?.follower_count ?? 0,
+        following: profileMetrics?.following_count ?? 0,
+        postCount: profileMetrics?.post_count ?? 0,
+        views: totalViews,
+        likes: totalLikes,
+        replies: totalReplies,
+        quotes: totalQuotes,
+        reposts: totalReposts,
+        engagementRate: parseFloat(engagementRate),
+        dailyMetrics,
+        topPosts,
+      };
+
+      threadsMetricsCacheMap.set(userId, { data: result, fetchedAt: Date.now() });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[threads/metrics] Error:", err.message);
+      if (cached) return res.json(cached.data);
+      res.status(500).json({ error: err.message || "Failed to fetch Threads metrics" });
+    }
+  });
+
+  // --- Threads Inbox ---
+  const threadsInboxCacheMap = new Map<string, { data: any; fetchedAt: number }>();
+
+  app.get("/api/threads/inbox", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const token = await getThreadsAccessTokenForUser(userId);
+    if (!token) {
+      return res.json({ posts: [], profile: null });
+    }
+
+    const cached = threadsInboxCacheMap.get(userId);
+    if (cached && Date.now() - cached.fetchedAt < 60_000) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const [profile, posts] = await Promise.all([
+        getThreadsProfile(token),
+        getThreadsPosts(token, 25),
+      ]);
+
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterdayStart = new Date(todayStart);
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+      const enrichedPosts = posts.map((p: any) => {
+        const ts = new Date(p.timestamp);
+        let dateGroup = ts.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        if (ts >= todayStart) dateGroup = "Today";
+        else if (ts >= yesterdayStart) dateGroup = "Yesterday";
+
+        return {
+          id: p.id,
+          text: p.text ?? "",
+          timestamp: p.timestamp,
+          media_type: p.media_type,
+          media_url: p.media_url,
+          thumbnail_url: p.thumbnail_url,
+          shortcode: p.shortcode,
+          is_quote_post: p.is_quote_post,
+          likes: p.like_count ?? 0,
+          replies: p.reply_count ?? 0,
+          quotes: p.quote_count ?? 0,
+          reposts: p.repost_count ?? 0,
+          dateGroup,
+        };
+      });
+
+      const data = {
+        posts: enrichedPosts,
+        profile: {
+          id: profile?.id,
+          username: profile?.username,
+          name: profile?.name,
+          profilePicUrl: profile?.threads_profile_picture_url,
+        },
+      };
+
+      threadsInboxCacheMap.set(userId, { data, fetchedAt: Date.now() });
+      res.json(data);
+    } catch (err: any) {
+      console.error("[threads/inbox] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/threads/posts/:postId/comments", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const token = await getThreadsAccessTokenForUser(userId);
+    if (!token) return res.json({ comments: [] });
+
+    try {
+      const comments = await getThreadsConversation(req.params.postId, token);
+      res.json({
+        comments: comments.map((c: any) => ({
+          id: c.id,
+          text: c.text ?? "",
+          timestamp: c.timestamp,
+          username: c.username ?? "unknown",
+          media_url: c.media_url,
+          thumbnail_url: c.thumbnail_url,
+        })),
+      });
+    } catch (err: any) {
+      console.error("[threads/comments] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/threads/posts/:postId/generate-reply", isAuthenticated, async (req: Request, res: Response) => {
+    const { commentText, postText, customPrompt } = req.body;
+    if (!commentText) return res.status(400).json({ error: "commentText is required" });
+
+    try {
+      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+      const systemMsg = `You are a social media expert replying to a comment on Threads. 
+Be natural, engaging, and concise. Match the energy of the comment.
+${customPrompt ? `Additional style: ${customPrompt}` : ""}
+${postText ? `Context — the original post said: "${postText}"` : ""}
+Reply ONLY with the reply text, no quotes or labels.`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemMsg },
+          { role: "user", content: `Reply to this comment: "${commentText}"` },
+        ],
+        max_tokens: 300,
+        temperature: 0.8,
+      });
+
+      const reply = completion.choices[0]?.message?.content?.trim() ?? "";
+      const sentimentCompletion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: "Classify the sentiment of this text as exactly one word: positive, negative, or neutral." },
+          { role: "user", content: commentText },
+        ],
+        max_tokens: 5,
+        temperature: 0,
+      });
+      const sentiment = sentimentCompletion.choices[0]?.message?.content?.trim()?.toLowerCase() ?? "neutral";
+
+      res.json({ reply, sentiment });
+    } catch (err: any) {
+      console.error("[threads/generate-reply] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/threads/posts/:postId/reply", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { commentId, replyText } = req.body;
+    if (!replyText) return res.status(400).json({ error: "replyText is required" });
+
+    const token = await getThreadsAccessTokenForUser(userId);
+    if (!token) return res.status(400).json({ error: "Threads account not connected" });
+
+    try {
+      const targetId = commentId || req.params.postId;
+      const result = await replyToThreadsComment(targetId, replyText, token);
+
+      await storage.createActivityLog({
+        userId,
+        action: "Threads Reply Sent",
+        detail: `Replied to comment: "${replyText.slice(0, 80)}..."`,
+        time: new Date().toISOString(),
+        status: "success",
+      });
+
+      threadsInboxCacheMap.delete(userId);
+      res.json({ success: true, id: result.id });
+    } catch (err: any) {
+      console.error("[threads/reply] Error:", err.message);
+      res.status(500).json({ error: err.message });
     }
   });
 

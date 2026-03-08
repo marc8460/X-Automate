@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpRight, ArrowDownRight, Users, UserPlus, Send, CalendarDays, TrendingUp } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Users, UserPlus, Send, CalendarDays, TrendingUp, Eye, Heart, MessageSquare } from "lucide-react";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
 import { useActivityLogs, useDashboardStats } from "@/lib/hooks";
@@ -124,6 +124,37 @@ export default function Dashboard() {
           ) : null}
         />
       </div>
+
+      {platform === "threads" && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.45 }}
+          className="grid grid-cols-1 md:grid-cols-3 gap-4"
+        >
+          <StatCard
+            title="Total Likes"
+            value={stats?.totalLikes !== undefined ? formatNumber(stats.totalLikes) : "—"}
+            icon={Heart}
+            delay={0.1}
+            loading={statsLoading}
+          />
+          <StatCard
+            title="Total Replies"
+            value={stats?.totalReplies !== undefined ? formatNumber(stats.totalReplies) : "—"}
+            icon={MessageSquare}
+            delay={0.2}
+            loading={statsLoading}
+          />
+          <StatCard
+            title="Total Views"
+            value={stats?.totalViews !== undefined ? formatNumber(stats.totalViews) : "—"}
+            icon={Eye}
+            delay={0.3}
+            loading={statsLoading}
+          />
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <motion.div

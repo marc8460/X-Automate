@@ -47,7 +47,7 @@ server/
   index.ts        - Express entry + static serving for /uploads
   routes.ts       - REST API endpoints + file upload + AI generation + viral analysis + Twitter/Threads status + home timeline + extension API + seed
   twitter.ts      - Twitter API client module (getTwitterClient, testTwitterConnection)
-  threads.ts      - Threads API client (getThreadsClient, testThreadsConnection, fetchUserProfile, fetchUserPosts, fetchPostReplies)
+  threads.ts      - Threads API client (getThreadsClient, testThreadsConnection, fetchUserProfile, fetchUserPosts, fetchPostReplies, getThreadsPostInsights, getThreadsConversation, getThreadsPostMetrics)
   engagementPoller.ts - Polls X mentions + Threads replies, delta-tracks likes/retweets/followers, saves follower snapshots
   storage.ts      - DatabaseStorage with IStorage interface (platform-filtered queries)
   db.ts           - Drizzle + pg pool
@@ -100,6 +100,11 @@ uploads/          - User-uploaded media files (served statically)
 - POST: /api/seed (idempotent)
 - GET: /api/twitter/status, /api/threads/status
 - GET: /api/twitter/metrics, /api/twitter/peak-times
+- GET: /api/threads/metrics (real Threads analytics: engagement, views, daily trends, top posts)
+- GET: /api/threads/inbox (Threads posts with engagement metrics, profile info, date grouping)
+- GET: /api/threads/posts/:postId/comments (conversation/replies for a Threads post)
+- POST: /api/threads/posts/:postId/generate-reply (AI reply generation for Threads comments)
+- POST: /api/threads/posts/:postId/reply (send reply to Threads comment)
 - GET: /api/twitter/home-timeline (X For You / Following feed)
 - GET: /api/trending-topics?geo=US&category=all&timeWindow=24h&sortBy=volume
 - GET: /api/dashboard/stats (Free tier metrics + internal activity stats, cached 2 min)

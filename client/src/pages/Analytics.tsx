@@ -9,9 +9,9 @@ import {
   ResponsiveContainer, BarChart, Bar, Legend,
 } from "recharts";
 import {
-  MessageSquare, Repeat, Heart, Users, Zap, TrendingUp, ArrowUpRight, BarChart3,
+  MessageSquare, Repeat, Heart, Users, Zap, TrendingUp, ArrowUpRight, BarChart3, Eye,
 } from "lucide-react";
-import { useTwitterMetrics, useTwitterPeakTimes, useActivityLogs } from "@/lib/hooks";
+import { useTwitterMetrics, useTwitterPeakTimes, useActivityLogs, useThreadsMetrics } from "@/lib/hooks";
 import { PlatformBadge } from "@/components/platform/PlatformBadge";
 import { usePlatform } from "@/contexts/PlatformContext";
 
@@ -23,14 +23,6 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
-// Stub Threads data — will be replaced by real API data when Threads integration ships
-function generateThreadsStub(xMetrics: { date: string; engagement: number; impressions: number }[]) {
-  return xMetrics.map((d) => ({
-    date: d.date,
-    engagement: Math.round(d.engagement * 0.3 + Math.random() * 10),
-    impressions: Math.round(d.impressions * 0.25 + Math.random() * 100),
-  }));
-}
 
 function StatCard({
   title,
@@ -40,6 +32,7 @@ function StatCard({
   loading,
   platform,
   change,
+  ...props
 }: {
   title: string;
   value: string;
@@ -48,10 +41,11 @@ function StatCard({
   loading: boolean;
   platform?: "x" | "threads";
   change?: string;
+  "data-testid"?: string;
 }) {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay }}>
-      <Card className="p-5 glass-panel relative overflow-hidden group">
+      <Card className="p-5 glass-panel relative overflow-hidden group" data-testid={props["data-testid"]}>
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
         <div className="flex justify-between items-start mb-3">
           <div className="p-2 bg-secondary/50 rounded-lg text-primary">
@@ -102,21 +96,22 @@ export default function Analytics() {
   const { selectedPlatform } = usePlatform();
   const tab: AnalyticsTab = isCompare ? "compare" : (selectedPlatform === "threads" ? "threads" : "x");
   const { data: metrics, isLoading: metricsLoading } = useTwitterMetrics();
+  const { data: threadsMetrics, isLoading: threadsLoading } = useThreadsMetrics();
   const { data: peakData, isLoading: peakLoading } = useTwitterPeakTimes();
   const { data: logs } = useActivityLogs();
 
   const peakTimes = peakData?.peakTimes ?? [];
   const topPeak = peakData?.topPeak;
   const dailyMetrics = metrics?.dailyMetrics ?? [];
-  const threadsStub = generateThreadsStub(dailyMetrics);
+  const threadsDailyMetrics = threadsMetrics?.dailyMetrics ?? [];
 
   // Merged data for compare view
   const compareData = dailyMetrics.map((d, i) => ({
     date: d.date,
     "X Engagement": d.engagement,
     "X Impressions": d.impressions,
-    "Threads Engagement": threadsStub[i]?.engagement ?? 0,
-    "Threads Impressions": threadsStub[i]?.impressions ?? 0,
+    "Threads Engagement": threadsDailyMetrics[i]?.engagement ?? 0,
+    "Threads Impressions": threadsDailyMetrics[i]?.views ?? 0,
   }));
 
   return (
@@ -310,32 +305,172 @@ export default function Analytics() {
 
       {/* Threads tab */}
       {tab === "threads" && (
-        <Card className="glass-panel p-8">
-          <PlatformEmptyState platform="threads" />
-        </Card>
+        <div className="space-y-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              title="Followers"
+              value={threadsMetrics ? formatNumber(threadsMetrics.followers) : "—"}
+              icon={Users}
+              delay={0.1}
+              loading={threadsLoading}
+              platform="threads"
+              data-testid="stat-threads-followers"
+            />
+            <StatCard
+              title="Engagement Rate"
+              value={threadsMetrics ? `${threadsMetrics.engagementRate}%` : "—"}
+              icon={Heart}
+              delay={0.15}
+              loading={threadsLoading}
+              platform="threads"
+              data-testid="stat-threads-engagement"
+            />
+            <StatCard
+              title="Views"
+              value={threadsMetrics ? formatNumber(threadsMetrics.views) : "—"}
+              icon={Eye}
+              delay={0.2}
+              loading={threadsLoading}
+              platform="threads"
+              data-testid="stat-threads-views"
+            />
+            <StatCard
+              title="Replies"
+              value={threadsMetrics ? formatNumber(threadsMetrics.replies) : "—"}
+              icon={MessageSquare}
+              delay={0.25}
+              loading={threadsLoading}
+              platform="threads"
+              data-testid="stat-threads-replies"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-8">
+              <Card className="glass-panel p-6 rounded-xl" data-testid="chart-threads-performance">
+                <div className="mb-5">
+                  <h2 className="text-xl font-bold font-display">Performance Over Time</h2>
+                  <p className="text-sm text-muted-foreground">Engagement and views from recent Threads</p>
+                </div>
+                <div className="h-[280px]">
+                  {threadsLoading ? (
+                    <Skeleton className="h-full w-full rounded-lg" />
+                  ) : !threadsDailyMetrics.length ? (
+                    <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                      No Threads data available yet
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={threadsDailyMetrics} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="gTEngagement" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="gTViews" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} dy={10} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px" }} itemStyle={{ color: "hsl(var(--foreground))" }} />
+                        <Area type="monotone" dataKey="engagement" name="Engagement" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#gTEngagement)" />
+                        <Area type="monotone" dataKey="views" name="Views" stroke="hsl(var(--accent))" strokeWidth={2} fillOpacity={1} fill="url(#gTViews)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="glass-panel p-6 rounded-xl" data-testid="table-threads-top-posts">
+                <div className="mb-5">
+                  <h2 className="text-xl font-bold font-display">Top Posts</h2>
+                  <p className="text-sm text-muted-foreground">Highest performing posts by engagement</p>
+                </div>
+                <div className="space-y-4">
+                  {threadsLoading ? (
+                    Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)
+                  ) : !threadsMetrics?.topPosts.length ? (
+                    <div className="py-8 text-center text-muted-foreground text-sm">No posts tracked yet</div>
+                  ) : (
+                    threadsMetrics.topPosts.map((post) => (
+                      <div key={post.id} className="flex gap-4 p-4 rounded-lg bg-secondary/20 border border-border/40 hover:border-primary/30 transition-colors" data-testid={`row-threads-post-${post.id}`}>
+                        {post.thumbnail_url && (
+                          <div className="w-16 h-16 rounded overflow-hidden shrink-0">
+                            <img src={post.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm line-clamp-2 mb-2 font-medium" data-testid={`text-post-content-${post.id}`}>{post.text}</p>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1" data-testid={`text-post-likes-${post.id}`}><Heart size={12} /> {formatNumber(post.likes)}</span>
+                            <span className="flex items-center gap-1" data-testid={`text-post-replies-${post.id}`}><MessageSquare size={12} /> {formatNumber(post.replies)}</span>
+                            <span className="flex items-center gap-1" data-testid={`text-post-reposts-${post.id}`}><Repeat size={12} /> {formatNumber(post.reposts)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </Card>
+            </div>
+
+            {/* System Logs */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.4, delay: 0.4 }}
+              className="glass-panel p-6 rounded-xl space-y-5"
+              data-testid="panel-system-logs-threads"
+            >
+              <div>
+                <h2 className="text-xl font-bold font-display">System Logs</h2>
+                <p className="text-sm text-muted-foreground">Real-time activity feed</p>
+              </div>
+              <div className="space-y-4">
+                {(logs ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No activity yet.</p>
+                ) : (
+                  (logs ?? []).slice(0, 15).map((log) => (
+                    <div key={log.id} className="flex gap-3 text-sm" data-testid={`log-entry-${log.id}`}>
+                      <div className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${log.status === "success" ? "bg-green-500" : "bg-primary"}`} />
+                      <div className="space-y-0.5">
+                        <p className="font-medium leading-none">{log.action}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-1">{log.detail}</p>
+                        <p className="text-[10px] text-muted-foreground/60">{log.time}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </div>
+        </div>
       )}
 
       {/* Compare tab */}
       {tab === "compare" && (
         <div className="space-y-6">
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-primary/20 bg-primary/5 text-primary text-sm">
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-primary/20 bg-primary/5 text-primary text-sm" data-testid="banner-compare-mode">
             <TrendingUp className="w-4 h-4 shrink-0" />
-            Compare mode overlays X data with Threads placeholder data. Threads metrics will populate once the account is connected.
+            Compare mode overlays X data with real-time Threads data.
           </div>
 
           {/* Side-by-side stat cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard title="X Followers" value={metrics ? formatNumber(metrics.followers) : "—"} icon={Users} delay={0.1} loading={metricsLoading} platform="x" />
-            <StatCard title="Threads Followers" value="—" icon={Users} delay={0.15} loading={false} platform="threads" />
-            <StatCard title="X Engagement" value={metrics ? `${metrics.engagementRate}%` : "—"} icon={Heart} delay={0.2} loading={metricsLoading} platform="x" />
-            <StatCard title="Threads Engagement" value="—" icon={Heart} delay={0.25} loading={false} platform="threads" />
+            <StatCard title="X Followers" value={metrics ? formatNumber(metrics.followers) : "—"} icon={Users} delay={0.1} loading={metricsLoading} platform="x" data-testid="stat-compare-x-followers" />
+            <StatCard title="Threads Followers" value={threadsMetrics ? formatNumber(threadsMetrics.followers) : "—"} icon={Users} delay={0.15} loading={threadsLoading} platform="threads" data-testid="stat-compare-threads-followers" />
+            <StatCard title="X Engagement" value={metrics ? `${metrics.engagementRate}%` : "—"} icon={Heart} delay={0.2} loading={metricsLoading} platform="x" data-testid="stat-compare-x-engagement" />
+            <StatCard title="Threads Engagement" value={threadsMetrics ? `${threadsMetrics.engagementRate}%` : "—"} icon={Heart} delay={0.25} loading={threadsLoading} platform="threads" data-testid="stat-compare-threads-engagement" />
           </div>
 
           {/* Overlaid engagement chart */}
-          <Card className="glass-panel p-6 rounded-xl">
+          <Card className="glass-panel p-6 rounded-xl" data-testid="chart-compare-engagement">
             <div className="mb-5">
               <h2 className="text-xl font-bold font-display">Engagement Comparison</h2>
-              <p className="text-sm text-muted-foreground">X (live) vs Threads (demo data — connect account to activate)</p>
+              <p className="text-sm text-muted-foreground">X (live) vs Threads (live)</p>
             </div>
             <div className="h-[300px]">
               {metricsLoading ? (

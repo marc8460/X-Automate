@@ -129,6 +129,98 @@ export function useTwitterMetrics() {
   });
 }
 
+export type ThreadsMetrics = {
+  followers: number;
+  following: number;
+  postCount: number;
+  views: number;
+  likes: number;
+  replies: number;
+  quotes: number;
+  reposts: number;
+  engagementRate: number;
+  dailyMetrics: { date: string; engagement: number; views: number; likes: number; replies: number; quotes: number; reposts: number; postCount: number }[];
+  topPosts: { id: string; text: string; timestamp: string; media_type: string; media_url?: string; thumbnail_url?: string; likes: number; replies: number; quotes: number; reposts: number }[];
+  error?: string;
+};
+
+export function useThreadsMetrics() {
+  return useQuery<ThreadsMetrics>({
+    queryKey: ["/api/threads/metrics"],
+    refetchInterval: 5 * 60 * 1000,
+  });
+}
+
+export type ThreadsInboxData = {
+  posts: {
+    id: string;
+    text: string;
+    timestamp: string;
+    media_type: string;
+    media_url?: string;
+    thumbnail_url?: string;
+    shortcode?: string;
+    is_quote_post?: boolean;
+    likes: number;
+    replies: number;
+    quotes: number;
+    reposts: number;
+    dateGroup: string;
+  }[];
+  profile: {
+    id: string;
+    username: string;
+    name: string;
+    profilePicUrl: string;
+  } | null;
+};
+
+export function useThreadsInbox() {
+  return useQuery<ThreadsInboxData>({
+    queryKey: ["/api/threads/inbox"],
+    refetchInterval: 60_000,
+  });
+}
+
+export type ThreadsComment = {
+  id: string;
+  text: string;
+  timestamp: string;
+  username: string;
+  media_url?: string;
+  thumbnail_url?: string;
+};
+
+export function useThreadsComments(postId: string | null) {
+  return useQuery<{ comments: ThreadsComment[] }>({
+    queryKey: ["/api/threads/posts", postId, "comments"],
+    queryFn: async () => {
+      const res = await fetch(`/api/threads/posts/${postId}/comments`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: !!postId,
+  });
+}
+
+export function useThreadsGenerateReply() {
+  return useMutation({
+    mutationFn: async ({ postId, commentText, postText, customPrompt }: { postId: string; commentText: string; postText?: string; customPrompt?: string }) => {
+      const res = await apiRequest("POST", `/api/threads/posts/${postId}/generate-reply`, { commentText, postText, customPrompt });
+      return res.json() as Promise<{ reply: string; sentiment: string }>;
+    },
+  });
+}
+
+export function useThreadsSendReply() {
+  return useMutation({
+    mutationFn: async ({ postId, commentId, replyText }: { postId: string; commentId: string; replyText: string }) => {
+      const res = await apiRequest("POST", `/api/threads/posts/${postId}/reply`, { commentId, replyText });
+      return res.json() as Promise<{ success: boolean; id: string }>;
+    },
+  });
+}
+
 export type TwitterPeakTime = {
   day: string;
   time: string;
@@ -157,6 +249,9 @@ export type DashboardStats = {
   followerGrowthWeek: number;
   followerHistory: { date: string; followers: number; following: number; tweets: number }[];
   postingHistory: { date: string; posts: number }[];
+  totalLikes?: number;
+  totalReplies?: number;
+  totalViews?: number;
 };
 
 export function useDashboardStats(platform: string = "x") {
