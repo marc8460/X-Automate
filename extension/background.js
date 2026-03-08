@@ -152,32 +152,27 @@ async function findAuraTab() {
 
 async function handleLogActivity(platform, action) {
   try {
-    const auraTab = await findAuraTab();
-    if (!auraTab) {
-      return { error: 'Aura dashboard not open.' };
+    const storage = await chrome.storage.local.get(['auraBaseUrl']);
+    const baseUrl = storage.auraBaseUrl;
+    if (!baseUrl) {
+      return { error: 'Aura dashboard URL not configured. Open your dashboard once to connect.' };
     }
 
     const today = new Date().toISOString().split('T')[0];
+    const url = baseUrl.replace(/\/$/, '') + '/api/extension/activity';
 
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve({ error: 'Activity log timed out.' });
-      }, 10000);
-
-      chrome.tabs.sendMessage(auraTab.id, {
-        action: 'aura:api-proxy',
-        endpoint: '/api/extension/activity',
-        method: 'POST',
-        body: { platform, action, localDate: today }
-      }, (response) => {
-        clearTimeout(timeout);
-        if (chrome.runtime.lastError) {
-          resolve({ error: 'Could not reach Aura dashboard.' });
-          return;
-        }
-        resolve(response || { success: true });
-      });
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ platform, action, localDate: today })
     });
+
+    if (!resp.ok) {
+      return { error: `API error: ${resp.status}` };
+    }
+
+    return await resp.json();
   } catch (error) {
     return { error: error.message };
   }
@@ -185,30 +180,23 @@ async function handleLogActivity(platform, action) {
 
 async function handleFetchMediaVault() {
   try {
-    const auraTab = await findAuraTab();
-    if (!auraTab) {
-      return { error: 'Please open your Aura dashboard first.' };
+    const storage = await chrome.storage.local.get(['auraBaseUrl']);
+    const baseUrl = storage.auraBaseUrl;
+    if (!baseUrl) {
+      return { error: 'Aura dashboard URL not configured. Open your dashboard once to connect.' };
     }
 
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve({ error: 'Request timed out.' });
-      }, 15000);
-
-      chrome.tabs.sendMessage(auraTab.id, {
-        action: 'aura:api-proxy',
-        endpoint: '/api/extension/media-vault',
-        method: 'GET',
-        body: null
-      }, (response) => {
-        clearTimeout(timeout);
-        if (chrome.runtime.lastError) {
-          resolve({ error: 'Could not reach Aura dashboard tab.' });
-          return;
-        }
-        resolve(response || { error: 'No response from Aura dashboard.' });
-      });
+    const url = baseUrl.replace(/\/$/, '') + '/api/extension/media-vault';
+    const resp = await fetch(url, {
+      method: 'GET',
+      credentials: 'include'
     });
+
+    if (!resp.ok) {
+      return { error: `API error: ${resp.status}` };
+    }
+
+    return await resp.json();
   } catch (error) {
     return { error: error.message };
   }
@@ -216,30 +204,26 @@ async function handleFetchMediaVault() {
 
 async function handleGenerateReplies(data) {
   try {
-    const auraTab = await findAuraTab();
-    if (!auraTab) {
-      return { error: 'Please open your Aura dashboard in another tab first, then try again.' };
+    const storage = await chrome.storage.local.get(['auraBaseUrl']);
+    const baseUrl = storage.auraBaseUrl;
+    if (!baseUrl) {
+      return { error: 'Aura dashboard URL not configured. Open your dashboard once to connect.' };
     }
 
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve({ error: 'Request timed out. Please refresh your Aura dashboard tab and try again.' });
-      }, 30000);
-
-      chrome.tabs.sendMessage(auraTab.id, {
-        action: 'aura:api-proxy',
-        endpoint: '/api/extension/generate-replies',
-        method: 'POST',
-        body: data.payload
-      }, (response) => {
-        clearTimeout(timeout);
-        if (chrome.runtime.lastError) {
-          resolve({ error: 'Could not reach Aura dashboard tab. Please refresh your dashboard and try again.' });
-          return;
-        }
-        resolve(response || { error: 'No response from Aura dashboard.' });
-      });
+    const url = baseUrl.replace(/\/$/, '') + '/api/extension/generate-replies';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(data.payload)
     });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      return { error: `API error ${resp.status}: ${text}` };
+    }
+
+    return await resp.json();
   } catch (error) {
     console.error('Error in handleGenerateReplies:', error);
     return { error: error.message };
