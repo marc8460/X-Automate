@@ -13,6 +13,7 @@ import {
   useEngagementSSE, useGenerateEngagementReply, useSendEngagementReply,
   usePauseEngagement, useResumeEngagement, useExtensionStatus,
   useThreadsInbox, useThreadsComments, useThreadsGenerateReply, useThreadsSendReply,
+  useDailySummary,
 } from "@/lib/hooks";
 import type { CommentThread } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
@@ -145,6 +146,7 @@ export default function UnifiedInbox() {
 
   const { data: threadsData, isLoading: loadingThreads, error: threadsError, refetch } = useLiveCommentThreads(filter);
   const { data: interactionsData, isLoading: loadingInteractions } = useLiveFollowerInteractions(filter);
+  const { data: dailySummary, isLoading: loadingDailySummary } = useDailySummary();
   const { data: status } = useEngagementStatus();
   const generateReply = useGenerateEngagementReply();
   const sendReply = useSendEngagementReply();
@@ -197,7 +199,11 @@ export default function UnifiedInbox() {
         {
           onSuccess: () => {
             updateThreadsCard(commentId, { isSent: true, isSending: false });
-            setTimeout(() => qc.invalidateQueries({ queryKey: ["/api/threads/inbox"] }), 1500);
+            setTimeout(() => {
+              qc.invalidateQueries({ queryKey: ["/api/threads/inbox"] });
+              qc.invalidateQueries({ queryKey: ["/api/threads/posts"] });
+              qc.invalidateQueries({ queryKey: ["/api/engagement/daily-summary"] });
+            }, 1500);
           },
           onError: (err: any) => {
             toast({ title: "Failed to send", description: err.message, variant: "destructive" });
@@ -797,6 +803,35 @@ export default function UnifiedInbox() {
                                               </div>
                                             )}
 
+                                            {card.isSent && (card.editedReply || card.generatedReply) && (
+                                              <div className="ml-11 pl-4 border-l-2 border-emerald-500/30 mt-2">
+                                                <div className="flex gap-3">
+                                                  {threadsInbox?.profile?.profilePicUrl ? (
+                                                    <img
+                                                      src={threadsInbox.profile.profilePicUrl}
+                                                      alt={ownUsername || "You"}
+                                                      className="w-7 h-7 rounded-full shrink-0 border border-emerald-500/30"
+                                                    />
+                                                  ) : (
+                                                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-[9px] font-bold shrink-0 border border-emerald-500/30 text-emerald-300">
+                                                      {(ownUsername || "Y").charAt(0).toUpperCase()}
+                                                    </div>
+                                                  )}
+                                                  <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                      <span className="text-xs font-bold">{ownUsername || "You"}</span>
+                                                      <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-400 text-[9px] h-4 px-1 border-0">
+                                                        Just sent
+                                                      </Badge>
+                                                    </div>
+                                                    <p className="text-sm text-emerald-300/80 italic">
+                                                      {card.editedReply || card.generatedReply}
+                                                    </p>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            )}
+
                                             {children.map(child => renderComment(child, true))}
                                           </div>
                                         );
@@ -1076,37 +1111,77 @@ export default function UnifiedInbox() {
         <div className="space-y-6">
           <Card className="p-5 glass-panel bg-primary/5 border-primary/20">
             <h3 className="font-display font-medium mb-4 text-sm uppercase tracking-wider text-primary flex items-center gap-2">
-              <Heart className="w-4 h-4" />
-              Recent Interactions
+              <Sparkles className="w-4 h-4" />
+              Today's Summary
             </h3>
-            <div className="space-y-3">
-              {loadingInteractions ? (
-                Array(3).fill(0).map((_, i) => (
-                  <div key={i} className="flex justify-between items-center">
-                    <Skeleton className="h-3 w-28" />
-                    <Skeleton className="h-3 w-10" />
+
+            {loadingDailySummary ? (
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                {Array(4).fill(0).map((_, i) => (
+                  <Skeleton key={i} className="h-16 rounded-lg" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20" data-testid="stat-daily-followers">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Users size={12} className="text-emerald-400" />
+                    <span className="text-[10px] uppercase tracking-wider text-emerald-400/80">Followers</span>
                   </div>
-                ))
-              ) : interactions.length === 0 ? (
-                <p className="text-xs text-muted-foreground/50 py-2">
-                  {hasCredentials
-                    ? "No recent interactions in the last 7 days."
-                    : "Connect X credentials to see live interactions."}
-                </p>
-              ) : (
-                interactions.slice(0, 20).map((interaction) => (
-                  <div key={interaction.id} className="flex justify-between items-center text-xs gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {interactionIcon(interaction.type)}
-                      <span className="font-medium text-foreground truncate">{interaction.username}</span>
-                      <span className="text-muted-foreground shrink-0">{interactionLabel(interaction.type)}</span>
+                  <p className="text-lg font-bold text-emerald-400">+{dailySummary?.today.followers ?? 0}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-pink-500/10 border border-pink-500/20" data-testid="stat-daily-likes">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Heart size={12} className="text-pink-400" />
+                    <span className="text-[10px] uppercase tracking-wider text-pink-400/80">Likes</span>
+                  </div>
+                  <p className="text-lg font-bold text-pink-400">+{dailySummary?.today.likes ?? 0}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20" data-testid="stat-daily-reposts">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Repeat2 size={12} className="text-blue-400" />
+                    <span className="text-[10px] uppercase tracking-wider text-blue-400/80">Reposts</span>
+                  </div>
+                  <p className="text-lg font-bold text-blue-400">+{dailySummary?.today.reposts ?? 0}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-accent/10 border border-accent/20" data-testid="stat-daily-replies">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <MessageSquare size={12} className="text-accent" />
+                    <span className="text-[10px] uppercase tracking-wider text-accent/80">Replies</span>
+                  </div>
+                  <p className="text-lg font-bold text-accent">+{dailySummary?.today.replies ?? 0}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-border/20 pt-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">Activity (24h)</p>
+              <div className="space-y-2.5 max-h-[240px] overflow-y-auto">
+                {loadingDailySummary ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="flex justify-between items-center">
+                      <Skeleton className="h-3 w-28" />
+                      <Skeleton className="h-3 w-10" />
                     </div>
-                    <span className="text-muted-foreground/50 shrink-0 text-[10px]">
-                      {formatTime(interaction.createdAt)}
-                    </span>
-                  </div>
-                ))
-              )}
+                  ))
+                ) : !dailySummary?.interactions || dailySummary.interactions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/50 py-2">
+                    No activity in the last 24 hours.
+                  </p>
+                ) : (
+                  dailySummary.interactions.map((interaction) => (
+                    <div key={interaction.id} className="flex justify-between items-center text-xs gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {interactionIcon(interaction.type)}
+                        <span className="font-medium text-foreground truncate">{interaction.username}</span>
+                      </div>
+                      <span className="text-muted-foreground/50 shrink-0 text-[10px]">
+                        {formatTime(interaction.createdAt)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </Card>
 
@@ -1126,8 +1201,8 @@ export default function UnifiedInbox() {
                 <span className="font-mono">{filteredThreads.length}</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-muted-foreground">Interactions (48h)</span>
-                <span className="font-mono">{interactions.length}</span>
+                <span className="text-muted-foreground">Activity (24h)</span>
+                <span className="font-mono">{dailySummary?.interactions?.length ?? 0}</span>
               </div>
               {status?.error && (
                 <div className="mt-2 p-2 rounded bg-red-500/10 border border-red-500/20">
@@ -1150,7 +1225,9 @@ export default function UnifiedInbox() {
               </div>
               <div className="flex items-center justify-between">
                 <PlatformBadge platform="threads" showLabel size="sm" />
-                <span className="text-xs text-muted-foreground">Coming soon</span>
+                <span className={`text-xs font-medium ${threadsInbox?.profile ? "text-emerald-400" : "text-muted-foreground"}`}>
+                  {threadsInbox?.profile ? "Active" : "Not connected"}
+                </span>
               </div>
             </div>
           </Card>

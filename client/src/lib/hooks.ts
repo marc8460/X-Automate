@@ -657,6 +657,21 @@ export function useLiveCommentThreads(platform?: string) {
   });
 }
 
+export type DailySummary = {
+  today: { followers: number; likes: number; reposts: number; replies: number };
+  interactions: LiveFollowerInteraction[];
+};
+
+export function useDailySummary() {
+  return useQuery<DailySummary>({
+    queryKey: ["/api/engagement/daily-summary"],
+    queryFn: () => fetchJson<DailySummary>("/api/engagement/daily-summary"),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: 1,
+  });
+}
+
 export function useLiveFollowerInteractions(platform?: string) {
   const url = platform && platform !== "all"
     ? `/api/engagement/live-interactions?platform=${platform}`

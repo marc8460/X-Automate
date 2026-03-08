@@ -454,6 +454,47 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/engagement/daily-summary", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const interactions = await storage.getLiveFollowerInteractions(userId, 24);
+
+      let followers = 0;
+      let likes = 0;
+      let reposts = 0;
+      let replies = 0;
+
+      for (const i of interactions) {
+        if (i.type === "follow") {
+          const match = i.username.match(/\+?(\d+)/);
+          followers += match ? parseInt(match[1], 10) : 1;
+        } else if (i.type === "like") {
+          const match = i.username.match(/\+?(\d+)/);
+          likes += match ? parseInt(match[1], 10) : 1;
+        } else if (i.type === "retweet") {
+          const match = i.username.match(/\+?(\d+)/);
+          reposts += match ? parseInt(match[1], 10) : 1;
+        }
+      }
+
+      for (const i of interactions) {
+        if (i.xEventKey?.includes(":reply:")) {
+          const match = i.username.match(/\+?(\d+)/);
+          replies += match ? parseInt(match[1], 10) : 1;
+          likes -= match ? parseInt(match[1], 10) : 1;
+        }
+      }
+
+      res.json({
+        today: { followers, likes, reposts, replies },
+        interactions: interactions.slice(0, 30),
+      });
+    } catch (err: any) {
+      console.error("[engagement/daily-summary]", err.message);
+      res.status(500).json({ today: { followers: 0, likes: 0, reposts: 0, replies: 0 }, interactions: [] });
+    }
+  });
+
   app.get("/api/engagement/comments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);

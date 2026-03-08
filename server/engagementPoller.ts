@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 import type { Response } from "express";
 import { getTwitterClient, getTwitterClientForUser } from "./twitter";
-import { getThreadsPosts, getThreadsReplies, getThreadsUserMetrics, getThreadsAccessTokenForUser } from "./threads";
+import { getThreadsPosts, getThreadsReplies, getThreadsUserMetrics, getThreadsAccessTokenForUser, getThreadsPostMetrics } from "./threads";
 import { storage } from "./storage";
 
 const sseClients = new Set<Response>();
@@ -248,6 +248,72 @@ async function pollUserThreads(userId: string) {
       }
       await storage.upsertSetting("threads_prev_follower_count", String(currentFollowers), userId);
     }
+
+    const prevPostMetricsSetting = await storage.getSetting("threads_post_metrics_snapshot", userId);
+    const prevPostMetrics: Record<string, { likes: number; replies: number; reposts: number }> = prevPostMetricsSetting
+      ? JSON.parse(prevPostMetricsSetting.value) : {};
+    const newPostMetrics: Record<string, { likes: number; replies: number; reposts: number }> = {};
+    const isFirstMetricsRun = Object.keys(prevPostMetrics).length === 0;
+
+    for (const post of posts.slice(0, 5)) {
+      try {
+        const pm = await getThreadsPostMetrics(post.id, token);
+        if (!pm) continue;
+        const likes = pm.likes ?? 0;
+        const replies = pm.replies ?? 0;
+        const reposts = pm.reposts ?? 0;
+        const postText = (post.text ?? "").slice(0, 35);
+        newPostMetrics[post.id] = { likes, replies, reposts };
+
+        if (!isFirstMetricsRun) {
+          const prev = prevPostMetrics[post.id];
+          if (!prev) continue;
+          const newLikes = likes - prev.likes;
+          const newReplies = replies - prev.replies;
+          const newReposts = reposts - prev.reposts;
+
+          if (newLikes > 0) {
+            await storage.upsertLiveFollowerInteraction({
+              type: "like",
+              userId,
+              username: `+${newLikes} like${newLikes > 1 ? "s" : ""} on "${postText}…"`,
+              tweetId: post.id,
+              xEventKey: `threads:like:delta:${post.id}:${likes}`,
+              seen: false,
+              createdAt: new Date(),
+              platform: "threads",
+            });
+          }
+          if (newReplies > 0) {
+            await storage.upsertLiveFollowerInteraction({
+              type: "like",
+              userId,
+              username: `+${newReplies} repl${newReplies > 1 ? "ies" : "y"} on "${postText}…"`,
+              tweetId: post.id,
+              xEventKey: `threads:reply:delta:${post.id}:${replies}`,
+              seen: false,
+              createdAt: new Date(),
+              platform: "threads",
+            });
+          }
+          if (newReposts > 0) {
+            await storage.upsertLiveFollowerInteraction({
+              type: "retweet",
+              userId,
+              username: `+${newReposts} repost${newReposts > 1 ? "s" : ""} on "${postText}…"`,
+              tweetId: post.id,
+              xEventKey: `threads:repost:delta:${post.id}:${reposts}`,
+              seen: false,
+              createdAt: new Date(),
+              platform: "threads",
+            });
+          }
+        }
+      } catch (err: any) {
+        console.error(`[EngagementPoller] Threads post metrics error for ${post.id}:`, err.message);
+      }
+    }
+    await storage.upsertSetting("threads_post_metrics_snapshot", JSON.stringify(newPostMetrics), userId);
   } catch (err: any) {
     console.error("[EngagementPoller] Threads poll error:", err.message);
   }
