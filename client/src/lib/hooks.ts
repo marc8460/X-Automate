@@ -159,9 +159,14 @@ export type DashboardStats = {
   postingHistory: { date: string; posts: number }[];
 };
 
-export function useDashboardStats() {
+export function useDashboardStats(platform: string = "x") {
   return useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats"],
+    queryKey: ["/api/dashboard/stats", platform],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/stats?platform=${platform}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
     refetchInterval: 2 * 60 * 1000,
   });
 }

@@ -700,8 +700,10 @@ Return ONLY valid JSON with no markdown:
 
   app.get("/api/dashboard/stats", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
+    const platform = (req.query.platform as string) || "x";
 
-    const cached = dashStatsCacheMap.get(userId);
+    const cacheKey = `${userId}:${platform}`;
+    const cached = dashStatsCacheMap.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < DASH_STATS_TTL) {
       return res.json(cached.data);
     }
@@ -710,18 +712,36 @@ Return ONLY valid JSON with no markdown:
       let followers = 0, following = 0, tweetCount = 0, listedCount = 0;
       let apiSucceeded = false;
 
-      const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
-      if (twitterClient) {
+      if (platform === "threads") {
         try {
-          const me = await twitterClient.v2.me({ "user.fields": ["public_metrics"] });
-          const pm = me.data.public_metrics;
-          followers = pm?.followers_count ?? 0;
-          following = pm?.following_count ?? 0;
-          tweetCount = pm?.tweet_count ?? 0;
-          listedCount = (pm as any)?.listed_count ?? 0;
-          apiSucceeded = true;
-        } catch (apiErr: any) {
-          console.warn("[dashboard/stats] v2.me() failed, falling back to snapshots:", apiErr.message);
+          const { getThreadsUserMetrics, getThreadsAccessTokenForUser } = await import("./threads");
+          const token = await getThreadsAccessTokenForUser(userId);
+          if (token) {
+            const metrics = await getThreadsUserMetrics(token);
+            if (metrics) {
+              followers = metrics.follower_count ?? 0;
+              following = metrics.following_count ?? 0;
+              tweetCount = metrics.post_count ?? 0;
+              apiSucceeded = true;
+            }
+          }
+        } catch (threadsErr: any) {
+          console.warn("[dashboard/stats] Threads metrics failed:", threadsErr.message);
+        }
+      } else {
+        const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
+        if (twitterClient) {
+          try {
+            const me = await twitterClient.v2.me({ "user.fields": ["public_metrics"] });
+            const pm = me.data.public_metrics;
+            followers = pm?.followers_count ?? 0;
+            following = pm?.following_count ?? 0;
+            tweetCount = pm?.tweet_count ?? 0;
+            listedCount = (pm as any)?.listed_count ?? 0;
+            apiSucceeded = true;
+          } catch (apiErr: any) {
+            console.warn("[dashboard/stats] v2.me() failed, falling back to snapshots:", apiErr.message);
+          }
         }
       }
 
@@ -816,7 +836,7 @@ Return ONLY valid JSON with no markdown:
         postingHistory,
       };
 
-      dashStatsCacheMap.set(userId, { data, fetchedAt: Date.now() });
+      dashStatsCacheMap.set(cacheKey, { data, fetchedAt: Date.now() });
       res.json(data);
     } catch (err: any) {
       console.error("[dashboard/stats] error:", err.message);
