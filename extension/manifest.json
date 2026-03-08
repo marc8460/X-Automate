@@ -13,6 +13,8 @@
     "https://x.com/*",
     "https://twitter.com/*",
     "https://www.threads.net/*",
+    "https://www.threads.com/*",
+    "https://threads.com/*",
     "https://*.repl.co/*",
     "https://*.replit.app/*",
     "https://*.replit.dev/*"
@@ -33,7 +35,9 @@
     },
     {
       "matches": [
-        "https://www.threads.net/*"
+        "https://www.threads.net/*",
+        "https://www.threads.com/*",
+        "https://threads.com/*"
       ],
       "js": [
         "content_threads.js"
