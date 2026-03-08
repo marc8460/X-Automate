@@ -54,10 +54,11 @@ server/
   ranking.ts      - Comment Opportunity Score (0-100) for Viral Engine feed
 shared/
   schema.ts       - Drizzle schema + Zod insert schemas + types
-extension/        - Chrome extension (Manifest V3)
-  manifest.json   - Extension config: permissions, content scripts, background worker
-  background.js   - Service worker: handles post/reply/image/generate-replies actions
-  content_x.js    - X.com content script: tweet detection, opportunity scores, analysis panel, reply insertion
+extension/        - Chrome extension (Manifest V3) — supports X.com AND Threads
+  manifest.json   - Extension config: permissions for x.com, twitter.com, threads.net, and Replit domains
+  background.js   - Service worker: handles post/reply/image/generate-replies/log-activity actions
+  content_x.js    - X.com content script: tweet detection, opportunity scores, analysis panel, reply insertion, activity logging
+  content_threads.js - Threads content script: post detection, viral scores, analysis panel, reply insertion, activity logging
   content_aura.js - Aura dashboard bridge: postMessage relay between web app and extension
   popup.html/js   - Extension popup UI with status and stats
   icons/          - Extension icons (16/48/128px)
@@ -132,13 +133,15 @@ uploads/          - User-uploaded media files (served statically)
 - THREADS_APP_SECRET — Meta Threads App Secret (for "Connect Threads" user flow, optional)
 
 ## Chrome Extension (extension/)
-- **Manifest V3**: Permissions for `activeTab`, `storage`, `scripting`; host permissions for x.com, twitter.com, and Replit domains
-- **Communication flow**: Aura web app → `window.postMessage` → content_aura.js → `chrome.runtime.sendMessage` → background.js → content_x.js
-- **In-feed features**: MutationObserver detects tweets, extracts metrics from DOM, calculates Opportunity Score, shows Analyze button on hover
-- **Analysis panel**: Floating glass-panel UI on X.com with tweet metrics, score, AI reply generation (5 suggestions), custom instruction input, screenshot upload
-- **Human-in-the-loop**: Extension inserts text into composer but never clicks Post — user makes final decision
+- **Manifest V3**: Permissions for `activeTab`, `storage`, `scripting`; host permissions for x.com, twitter.com, threads.net, and Replit domains
+- **Dual-platform**: content_x.js runs on X.com, content_threads.js runs on threads.net — both provide identical viral analysis workflow
+- **Communication flow**: Aura web app → `window.postMessage` → content_aura.js → `chrome.runtime.sendMessage` → background.js → content scripts
+- **In-feed features**: MutationObserver detects posts, extracts metrics from DOM, calculates Opportunity Score, shows Analyze button on hover
+- **Analysis panel**: Floating glass-panel UI with post metrics, score, AI reply generation (8 suggestions), custom instruction input
+- **Auto-post**: Extension can insert text into composer and click Post button automatically on both platforms
+- **Activity logging**: Both extensions log `reply_posted` events to Daily Goals via background.js → aura dashboard → `/api/extension/activity`
 - **Extension bridge** (`client/src/lib/extensionBridge.ts`): `isExtensionConnected()`, `PostViaExtension()`, `ReplyViaExtension()`, `useExtensionStatus()` hook
-- **Composer/UnifiedInbox**: "Post with Aura" and "Reply with Extension" buttons appear when extension is detected
+- **Composer**: "Post with Aura" button only appears for X platform (hidden for Threads since Threads posts go directly via API)
 
 ## Content Generation
 - `/api/generate` reads persona settings (seductiveness, playfulness, dominance) from settings table

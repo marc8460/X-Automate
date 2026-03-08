@@ -1015,6 +1015,7 @@ async function handleInsertReply(tweetData, replyText, autoPost, imageUrl) {
       if (postBtn && !postBtn.disabled) {
         postBtn.click();
         showToast("Reply posted by Aura ⚡" + (imageUrl ? " (with photo)" : ""));
+        chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'x', activityAction: 'reply_posted' });
       } else {
         showToast("Reply inserted — Post button not ready, click it manually");
       }

@@ -3,6 +3,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handlePost(message.text, message.imageUrl);
   } else if (message.action === 'aura:reply') {
     handleReply(message.text, message.tweetUrl, message.imageUrl);
+  } else if (message.action === 'aura:log-activity') {
+    handleLogActivity(message.platform, message.activityAction).then(result => {
+      sendResponse(result);
+    });
+    return true;
   } else if (message.action === 'aura:image') {
     fetchImageBlob(message.imageUrl).then(blobData => {
       sendResponse({ blob: blobData });
@@ -143,6 +148,39 @@ async function findAuraTab() {
     } catch (e) {}
   }
   return null;
+}
+
+async function handleLogActivity(platform, action) {
+  try {
+    const auraTab = await findAuraTab();
+    if (!auraTab) {
+      return { error: 'Aura dashboard not open.' };
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve({ error: 'Activity log timed out.' });
+      }, 10000);
+
+      chrome.tabs.sendMessage(auraTab.id, {
+        action: 'aura:api-proxy',
+        endpoint: '/api/extension/activity',
+        method: 'POST',
+        body: { platform, action, localDate: today }
+      }, (response) => {
+        clearTimeout(timeout);
+        if (chrome.runtime.lastError) {
+          resolve({ error: 'Could not reach Aura dashboard.' });
+          return;
+        }
+        resolve(response || { success: true });
+      });
+    });
+  } catch (error) {
+    return { error: error.message };
+  }
 }
 
 async function handleFetchMediaVault() {

@@ -158,18 +158,51 @@ export async function createThreadsPost(text: string, imageUrl?: string, accessT
     throw new Error(err.error?.message || "Failed to create Threads post container");
   }
   const { id: creationId } = await containerRes.json();
+  console.log(`[threads/post] Container created: ${creationId}, media_type: ${imageUrl ? "IMAGE" : "TEXT"}`);
 
   const publishParams = new URLSearchParams({ creation_id: creationId, access_token: token });
-  const publishRes = await fetch(
-    `https://graph.threads.net/v1.0/${userId}/threads_publish`,
-    { method: "POST", body: publishParams },
-  );
-  if (!publishRes.ok) {
-    const err = await publishRes.json().catch(() => ({}));
+
+  const tryPublish = async (): Promise<{ id: string }> => {
+    const res = await fetch(
+      `https://graph.threads.net/v1.0/${userId}/threads_publish`,
+      { method: "POST", body: publishParams },
+    );
+    if (res.ok) {
+      const { id } = await res.json();
+      return { id };
+    }
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.error?.message || "Failed to publish Threads post");
+  };
+
+  if (!imageUrl) {
+    const result = await tryPublish();
+    console.log(`[threads/post] Published immediately: ${result.id}`);
+    return result;
   }
-  const { id } = await publishRes.json();
-  return { id };
+
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => setTimeout(r, i === 0 ? 1000 : 1500));
+    const statusRes = await fetch(
+      `https://graph.threads.net/v1.0/${creationId}?fields=status,error_message&access_token=${token}`
+    );
+    if (statusRes.ok) {
+      const statusData = await statusRes.json();
+      console.log(`[threads/post] Status check ${i + 1}/10: ${statusData.status}`);
+      if (statusData.status === "ERROR") {
+        throw new Error(statusData.error_message || "Container creation failed");
+      }
+      if (statusData.status === "FINISHED") {
+        const result = await tryPublish();
+        console.log(`[threads/post] Published after polling: ${result.id}`);
+        return result;
+      }
+    }
+  }
+
+  const finalResult = await tryPublish();
+  console.log(`[threads/post] Published on final attempt: ${finalResult.id}`);
+  return finalResult;
 }
 
 export async function replyToThreadsComment(mediaId: string, replyText: string, accessToken?: string | null): Promise<{ id: string }> {

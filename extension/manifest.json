@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Aura Social Assistant",
   "version": "1.0.0",
-  "description": "Aura writing assistant for X.com (Twitter)",
+  "description": "Aura writing assistant for X.com and Threads",
   "permissions": [
     "activeTab",
     "storage",
@@ -12,6 +12,7 @@
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
+    "https://www.threads.net/*",
     "https://*.repl.co/*",
     "https://*.replit.app/*",
     "https://*.replit.dev/*"
@@ -27,6 +28,15 @@
       ],
       "js": [
         "content_x.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.threads.net/*"
+      ],
+      "js": [
+        "content_threads.js"
       ],
       "run_at": "document_idle"
     },

@@ -543,7 +543,7 @@ export default function Composer() {
                 )}
               </span>
               <div className="flex gap-2">
-                {isExtensionConnected && (
+                {isExtensionConnected && composerTab !== "threads" && (
                   <Button
                     onClick={handlePostWithExtension}
                     disabled={isPostingExtension || !draftText.trim() || isOverLimit}

@@ -184,7 +184,12 @@ export async function registerRoutes(
     if (platform === "threads") {
       try {
         const token = await getThreadsAccessTokenForUser(userId);
-        const result = await createThreadsPost(text.trim(), imageUrl || undefined, token);
+        let threadsImageUrl = imageUrl || undefined;
+        if (threadsImageUrl && !threadsImageUrl.startsWith("http")) {
+          const baseUrl = `${req.protocol}://${req.get("host")}`;
+          threadsImageUrl = `${baseUrl}${threadsImageUrl}`;
+        }
+        const result = await createThreadsPost(text.trim(), threadsImageUrl, token);
         await storage.createActivityLog({
           userId,
           action: "Threads Post Published",
@@ -192,6 +197,8 @@ export async function registerRoutes(
           time: new Date().toISOString(),
           status: "success",
         });
+        const today = new Date().toISOString().split("T")[0];
+        await storage.logActivityEvent({ userId, platform: "threads", action: "post_created", localDate: today });
         return res.json({ success: true, tweetId: result.id });
       } catch (err: any) {
         console.error("[post-now] Threads API error:", err.message);
