@@ -277,6 +277,16 @@ export async function registerRoutes(
     res.status(201).json(item);
   });
 
+  app.patch("/api/media/bulk-move", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { itemIds, folderId } = req.body;
+    if (!Array.isArray(itemIds) || itemIds.length === 0) {
+      return res.status(400).json({ message: "itemIds must be a non-empty array" });
+    }
+    await storage.bulkMoveMediaItems(itemIds, folderId ?? null, userId);
+    res.json({ message: `Moved ${itemIds.length} items` });
+  });
+
   app.patch("/api/media/:id", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
     const id = parseInt(req.params.id);
@@ -2248,18 +2258,14 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
   // --- Seed endpoint ---
   app.post("/api/seed", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
+    await storage.deleteStockMediaItems(userId);
+
     const existingTweets = await storage.getTweets(userId);
     if (existingTweets.length > 0) {
       return res.json({ message: "Data already seeded" });
     }
 
     // No seed tweets — users create their own content
-
-    await Promise.all([
-      storage.createMediaItem({ userId, url: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=400", mood: "Playful", outfit: "Summer Dress", usageCount: 2, lastUsed: "3 days ago", risk: "safe" }),
-      storage.createMediaItem({ userId, url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=400", mood: "Confident", outfit: "Streetwear", usageCount: 0, lastUsed: "Never", risk: "safe" }),
-      storage.createMediaItem({ userId, url: "https://images.unsplash.com/photo-1529139513477-3235a14a139b?auto=format&fit=crop&q=80&w=400", mood: "Seductive", outfit: "Evening Wear", usageCount: 5, lastUsed: "12 hours ago", risk: "spicy" }),
-    ]);
 
     await Promise.all([
       storage.createEngagement({ userId, user: "@techbro_99", text: "AI is completely overhyped right now.", sentiment: "neutral", suggestedReply: "Is it? Or are you just not using the right prompts? \u{1f609}", time: "2m ago", status: "pending" }),

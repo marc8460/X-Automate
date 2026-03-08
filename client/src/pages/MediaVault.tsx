@@ -51,6 +51,7 @@ import {
   useRenameMediaFolder,
   useDeleteMediaFolder,
   useMoveMediaItem,
+  useBulkMoveMediaItems,
 } from "@/lib/hooks";
 import type { MediaFolder } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -132,6 +133,10 @@ export default function MediaVault() {
   const [renameValue, setRenameValue] = useState("");
   const [folderToDelete, setFolderToDelete] = useState<MediaFolder | null>(null);
 
+  // Multi-select state
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
   // Data hooks
   const { data: mediaItems, isLoading } = useMediaItems();
   const uploadMutation = useUploadMedia();
@@ -141,6 +146,30 @@ export default function MediaVault() {
   const renameFolder = useRenameMediaFolder();
   const deleteFolder = useDeleteMediaFolder();
   const moveItem = useMoveMediaItem();
+  const bulkMove = useBulkMoveMediaItems();
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkMove = (folderId: number | null) => {
+    bulkMove.mutate({ itemIds: Array.from(selectedIds), folderId }, {
+      onSuccess: () => {
+        toast({ title: `Moved ${selectedIds.size} photo${selectedIds.size !== 1 ? "s" : ""}` });
+        exitSelectMode();
+      },
+    });
+  };
 
   // Filtered items based on active folder
   const displayedItems = useMemo(() => {
@@ -425,6 +454,16 @@ export default function MediaVault() {
               <List className="w-4 h-4" />
             </Button>
           </div>
+          <Button
+            variant={selectMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+            className={selectMode ? "bg-primary text-white" : ""}
+            data-testid="button-toggle-select"
+          >
+            <CheckCircle2 className="w-4 h-4 mr-1.5" />
+            {selectMode ? "Cancel" : "Select"}
+          </Button>
         </div>
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="cursor-pointer hover:bg-secondary transition-colors" data-testid="badge-filter-safe">Safe</Badge>
@@ -584,14 +623,28 @@ export default function MediaVault() {
               transition={{ delay: i * 0.1 }}
               className="group relative"
               data-testid={`card-media-${item.id}`}
+              onClick={() => selectMode && toggleSelect(item.id)}
             >
-              <Card className="overflow-hidden glass-panel border-border/50 hover:border-primary/30 transition-all duration-300 h-full">
+              <Card className={`overflow-hidden glass-panel border-2 transition-all duration-300 h-full cursor-pointer ${
+                selectMode && selectedIds.has(item.id)
+                  ? "border-primary shadow-lg shadow-primary/20"
+                  : "border-border/50 hover:border-primary/30"
+              }`}>
                 <div className="aspect-[3/4] relative overflow-hidden">
                   <img
                     src={item.url}
                     alt="Vault content"
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
+                  {selectMode && (
+                    <div className={`absolute top-3 left-3 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${
+                      selectedIds.has(item.id)
+                        ? "bg-primary border-primary"
+                        : "bg-black/40 border-white/50 backdrop-blur-sm"
+                    }`}>
+                      {selectedIds.has(item.id) && <CheckCircle2 className="w-5 h-5 text-white" />}
+                    </div>
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
                   <div className="absolute top-2 right-2 flex gap-1">
@@ -716,6 +769,55 @@ export default function MediaVault() {
             </p>
           </div>
         </motion.div>
+      </AnimatePresence>
+
+      {/* Multi-select floating action bar */}
+      <AnimatePresence>
+        {selectMode && selectedIds.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+            data-testid="bulk-action-bar"
+          >
+            <Card className="glass-panel border-primary/30 shadow-2xl shadow-primary/10 px-5 py-3 flex items-center gap-4">
+              <span className="text-sm font-medium text-primary whitespace-nowrap">
+                {selectedIds.size} selected
+              </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" className="bg-primary text-white" data-testid="button-bulk-move">
+                    <FolderOpen className="w-4 h-4 mr-1.5" />
+                    Move to Folder
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" className="glass-panel border-border/50 min-w-[180px]">
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">Move to folder</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleBulkMove(null)} className="text-muted-foreground">
+                    <X className="w-3.5 h-3.5 mr-2" />
+                    Remove from folder
+                  </DropdownMenuItem>
+                  {(!folders || folders.length === 0) && (
+                    <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                      No folders yet
+                    </DropdownMenuItem>
+                  )}
+                  {folders?.map((folder) => (
+                    <DropdownMenuItem key={folder.id} onClick={() => handleBulkMove(folder.id)}>
+                      <Folder className="w-3.5 h-3.5 mr-2" />
+                      {folder.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button size="sm" variant="ghost" onClick={exitSelectMode} className="text-muted-foreground" data-testid="button-cancel-select">
+                Cancel
+              </Button>
+            </Card>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Delete Folder Confirmation Dialog */}

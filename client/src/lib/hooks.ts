@@ -252,6 +252,16 @@ export function useMoveMediaItem() {
   });
 }
 
+export function useBulkMoveMediaItems() {
+  return useMutation({
+    mutationFn: async ({ itemIds, folderId }: { itemIds: number[]; folderId: number | null }) => {
+      const res = await apiRequest("PATCH", "/api/media/bulk-move", { itemIds, folderId });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/media"] }),
+  });
+}
+
 export function useGenerateTweets() {
   return useMutation({
     mutationFn: async (data: { style: string; topic?: string; seductiveness?: number; imageUrl?: string }) => {

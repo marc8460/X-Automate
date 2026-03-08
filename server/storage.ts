@@ -1,4 +1,4 @@
-import { eq, gte, desc, and, sql, lte } from "drizzle-orm";
+import { eq, gte, desc, and, sql, lte, inArray, like } from "drizzle-orm";
 import { db } from "./db";
 import {
   tweets, type Tweet, type InsertTweet,
@@ -35,6 +35,8 @@ export interface IStorage {
   createMediaItem(item: InsertMediaItem): Promise<MediaItem>;
   updateMediaItem(id: number, data: Partial<InsertMediaItem>, userId: string): Promise<MediaItem | undefined>;
   deleteMediaItem(id: number, userId: string): Promise<void>;
+  bulkMoveMediaItems(ids: number[], folderId: number | null, userId: string): Promise<void>;
+  deleteStockMediaItems(userId: string): Promise<void>;
 
   getEngagements(userId: string): Promise<Engagement[]>;
   createEngagement(engagement: InsertEngagement): Promise<Engagement>;
@@ -152,6 +154,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMediaItem(id: number, userId: string): Promise<void> {
     await db.delete(mediaItems).where(and(eq(mediaItems.id, id), eq(mediaItems.userId, userId)));
+  }
+
+  async bulkMoveMediaItems(ids: number[], folderId: number | null, userId: string): Promise<void> {
+    if (ids.length === 0) return;
+    await db.update(mediaItems).set({ folderId }).where(and(inArray(mediaItems.id, ids), eq(mediaItems.userId, userId)));
+  }
+
+  async deleteStockMediaItems(userId: string): Promise<void> {
+    await db.delete(mediaItems).where(and(eq(mediaItems.userId, userId), like(mediaItems.url, 'https://images.unsplash.com/%')));
   }
 
   async getEngagements(userId: string): Promise<Engagement[]> {
