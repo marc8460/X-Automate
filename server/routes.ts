@@ -1281,7 +1281,11 @@ Return ONLY valid JSON with no markdown:
 
     try {
       const comments = await getThreadsConversation(req.params.postId, token);
+      console.log(`[threads/comments] Post ${req.params.postId}: ${comments.length} comments, replied_to values:`,
+        comments.map((c: any) => ({ id: c.id, username: c.username, replied_to: c.replied_to?.id ?? null }))
+      );
       res.json({
+        postId: req.params.postId,
         comments: comments.map((c: any) => ({
           id: c.id,
           text: c.text ?? "",
@@ -1304,11 +1308,18 @@ Return ONLY valid JSON with no markdown:
 
     try {
       const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-      const systemMsg = `You are a social media expert replying to a comment on Threads. 
+      const systemMsg = `You are a social media expert replying to a comment on Threads.
 Be natural, engaging, and concise. Match the energy of the comment.
 ${customPrompt ? `Additional style: ${customPrompt}` : ""}
 ${postText ? `Context — the original post said: "${postText}"` : ""}
-Reply ONLY with the reply text, no quotes or labels.`;
+
+Generate exactly 3 different reply options, each with a different tone/approach.
+Format your response as:
+1. [first reply]
+2. [second reply]
+3. [third reply]
+
+Each reply should be standalone text without quotes. Vary the style: one friendly/warm, one witty/playful, one concise/casual.`;
 
       const completion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
@@ -1316,11 +1327,20 @@ Reply ONLY with the reply text, no quotes or labels.`;
           { role: "system", content: systemMsg },
           { role: "user", content: `Reply to this comment: "${commentText}"` },
         ],
-        max_tokens: 300,
-        temperature: 0.8,
+        max_tokens: 600,
+        temperature: 0.9,
       });
 
-      const reply = completion.choices[0]?.message?.content?.trim() ?? "";
+      const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+      const lines = raw.split("\n").filter(l => l.trim());
+      const replies: string[] = [];
+      for (const line of lines) {
+        const cleaned = line.replace(/^\d+[\.\)]\s*/, "").trim();
+        if (cleaned) replies.push(cleaned);
+      }
+      while (replies.length < 3) replies.push(replies[0] || "Thanks! 🙏");
+      const finalReplies = replies.slice(0, 3);
+
       const sentimentCompletion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: [
@@ -1332,7 +1352,7 @@ Reply ONLY with the reply text, no quotes or labels.`;
       });
       const sentiment = sentimentCompletion.choices[0]?.message?.content?.trim()?.toLowerCase() ?? "neutral";
 
-      res.json({ reply, sentiment });
+      res.json({ replies: finalReplies, reply: finalReplies[0], sentiment });
     } catch (err: any) {
       console.error("[threads/generate-reply] Error:", err.message);
       res.status(500).json({ error: err.message });

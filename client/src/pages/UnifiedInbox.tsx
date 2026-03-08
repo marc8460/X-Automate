@@ -28,6 +28,8 @@ type InboxFilter = "all" | "x" | "threads";
 type CardState = {
   generatedReply: string;
   editedReply: string;
+  generatedReplies: string[];
+  selectedReplyIndex: number;
   isEditing: boolean;
   isSent: boolean;
   isSkipped: boolean;
@@ -39,6 +41,8 @@ type CardState = {
 const EMPTY_CARD: CardState = {
   generatedReply: "",
   editedReply: "",
+  generatedReplies: [],
+  selectedReplyIndex: 0,
   isEditing: false,
   isSent: false,
   isSkipped: false,
@@ -157,12 +161,21 @@ export default function UnifiedInbox() {
 
   const handleThreadsGenerate = useCallback(
     (postId: string, comment: any, postText: string) => {
-      updateThreadsCard(comment.id, { isGenerating: true });
+      updateThreadsCard(comment.id, { isGenerating: true, generatedReply: "", editedReply: "", generatedReplies: [], selectedReplyIndex: 0 });
       threadsGenerateReply.mutate(
         { postId, commentText: comment.text, postText, customPrompt: customPrompt.trim() || undefined },
         {
-          onSuccess: (data) =>
-            updateThreadsCard(comment.id, { generatedReply: data.reply, editedReply: data.reply, sentiment: data.sentiment, isGenerating: false }),
+          onSuccess: (data) => {
+            const replies = data.replies ?? [data.reply];
+            updateThreadsCard(comment.id, {
+              generatedReplies: replies,
+              generatedReply: replies[0],
+              editedReply: replies[0],
+              selectedReplyIndex: 0,
+              sentiment: data.sentiment,
+              isGenerating: false,
+            });
+          },
           onError: (err: any) => {
             toast({ title: "Generation failed", description: err.message, variant: "destructive" });
             updateThreadsCard(comment.id, { isGenerating: false });
@@ -505,7 +518,7 @@ export default function UnifiedInbox() {
                               <img
                                 src={post.media_url}
                                 alt="Post media"
-                                className="w-full h-auto object-contain"
+                                className="w-full h-auto max-h-[300px] object-contain"
                                 data-testid={`img-post-media-${post.id}`}
                               />
                             </div>
@@ -576,16 +589,34 @@ export default function UnifiedInbox() {
                                   <div className="space-y-6">
                                     {(() => {
                                       const allComments = commentsData.comments;
+                                      const rootPostId = commentsData.postId ?? post.id;
                                       const ownUsername = threadsInbox?.profile?.username;
                                       const commentMap = new Map(allComments.map(c => [c.id, c]));
                                       const childrenMap = new Map<string, typeof allComments>();
                                       const topLevel: typeof allComments = [];
 
-                                      for (const c of allComments) {
-                                        if (c.replied_to && commentMap.has(c.replied_to)) {
-                                          const children = childrenMap.get(c.replied_to) || [];
+                                      const sorted = [...allComments].sort((a, b) =>
+                                        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                                      );
+
+                                      for (const c of sorted) {
+                                        const parentId = c.replied_to;
+                                        if (parentId && commentMap.has(parentId)) {
+                                          const children = childrenMap.get(parentId) || [];
                                           children.push(c);
-                                          childrenMap.set(c.replied_to, children);
+                                          childrenMap.set(parentId, children);
+                                        } else if (parentId === rootPostId && ownUsername && c.username === ownUsername) {
+                                          const priorComments = sorted.filter(
+                                            p => p.username !== ownUsername && new Date(p.timestamp) < new Date(c.timestamp)
+                                          );
+                                          const nearestParent = priorComments[priorComments.length - 1];
+                                          if (nearestParent) {
+                                            const children = childrenMap.get(nearestParent.id) || [];
+                                            children.push(c);
+                                            childrenMap.set(nearestParent.id, children);
+                                          } else {
+                                            topLevel.push(c);
+                                          }
                                         } else {
                                           topLevel.push(c);
                                         }
@@ -649,17 +680,49 @@ export default function UnifiedInbox() {
                                                 {card.isGenerating && (
                                                   <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
                                                     <RefreshCw size={12} className="animate-spin text-primary" />
-                                                    Analyzing tone & context…
+                                                    Generating 3 reply options…
                                                   </div>
                                                 )}
 
                                                 {hasReply && !card.isGenerating && (
                                                   <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                    <div className="p-3 bg-primary/5 rounded-lg border border-primary/10 relative">
-                                                      <div className="absolute -left-1.5 top-4 w-3 h-3 bg-[#0a0a0a] border-l border-b border-primary/10 rotate-45" />
-                                                      <div className="flex items-start gap-2">
-                                                        <Sparkles className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-                                                        {card.isEditing ? (
+                                                    {card.generatedReplies.length > 1 && !card.isEditing && (
+                                                      <div className="space-y-2">
+                                                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Pick a reply</p>
+                                                        {card.generatedReplies.map((r, idx) => (
+                                                          <button
+                                                            key={idx}
+                                                            className={`w-full text-left p-3 rounded-lg border transition-all text-sm leading-relaxed ${
+                                                              card.selectedReplyIndex === idx
+                                                                ? "bg-primary/10 border-primary/30 text-primary-foreground"
+                                                                : "bg-secondary/20 border-border/20 text-foreground/70 hover:bg-secondary/40 hover:border-border/40"
+                                                            }`}
+                                                            onClick={() => updateThreadsCard(comment.id, {
+                                                              selectedReplyIndex: idx,
+                                                              generatedReply: r,
+                                                              editedReply: r,
+                                                            })}
+                                                            data-testid={`button-select-reply-${comment.id}-${idx}`}
+                                                          >
+                                                            <div className="flex items-start gap-2">
+                                                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                                                                card.selectedReplyIndex === idx
+                                                                  ? "border-primary bg-primary/20"
+                                                                  : "border-border/40"
+                                                              }`}>
+                                                                {card.selectedReplyIndex === idx && <Check size={10} className="text-primary" />}
+                                                              </div>
+                                                              <span>{r}</span>
+                                                            </div>
+                                                          </button>
+                                                        ))}
+                                                      </div>
+                                                    )}
+
+                                                    {card.isEditing && (
+                                                      <div className="p-3 bg-primary/5 rounded-lg border border-primary/10 relative">
+                                                        <div className="flex items-start gap-2">
+                                                          <Sparkles className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
                                                           <textarea
                                                             className={`${promptTextareaClass} bg-transparent border-0 p-0 focus:ring-0 flex-1 text-sm text-primary-foreground min-h-[60px]`}
                                                             value={card.editedReply}
@@ -670,13 +733,9 @@ export default function UnifiedInbox() {
                                                             onInput={(e) => autoExpand(e.currentTarget as HTMLTextAreaElement)}
                                                             autoFocus
                                                           />
-                                                        ) : (
-                                                          <p className="text-sm text-primary-foreground/90 font-medium leading-relaxed flex-1" data-testid={`text-threads-reply-${comment.id}`}>
-                                                            {card.editedReply || card.generatedReply}
-                                                          </p>
-                                                        )}
+                                                        </div>
                                                       </div>
-                                                    </div>
+                                                    )}
 
                                                     {!card.isSent && (
                                                       <div className="flex items-center gap-2">
@@ -704,7 +763,7 @@ export default function UnifiedInbox() {
                                                           variant="ghost"
                                                           size="sm"
                                                           className="h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-red-400 hover:bg-red-400/10 gap-1.5 ml-auto"
-                                                          onClick={() => updateThreadsCard(comment.id, { isSkipped: true, generatedReply: "" })}
+                                                          onClick={() => updateThreadsCard(comment.id, { isSkipped: true, generatedReply: "", generatedReplies: [] })}
                                                           data-testid={`button-skip-threads-reply-${comment.id}`}
                                                         >
                                                           <SkipForward size={10} />

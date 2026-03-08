@@ -167,6 +167,8 @@ export async function replyToThreadsComment(mediaId: string, replyText: string, 
   if (!token) throw new Error("Threads access token not configured");
   const userId = await getThreadsUserId(token);
 
+  console.log(`[threads/reply] Creating reply container: reply_to_id=${mediaId}, userId=${userId}`);
+
   const containerParams = new URLSearchParams({
     media_type: "TEXT",
     text: replyText,
@@ -179,9 +181,30 @@ export async function replyToThreadsComment(mediaId: string, replyText: string, 
   );
   if (!containerRes.ok) {
     const err = await containerRes.json().catch(() => ({}));
+    console.error(`[threads/reply] Container creation failed for reply_to_id=${mediaId}:`, err);
     throw new Error(err.error?.message || "Failed to create Threads reply container");
   }
   const { id: creationId } = await containerRes.json();
+  console.log(`[threads/reply] Container created: ${creationId}, waiting for FINISHED status...`);
+
+  const maxAttempts = 10;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    const statusRes = await fetch(
+      `https://graph.threads.net/v1.0/${creationId}?fields=status,error_message&access_token=${token}`
+    );
+    if (statusRes.ok) {
+      const statusData = await statusRes.json();
+      console.log(`[threads/reply] Container status check ${i + 1}/${maxAttempts}: ${statusData.status}`);
+      if (statusData.status === "FINISHED") break;
+      if (statusData.status === "ERROR") {
+        throw new Error(statusData.error_message || "Container creation failed");
+      }
+    }
+    if (i === maxAttempts - 1) {
+      console.warn(`[threads/reply] Container did not reach FINISHED after ${maxAttempts} attempts, attempting publish anyway`);
+    }
+  }
 
   const publishParams = new URLSearchParams({ creation_id: creationId, access_token: token });
   const publishRes = await fetch(
@@ -190,9 +213,11 @@ export async function replyToThreadsComment(mediaId: string, replyText: string, 
   );
   if (!publishRes.ok) {
     const err = await publishRes.json().catch(() => ({}));
+    console.error(`[threads/reply] Publish failed for creation_id=${creationId}:`, err);
     throw new Error(err.error?.message || "Failed to publish Threads reply");
   }
   const { id } = await publishRes.json();
+  console.log(`[threads/reply] Reply published successfully: ${id}`);
   return { id };
 }
 

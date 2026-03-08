@@ -194,7 +194,7 @@ export type ThreadsComment = {
 };
 
 export function useThreadsComments(postId: string | null) {
-  return useQuery<{ comments: ThreadsComment[] }>({
+  return useQuery<{ postId?: string; comments: ThreadsComment[] }>({
     queryKey: ["/api/threads/posts", postId, "comments"],
     queryFn: async () => {
       const res = await fetch(`/api/threads/posts/${postId}/comments`, { credentials: "include" });
@@ -209,7 +209,7 @@ export function useThreadsGenerateReply() {
   return useMutation({
     mutationFn: async ({ postId, commentText, postText, customPrompt }: { postId: string; commentText: string; postText?: string; customPrompt?: string }) => {
       const res = await apiRequest("POST", `/api/threads/posts/${postId}/generate-reply`, { commentText, postText, customPrompt });
-      return res.json() as Promise<{ reply: string; sentiment: string }>;
+      return res.json() as Promise<{ replies: string[]; reply: string; sentiment: string }>;
     },
   });
 }
