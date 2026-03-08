@@ -1682,18 +1682,27 @@ Do NOT fall back to generic or safe defaults.\n`
 - No hashtags
 - Never sound like a bot, a brand, or a LinkedIn post\n`}
 ${imageDescription ? `IMAGE CONTEXT:\nThe tweet contains an image. Here is a description of the image:\n"${imageDescription}"\nReact to what's in the image like a real person would — joke about it, call something out, make an observation people didn't notice. Do NOT just describe the image.\n` : ""}
-VIRAL STRATEGIES — use a different one for each reply:
-- A hot take or spicy opinion that people can't ignore
-- A joke or one-liner that makes people exhale through their nose
-- A relatable "this is literally me" type comment
-- A clever observation or connection nobody else made
-- A bold or slightly unhinged response that stops the scroll
+Generate 8 viral comments. Each one MUST have a short category label that describes the viral style used. The label should be contextual to the tweet topic (e.g. for sports: "Fight fan energy", for tech: "Tech Twitter style", for memes: "Meme style").
 
-Generate 5 comments. Each one should feel like it could independently go viral in the replies.
+Use these 8 viral strategies (adapt the labels to match the tweet's topic):
+1. Most viral type — the comment most likely to blow up
+2. Meme style — sounds like a meme caption or meme reference
+3. Niche fan humor — insider joke for people who know the topic
+4. Short + viral — maximum 8 words, punchy one-liner
+5. Relatable meme — "this is literally me" energy
+6. Community energy — sounds like a passionate fan of the topic
+7. Twitter style — classic Twitter humor, dry wit
+8. Meme — reaction-style comment, screenshot-worthy
+
+Each comment should feel like it could independently go viral in the replies.
 
 Return ONLY a JSON object with this structure:
 {
-  "replies": ["reply1", "reply2", "reply3", "reply4", "reply5"]
+  "replies": [
+    {"label": "Most viral type", "text": "the comment"},
+    {"label": "Meme style", "text": "the comment"},
+    ...
+  ]
 }
 
 Return ONLY the JSON. No markdown, no extra text.`;
@@ -1716,19 +1725,24 @@ ${hasCustomStyle ? `\nREMINDER — Style instruction: "${customInstruction!.trim
           { role: "user", content: userPrompt },
         ],
         temperature: 0.85,
-        max_tokens: 1024,
+        max_tokens: 1500,
       });
 
       const raw = completion.choices[0]?.message?.content || "{}";
-      let replySuggestions: string[] = [];
+      let replySuggestions: { label: string; text: string }[] = [];
       try {
         const jsonMatch = raw.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
-          replySuggestions = parsed.replies || [];
+          if (parsed.replies && Array.isArray(parsed.replies)) {
+            replySuggestions = parsed.replies.map((r: any) => {
+              if (typeof r === 'string') return { label: '', text: r };
+              return { label: r.label || '', text: r.text || r };
+            });
+          }
         }
       } catch {
-        replySuggestions = [raw.trim()];
+        replySuggestions = [{ label: '', text: raw.trim() }];
       }
 
       res.json({

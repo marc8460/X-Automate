@@ -888,11 +888,14 @@ function openAnalysisPanel(tweetData) {
 
       if (response && response.replies && response.replies.length > 0) {
         repliesContainer.innerHTML = '';
-        response.replies.forEach((reply, idx) => {
+        response.replies.forEach((replyObj, idx) => {
+          const replyText = typeof replyObj === 'string' ? replyObj : (replyObj.text || '');
+          const replyLabel = typeof replyObj === 'string' ? '' : (replyObj.label || '');
           const card = document.createElement('div');
           card.className = 'aura-reply-card';
           card.innerHTML = `
-            <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(reply)}</div>
+            ${replyLabel ? `<div style="font-size: 11px; font-weight: 700; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">${escapeHtml(replyLabel)}</div>` : ''}
+            <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(replyText)}</div>
             <div class="aura-attach-section" id="aura-attach-${idx}">
               <button class="aura-btn aura-btn-attach aura-attach-btn" data-idx="${idx}">📷 Attach Photo</button>
               <div class="aura-attach-preview" id="aura-attach-preview-${idx}" style="display: none;"></div>
@@ -948,19 +951,19 @@ function openAnalysisPanel(tweetData) {
           });
 
           card.querySelector('.aura-copy-btn').addEventListener('click', () => {
-            navigator.clipboard.writeText(reply);
+            navigator.clipboard.writeText(replyText);
             showToast('Copied to clipboard');
           });
 
           card.querySelector('.aura-insert-btn').addEventListener('click', () => {
-            handleInsertReply(tweetData, reply, false, selectedImageUrl);
+            handleInsertReply(tweetData, replyText, false, selectedImageUrl);
             panel.remove();
             overlay.remove();
             activePanel = null;
           });
 
           card.querySelector('.aura-post-btn').addEventListener('click', () => {
-            handleInsertReply(tweetData, reply, true, selectedImageUrl);
+            handleInsertReply(tweetData, replyText, true, selectedImageUrl);
             panel.remove();
             overlay.remove();
             activePanel = null;
