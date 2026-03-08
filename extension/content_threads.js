@@ -221,9 +221,7 @@ auraStyles.textContent = `
     align-items: center;
     gap: 4px;
   }
-  /* Threads post container selector */
-  div[style*="max-width: 100%"]:hover .aura-analyze-btn,
-  article:hover .aura-analyze-btn {
+  .aura-threads-post:hover .aura-analyze-btn {
     opacity: 1;
   }
   .aura-analyze-btn:hover { background: #6d28d9; }
@@ -537,38 +535,98 @@ function calculateViralScore(metrics, minutesSincePost) {
   };
 }
 
+function findActionBar(container) {
+  const allDivs = container.querySelectorAll('div');
+  for (const div of allDivs) {
+    if (div.closest('.aura-fab, .aura-widget, .aura-panel')) continue;
+    let svgChildCount = 0;
+    for (const child of div.children) {
+      if (child.querySelector('svg') || child.tagName === 'SVG') svgChildCount++;
+    }
+    if (svgChildCount >= 3 && svgChildCount <= 6) return div;
+  }
+  return null;
+}
+
+function extractMetricsFromActionBar(actionBar) {
+  let likes = 0;
+  let replies = 0;
+  if (!actionBar) return { likes, replies, views: 0 };
+
+  const buttons = Array.from(actionBar.children);
+  if (buttons.length >= 2) {
+    const likeText = buttons[0].textContent.trim();
+    const likeNum = likeText.match(/(\d[\d,.]*\s*[KMBkmb]?)/);
+    if (likeNum) likes = parseMetric(likeNum[1]);
+
+    const commentText = buttons[1].textContent.trim();
+    const commentNum = commentText.match(/(\d[\d,.]*\s*[KMBkmb]?)/);
+    if (commentNum) replies = parseMetric(commentNum[1]);
+  }
+  return { likes, replies, views: 0 };
+}
+
+function findAuthor(postEl) {
+  const links = postEl.querySelectorAll('a[href]');
+  for (const link of links) {
+    const href = link.getAttribute('href') || '';
+    if (href.startsWith('/@') || (href.startsWith('/') && href.split('/').length === 2 && !href.includes('.'))) {
+      const text = link.textContent.trim();
+      if (text && text.length > 0 && text.length < 50 && !text.includes(' ')) {
+        return text;
+      }
+    }
+  }
+  const anyLink = postEl.querySelector('a[href^="/@"]');
+  if (anyLink) return anyLink.textContent.trim();
+  return '';
+}
+
+function findPostText(postEl, actionBar) {
+  const spans = postEl.querySelectorAll('span[dir="auto"], span[dir="ltr"]');
+  let longestText = '';
+  for (const span of spans) {
+    if (actionBar && actionBar.contains(span)) continue;
+    if (span.closest('.aura-badge, .aura-analyze-btn')) continue;
+    const text = span.innerText.trim();
+    if (text.length > longestText.length) longestText = text;
+  }
+  if (!longestText) {
+    const divs = postEl.querySelectorAll('div');
+    for (const div of divs) {
+      if (actionBar && actionBar.contains(div)) continue;
+      if (div.children.length === 0 && div.textContent.trim().length > 20) {
+        const t = div.textContent.trim();
+        if (t.length > longestText.length) longestText = t;
+      }
+    }
+  }
+  return longestText;
+}
+
 function getThreadsPostData(postEl) {
-  // Threads DOM structure is heavy on nested divs with limited stable classes/IDs
-  const textEl = postEl.querySelector('span[dir="auto"]');
-  // Authors usually have links or specific bold text
-  const authorEl = postEl.querySelector('a[role="link"] span');
-  
-  // Metrics are often in a row at the bottom
-  // We look for text that looks like numbers near "likes" or "replies"
-  const metricsText = postEl.innerText;
-  const repliesMatch = metricsText.match(/(\d+)\s*replies/i);
-  const likesMatch = metricsText.match(/(\d+)\s*likes/i);
+  const actionBar = postEl._auraActionBar || findActionBar(postEl);
+  const metrics = extractMetricsFromActionBar(actionBar);
+  const authorName = findAuthor(postEl);
+  const text = findPostText(postEl, actionBar);
 
   const data = {
-    text: textEl ? textEl.innerText : '',
-    authorName: authorEl ? authorEl.innerText : '',
-    authorHandle: '',
+    text,
+    authorName,
+    authorHandle: authorName,
     imageUrls: [],
-    metrics: {
-      replies: repliesMatch ? parseMetric(repliesMatch[1]) : 0,
-      likes: likesMatch ? parseMetric(likesMatch[1]) : 0,
-      views: 0
-    },
-    minutesSincePost: 30, // Default for Threads as time is harder to parse accurately
+    metrics,
+    minutesSincePost: 30,
     url: window.location.href,
     el: postEl,
     scoreBreakdown: null,
     opportunityScore: null
   };
 
-  // Try to find image
-  const img = postEl.querySelector('img[src^="https://scontent"]');
-  if (img) data.imageUrls.push(img.src);
+  const img = postEl.querySelector('img[src*="scontent"], img[src*="cdninstagram"]');
+  if (img && !img.closest('a[href]')?.querySelector('span')) {
+    data.imageUrls.push(img.src);
+  }
 
   const scoreResult = calculateViralScore(data.metrics, data.minutesSincePost);
   if (scoreResult) {
@@ -583,27 +641,28 @@ function getThreadsPostData(postEl) {
 
 function injectBadges(postEl) {
   if (postEl.classList.contains('aura-processed')) return;
-  // Basic heuristic for post container in Threads
   if (postEl.innerText.length < 10) return;
 
   postEl.classList.add('aura-processed');
+  postEl.classList.add('aura-threads-post');
 
   const data = getThreadsPostData(postEl);
-  if (data.opportunityScore === null || data.opportunityScore < 30) return;
 
   if (!badgesEnabled) return;
-
   if (postEl.querySelector('.aura-badge')) return;
 
-  const badge = document.createElement('span');
-  const colorClass = data.opportunityScore >= 75 ? 'aura-badge-high' : data.opportunityScore >= 50 ? 'aura-badge-med' : 'aura-badge-low';
-  badge.className = `aura-badge ${colorClass}`;
-  badge.textContent = `🔥 ${data.opportunityScore}`;
+  if (data.opportunityScore !== null && data.opportunityScore >= 30) {
+    const badge = document.createElement('span');
+    const colorClass = data.opportunityScore >= 75 ? 'aura-badge-high' : data.opportunityScore >= 50 ? 'aura-badge-med' : 'aura-badge-low';
+    badge.className = `aura-badge ${colorClass}`;
+    badge.textContent = `🔥 ${data.opportunityScore}`;
 
-  // Find author area to inject badge
-  const authorArea = postEl.querySelector('a[role="link"]');
-  if (authorArea) {
-    authorArea.parentElement.appendChild(badge);
+    const authorLink = postEl.querySelector('a[href^="/@"], a[href^="/"]');
+    if (authorLink && authorLink.textContent.trim().length < 50) {
+      authorLink.parentElement.appendChild(badge);
+    } else {
+      postEl.prepend(badge);
+    }
   }
 
   const analyzeBtn = document.createElement('button');
@@ -817,22 +876,71 @@ function openAnalysisPanel(tweetData) {
   });
 }
 
+// ─── Post Detection via Action Bar Discovery ───
+
+function scanForPosts() {
+  const processedBars = new Set();
+  const allDivs = document.querySelectorAll('div:not(.aura-processed):not(.aura-fab):not(.aura-widget):not(.aura-panel)');
+
+  for (const div of allDivs) {
+    if (div.closest('.aura-fab, .aura-widget, .aura-panel, .aura-overlay')) continue;
+    if (processedBars.has(div)) continue;
+
+    let svgChildCount = 0;
+    for (const child of div.children) {
+      const hasSvg = child.querySelector('svg') || child.tagName === 'SVG';
+      if (hasSvg) svgChildCount++;
+    }
+
+    if (svgChildCount < 3 || svgChildCount > 6) continue;
+    if (div.children.length > 8) continue;
+
+    processedBars.add(div);
+
+    let postEl = div;
+    let bestContainer = null;
+    for (let i = 0; i < 10; i++) {
+      const parent = postEl.parentElement;
+      if (!parent || parent === document.body || parent === document.documentElement) break;
+      postEl = parent;
+
+      const hasTextSpan = postEl.querySelector('span[dir="auto"], span[dir="ltr"]');
+      const hasAuthorLink = postEl.querySelector('a[href^="/@"], a[href^="/"]');
+      if (hasTextSpan || hasAuthorLink) {
+        bestContainer = postEl;
+      }
+
+      const cs = window.getComputedStyle(postEl);
+      const hasBorder = cs.borderBottomWidth !== '0px' && cs.borderBottomStyle !== 'none';
+      const hasPadding = parseInt(cs.paddingBottom) > 4;
+
+      if (bestContainer && (hasBorder || hasPadding) && postEl.offsetHeight > 100) {
+        break;
+      }
+    }
+
+    const container = bestContainer || postEl;
+    if (!container.classList.contains('aura-processed')) {
+      container._auraActionBar = div;
+      injectBadges(container);
+    }
+  }
+}
+
 // ─── Main Observer ───
 
-const observer = new MutationObserver((mutations) => {
-  // Threads posts are usually inside articles or specific div structures
-  const posts = document.querySelectorAll('article, div[style*="max-width: 100%"]');
-  posts.forEach(post => {
-    // Only process if it looks like a real post with text
-    if (post.innerText.length > 20) {
-      injectBadges(post);
-    }
-  });
+let scanTimeout = null;
+const observer = new MutationObserver(() => {
+  if (scanTimeout) clearTimeout(scanTimeout);
+  scanTimeout = setTimeout(scanForPosts, 300);
 });
 
 function init() {
+  console.log('[Aura Threads] Content script loaded on', window.location.hostname);
   createFloatingWidget();
   observer.observe(document.body, { childList: true, subtree: true });
+  setTimeout(scanForPosts, 1000);
+  setTimeout(scanForPosts, 3000);
 }
 
 if (document.readyState === 'loading') {
