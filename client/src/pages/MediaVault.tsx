@@ -1,28 +1,117 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Upload, 
-  Filter, 
-  Grid, 
-  List, 
-  Tag, 
-  History, 
-  Plus, 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Upload,
+  Filter,
+  Grid,
+  List,
+  Tag,
+  History,
+  Plus,
   Trash2,
   CheckCircle2,
   AlertCircle,
   Loader2,
-  X
+  X,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  MoreHorizontal,
+  Pencil,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useMediaItems, useUploadMedia, useDeleteMediaItem } from "@/lib/hooks";
+import {
+  useMediaItems,
+  useUploadMedia,
+  useDeleteMediaItem,
+  useMediaFolders,
+  useCreateMediaFolder,
+  useRenameMediaFolder,
+  useDeleteMediaFolder,
+  useMoveMediaItem,
+} from "@/lib/hooks";
+import type { MediaFolder } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 
+// ─── FolderChip ───────────────────────────────────────────────────────────────
+function FolderChip({
+  folder,
+  isActive,
+  onClick,
+  onRename,
+  onDeleteRequest,
+}: {
+  folder: MediaFolder;
+  isActive: boolean;
+  onClick: () => void;
+  onRename: (id: number, currentName: string) => void;
+  onDeleteRequest: (folder: MediaFolder) => void;
+}) {
+  return (
+    <div className="flex-shrink-0 flex items-center gap-0.5 group/chip">
+      <button
+        onClick={onClick}
+        className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+          isActive
+            ? "bg-primary text-white shadow-lg shadow-primary/20"
+            : "bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
+        }`}
+      >
+        <Folder className="w-3.5 h-3.5" />
+        {folder.name}
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 opacity-0 group-hover/chip:opacity-100 transition-opacity rounded-full"
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="glass-panel border-border/50">
+          <DropdownMenuItem onClick={() => onRename(folder.id, folder.name)}>
+            <Pencil className="w-3.5 h-3.5 mr-2" />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onDeleteRequest(folder)}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="w-3.5 h-3.5 mr-2" />
+            Delete Folder
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function MediaVault() {
   const [, navigate] = useLocation();
   const [view, setView] = useState<"grid" | "list">("grid");
@@ -35,9 +124,31 @@ export default function MediaVault() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  // Folder state
+  const [activeFolderId, setActiveFolderId] = useState<number | null | "all">("all");
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolderId, setRenamingFolderId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [folderToDelete, setFolderToDelete] = useState<MediaFolder | null>(null);
+
+  // Data hooks
   const { data: mediaItems, isLoading } = useMediaItems();
   const uploadMutation = useUploadMedia();
   const deleteMutation = useDeleteMediaItem();
+  const { data: folders } = useMediaFolders();
+  const createFolder = useCreateMediaFolder();
+  const renameFolder = useRenameMediaFolder();
+  const deleteFolder = useDeleteMediaFolder();
+  const moveItem = useMoveMediaItem();
+
+  // Filtered items based on active folder
+  const displayedItems = useMemo(() => {
+    if (!mediaItems) return [];
+    if (activeFolderId === "all") return mediaItems;
+    if (activeFolderId === null) return mediaItems.filter((i) => i.folderId == null);
+    return mediaItems.filter((i) => i.folderId === activeFolderId);
+  }, [mediaItems, activeFolderId]);
 
   const compressImage = useCallback((file: File, maxWidth = 1600, quality = 0.8): Promise<File> => {
     return new Promise((resolve) => {
@@ -119,7 +230,7 @@ export default function MediaVault() {
     } else {
       toast({ title: "Partial upload", description: `${total - failed} of ${total} uploaded. ${failed} failed.`, variant: "destructive" });
     }
-  }, [uploadMood, uploadOutfit, uploadMutation, toast, compressImage]);
+  }, [uploadMood, uploadOutfit, uploadMutation, toast, compressImage, removeMetadata]);
 
   const handleDelete = (id: number) => {
     deleteMutation.mutate(id, {
@@ -133,10 +244,60 @@ export default function MediaVault() {
     handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
+  const handleCreateFolder = () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    createFolder.mutate(name, {
+      onSuccess: () => {
+        setNewFolderName("");
+        setShowNewFolderInput(false);
+        toast({ title: "Folder created", description: `"${name}" folder is ready.` });
+      },
+    });
+  };
+
+  const handleStartRename = (id: number, currentName: string) => {
+    setRenamingFolderId(id);
+    setRenameValue(currentName);
+  };
+
+  const handleConfirmRename = () => {
+    if (!renamingFolderId || !renameValue.trim()) {
+      setRenamingFolderId(null);
+      return;
+    }
+    renameFolder.mutate({ id: renamingFolderId, name: renameValue.trim() }, {
+      onSuccess: () => {
+        setRenamingFolderId(null);
+        toast({ title: "Folder renamed" });
+      },
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    if (!folderToDelete) return;
+    const name = folderToDelete.name;
+    deleteFolder.mutate(folderToDelete.id, {
+      onSuccess: () => {
+        if (activeFolderId === folderToDelete.id) setActiveFolderId("all");
+        setFolderToDelete(null);
+        toast({ title: "Folder deleted", description: `"${name}" removed. Photos are now uncategorized.` });
+      },
+    });
+  };
+
   const MOODS = ["Playful", "Confident", "Seductive", "Casual", "Mysterious", "Neutral"];
+
+  const activeFolderLabel =
+    activeFolderId === "all"
+      ? null
+      : activeFolderId === null
+      ? "Uncategorized"
+      : folders?.find((f) => f.id === activeFolderId)?.name ?? null;
 
   return (
     <div className="space-y-8 pb-12">
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold font-display tracking-tight" data-testid="text-vault-title">Media Vault</h1>
@@ -158,6 +319,7 @@ export default function MediaVault() {
         </div>
       </div>
 
+      {/* Upload Form */}
       <AnimatePresence>
         {showUploadForm && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
@@ -236,6 +398,7 @@ export default function MediaVault() {
         )}
       </AnimatePresence>
 
+      {/* Filter Bar */}
       <Card className="p-4 glass-panel border-border/50 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
@@ -270,6 +433,111 @@ export default function MediaVault() {
         </div>
       </Card>
 
+      {/* Folder Rail */}
+      <Card className="p-4 glass-panel border-border/50">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {/* All Photos chip */}
+          <button
+            onClick={() => setActiveFolderId("all")}
+            className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              activeFolderId === "all"
+                ? "bg-primary text-white shadow-lg shadow-primary/20"
+                : "bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            }`}
+            data-testid="folder-chip-all"
+          >
+            All Photos
+          </button>
+
+          {/* Uncategorized chip */}
+          <button
+            onClick={() => setActiveFolderId(null)}
+            className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              activeFolderId === null
+                ? "bg-primary text-white shadow-lg shadow-primary/20"
+                : "bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            }`}
+            data-testid="folder-chip-uncategorized"
+          >
+            Uncategorized
+          </button>
+
+          {/* User folders */}
+          {folders?.map((folder) =>
+            renamingFolderId === folder.id ? (
+              <div key={folder.id} className="flex-shrink-0 flex items-center gap-1">
+                <Input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleConfirmRename();
+                    if (e.key === "Escape") setRenamingFolderId(null);
+                  }}
+                  autoFocus
+                  className="h-8 w-36 text-sm bg-background/50"
+                />
+                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handleConfirmRename}>
+                  <CheckCircle2 className="w-4 h-4 text-primary" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setRenamingFolderId(null)}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ) : (
+              <FolderChip
+                key={folder.id}
+                folder={folder}
+                isActive={activeFolderId === folder.id}
+                onClick={() => setActiveFolderId(folder.id)}
+                onRename={handleStartRename}
+                onDeleteRequest={setFolderToDelete}
+              />
+            )
+          )}
+
+          {/* New Folder button / inline input */}
+          {showNewFolderInput ? (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <Input
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateFolder();
+                  if (e.key === "Escape") { setShowNewFolderInput(false); setNewFolderName(""); }
+                }}
+                placeholder="Folder name..."
+                autoFocus
+                className="h-8 w-36 text-sm bg-background/50"
+                data-testid="input-new-folder-name"
+              />
+              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handleCreateFolder} data-testid="button-confirm-new-folder">
+                <CheckCircle2 className="w-4 h-4 text-primary" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setShowNewFolderInput(false); setNewFolderName(""); }}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowNewFolderInput(true)}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-full text-sm border border-dashed border-border/50 text-muted-foreground hover:border-primary/50 hover:text-primary transition-all"
+              data-testid="button-new-folder"
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+              New Folder
+            </button>
+          )}
+        </div>
+
+        {/* Active folder label + count */}
+        {activeFolderLabel && (
+          <p className="text-xs text-muted-foreground mt-2 pl-1">
+            {activeFolderLabel} · {displayedItems.length} photo{displayedItems.length !== 1 ? "s" : ""}
+          </p>
+        )}
+      </Card>
+
+      {/* Media Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         <motion.div
           whileHover={{ scale: 1.02 }}
@@ -308,7 +576,7 @@ export default function MediaVault() {
             </Card>
           ))
         ) : (
-          mediaItems?.map((item, i) => (
+          displayedItems.map((item, i) => (
             <motion.div
               key={item.id}
               initial={{ opacity: 0, y: 20 }}
@@ -327,6 +595,51 @@ export default function MediaVault() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
                   <div className="absolute top-2 right-2 flex gap-1">
+                    {/* Move to Folder dropdown */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border-white/10 hover:bg-primary/80 opacity-0 group-hover:opacity-100 transition-opacity"
+                          data-testid={`button-move-media-${item.id}`}
+                        >
+                          <FolderOpen className="w-4 h-4 text-white" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="glass-panel border-border/50 min-w-[180px]">
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">Move to folder</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {item.folderId != null && (
+                          <DropdownMenuItem
+                            onClick={() => moveItem.mutate({ id: item.id, folderId: null })}
+                            className="text-muted-foreground"
+                          >
+                            <X className="w-3.5 h-3.5 mr-2" />
+                            Remove from folder
+                          </DropdownMenuItem>
+                        )}
+                        {(!folders || folders.length === 0) && (
+                          <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                            No folders yet
+                          </DropdownMenuItem>
+                        )}
+                        {folders?.map((folder) => (
+                          <DropdownMenuItem
+                            key={folder.id}
+                            onClick={() => moveItem.mutate({ id: item.id, folderId: folder.id })}
+                            disabled={item.folderId === folder.id}
+                            className={item.folderId === folder.id ? "text-primary font-medium" : ""}
+                          >
+                            <Folder className="w-3.5 h-3.5 mr-2" />
+                            {folder.name}
+                            {item.folderId === folder.id && <CheckCircle2 className="w-3 h-3 ml-auto text-primary" />}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    {/* Delete button */}
                     <Button
                       variant="secondary"
                       size="icon"
@@ -373,6 +686,14 @@ export default function MediaVault() {
                     <Tag className="w-3 h-3 text-primary" />
                     <span className="text-xs text-muted-foreground truncate" data-testid={`text-outfit-${item.id}`}>{item.outfit}</span>
                   </div>
+                  {item.folderId != null && folders && (
+                    <div className="flex items-center gap-1.5">
+                      <Folder className="w-3 h-3 text-primary/60" />
+                      <span className="text-xs text-muted-foreground truncate">
+                        {folders.find((f) => f.id === item.folderId)?.name ?? "Folder"}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </Card>
             </motion.div>
@@ -380,6 +701,7 @@ export default function MediaVault() {
         )}
       </div>
 
+      {/* Frequency Warning */}
       <AnimatePresence>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -395,6 +717,27 @@ export default function MediaVault() {
           </div>
         </motion.div>
       </AnimatePresence>
+
+      {/* Delete Folder Confirmation Dialog */}
+      <AlertDialog open={!!folderToDelete} onOpenChange={(open) => !open && setFolderToDelete(null)}>
+        <AlertDialogContent className="glass-panel border-border/50">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{folderToDelete?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deleting this folder will not delete its photos — they'll become uncategorized. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Folder
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

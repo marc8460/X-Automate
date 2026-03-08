@@ -14,6 +14,7 @@ import { isAuthenticated } from "./replit_integrations/auth";
 import {
   insertTweetSchema,
   insertMediaItemSchema,
+  insertMediaFolderSchema,
   insertEngagementSchema,
   insertFollowerInteractionSchema,
   insertTrendSchema,
@@ -294,6 +295,38 @@ export async function registerRoutes(
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
     await storage.deleteMediaItem(id, userId);
+    res.status(204).send();
+  });
+
+  // --- Media Folders ---
+  app.get("/api/media/folders", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const data = await storage.getMediaFolders(userId);
+    res.json(data);
+  });
+
+  app.post("/api/media/folders", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertMediaFolderSchema.safeParse({ ...req.body, userId });
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const folder = await storage.createMediaFolder(parsed.data);
+    res.status(201).json(folder);
+  });
+
+  app.patch("/api/media/folders/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const id = parseInt(req.params.id);
+    const name = req.body.name;
+    if (!name || typeof name !== "string") return res.status(400).json({ message: "name is required" });
+    const folder = await storage.updateMediaFolder(id, name, userId);
+    if (!folder) return res.status(404).json({ message: "Folder not found" });
+    res.json(folder);
+  });
+
+  app.delete("/api/media/folders/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const id = parseInt(req.params.id);
+    await storage.deleteMediaFolder(id, userId);
     res.status(204).send();
   });
 

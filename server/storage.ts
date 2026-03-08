@@ -2,6 +2,7 @@ import { eq, gte, desc, and, sql, lte } from "drizzle-orm";
 import { db } from "./db";
 import {
   tweets, type Tweet, type InsertTweet,
+  mediaFolders, type MediaFolder, type InsertMediaFolder,
   mediaItems, type MediaItem, type InsertMediaItem,
   engagements, type Engagement, type InsertEngagement,
   followerInteractions, type FollowerInteraction, type InsertFollowerInteraction,
@@ -24,6 +25,11 @@ export interface IStorage {
   createTweet(tweet: InsertTweet): Promise<Tweet>;
   updateTweet(id: number, data: Partial<InsertTweet>, userId: string): Promise<Tweet | undefined>;
   deleteTweet(id: number, userId: string): Promise<void>;
+
+  getMediaFolders(userId: string): Promise<MediaFolder[]>;
+  createMediaFolder(folder: InsertMediaFolder): Promise<MediaFolder>;
+  updateMediaFolder(id: number, name: string, userId: string): Promise<MediaFolder | undefined>;
+  deleteMediaFolder(id: number, userId: string): Promise<void>;
 
   getMediaItems(userId: string): Promise<MediaItem[]>;
   createMediaItem(item: InsertMediaItem): Promise<MediaItem>;
@@ -109,6 +115,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTweet(id: number, userId: string): Promise<void> {
     await db.delete(tweets).where(and(eq(tweets.id, id), eq(tweets.userId, userId)));
+  }
+
+  async getMediaFolders(userId: string): Promise<MediaFolder[]> {
+    return db.select().from(mediaFolders).where(eq(mediaFolders.userId, userId));
+  }
+
+  async createMediaFolder(folder: InsertMediaFolder): Promise<MediaFolder> {
+    const [result] = await db.insert(mediaFolders).values(folder).returning();
+    return result;
+  }
+
+  async updateMediaFolder(id: number, name: string, userId: string): Promise<MediaFolder | undefined> {
+    const [result] = await db.update(mediaFolders).set({ name }).where(and(eq(mediaFolders.id, id), eq(mediaFolders.userId, userId))).returning();
+    return result;
+  }
+
+  async deleteMediaFolder(id: number, userId: string): Promise<void> {
+    await db.update(mediaItems).set({ folderId: null }).where(and(eq(mediaItems.folderId, id), eq(mediaItems.userId, userId)));
+    await db.delete(mediaFolders).where(and(eq(mediaFolders.id, id), eq(mediaFolders.userId, userId)));
   }
 
   async getMediaItems(userId: string): Promise<MediaItem[]> {

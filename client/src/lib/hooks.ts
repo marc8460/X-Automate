@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { queryClient, apiRequest } from "./queryClient";
 import { isExtensionConnected } from "./extensionBridge";
 import type {
-  Tweet, MediaItem, Engagement, FollowerInteraction,
+  Tweet, MediaItem, MediaFolder, Engagement, FollowerInteraction,
   LiveFollowerInteraction, CommentThread,
   Trend, ActivityLog, AnalyticsData, PeakTime, Setting,
 } from "@shared/schema";
@@ -201,6 +201,52 @@ export function useDeleteMediaItem() {
     mutationFn: async (id: number) => {
       const res = await apiRequest("DELETE", `/api/media/${id}`);
       return res;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/media"] }),
+  });
+}
+
+export function useMediaFolders() {
+  return useQuery<MediaFolder[]>({ queryKey: ["/api/media/folders"] });
+}
+
+export function useCreateMediaFolder() {
+  return useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", "/api/media/folders", { name });
+      return res.json() as Promise<MediaFolder>;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/media/folders"] }),
+  });
+}
+
+export function useRenameMediaFolder() {
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: number; name: string }) => {
+      const res = await apiRequest("PATCH", `/api/media/folders/${id}`, { name });
+      return res.json() as Promise<MediaFolder>;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/media/folders"] }),
+  });
+}
+
+export function useDeleteMediaFolder() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/media/folders/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/media/folders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/media"] });
+    },
+  });
+}
+
+export function useMoveMediaItem() {
+  return useMutation({
+    mutationFn: async ({ id, folderId }: { id: number; folderId: number | null }) => {
+      const res = await apiRequest("PATCH", `/api/media/${id}`, { folderId });
+      return res.json() as Promise<MediaItem>;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/media"] }),
   });

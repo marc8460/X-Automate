@@ -35,6 +35,17 @@ export const insertTweetSchema = createInsertSchema(tweets).omit({ id: true });
 export type InsertTweet = z.infer<typeof insertTweetSchema>;
 export type Tweet = typeof tweets.$inferSelect;
 
+export const mediaFolders = pgTable("media_folders", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+});
+
+export const insertMediaFolderSchema = createInsertSchema(mediaFolders).omit({ id: true });
+export type InsertMediaFolder = z.infer<typeof insertMediaFolderSchema>;
+export type MediaFolder = typeof mediaFolders.$inferSelect;
+
 export const mediaItems = pgTable("media_items", {
   id: serial("id").primaryKey(),
   userId: text("user_id"),
@@ -44,6 +55,7 @@ export const mediaItems = pgTable("media_items", {
   usageCount: integer("usage_count").notNull().default(0),
   lastUsed: text("last_used").notNull().default("Never"),
   risk: text("risk").notNull().default("safe"),
+  folderId: integer("folder_id"),
 });
 
 export const insertMediaItemSchema = createInsertSchema(mediaItems).omit({ id: true });
