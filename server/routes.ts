@@ -1259,7 +1259,7 @@ Return ONLY valid JSON with no markdown:
     try {
       const [profile, posts] = await Promise.all([
         getThreadsProfile(token),
-        getThreadsPosts(token, 200),
+        getThreadsPosts(token, 2000),
       ]);
 
       const now = new Date();
@@ -1267,8 +1267,9 @@ Return ONLY valid JSON with no markdown:
       const yesterdayStart = new Date(todayStart);
       yesterdayStart.setDate(yesterdayStart.getDate() - 1);
 
+      const insightsLimit = 50;
       const insightResults = await Promise.all(
-        posts.map((p: any) => getThreadsPostMetrics(p.id, token).catch(() => null))
+        posts.slice(0, insightsLimit).map((p: any) => getThreadsPostMetrics(p.id, token).catch(() => null))
       );
 
       const enrichedPosts = posts.map((p: any, idx: number) => {
@@ -1277,7 +1278,7 @@ Return ONLY valid JSON with no markdown:
         if (ts >= todayStart) dateGroup = "Today";
         else if (ts >= yesterdayStart) dateGroup = "Yesterday";
 
-        const insights = insightResults[idx];
+        const insights = idx < insightsLimit ? insightResults[idx] : null;
 
         return {
           id: p.id,

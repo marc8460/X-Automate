@@ -38,7 +38,7 @@ export async function getThreadsUserMetrics(accessToken?: string | null) {
   return res.json();
 }
 
-export async function getThreadsPosts(accessToken?: string | null, maxPosts = 200) {
+export async function getThreadsPosts(accessToken?: string | null, maxPosts = 2000) {
   const token = accessToken || await getThreadsAccessToken();
   if (!token) return [];
 
