@@ -488,15 +488,34 @@ function createFloatingWidget() {
 
 function parseMetric(text) {
   if (!text) return 0;
-  const cleaned = text.replace(/,/g, '').trim();
-  const match = cleaned.match(/(\d+(\.\d+)?)\s*([KMB])?/i);
-  if (!match) return 0;
-  let val = parseFloat(match[1]);
-  const suffix = (match[3] || '').toUpperCase();
-  if (suffix === 'K') val *= 1000;
-  else if (suffix === 'M') val *= 1000000;
-  else if (suffix === 'B') val *= 1000000000;
-  return val;
+  let cleaned = text.trim();
+
+  const localizedMatch = cleaned.match(/^([\d.,]+)\s*(tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|k|m|b)$/i);
+  if (localizedMatch) {
+    let numStr = localizedMatch[1].replace(/\./g, '').replace(',', '.');
+    let val = parseFloat(numStr);
+    if (isNaN(val)) return 0;
+    const unit = localizedMatch[2].toLowerCase().replace('.', '');
+    if (unit === 'k' || unit === 'tusind' || unit === 'tusinde' || unit === 'thousand' || unit === 'tys') val *= 1000;
+    else if (unit === 'm' || unit === 'mio' || unit === 'million' || unit === 'mil') val *= 1000000;
+    else if (unit === 'b' || unit === 'mia' || unit === 'billion') val *= 1000000000;
+    return Math.round(val);
+  }
+
+  let numOnly = cleaned.replace(/\./g, '').replace(',', '.');
+  const simpleMatch = numOnly.match(/^([\d.]+)\s*([KMB])?$/i);
+  if (simpleMatch) {
+    let val = parseFloat(simpleMatch[1]);
+    if (isNaN(val)) return 0;
+    const suffix = (simpleMatch[2] || '').toUpperCase();
+    if (suffix === 'K') val *= 1000;
+    else if (suffix === 'M') val *= 1000000;
+    else if (suffix === 'B') val *= 1000000000;
+    return Math.round(val);
+  }
+
+  const anyNum = cleaned.replace(/[^\d]/g, '');
+  return anyNum ? parseInt(anyNum, 10) : 0;
 }
 
 function calculateViralScore(metrics, minutesSincePost) {
@@ -556,12 +575,12 @@ function extractMetricsFromActionBar(actionBar) {
   const buttons = Array.from(actionBar.children);
   if (buttons.length >= 2) {
     const likeText = buttons[0].textContent.trim();
-    const likeNum = likeText.match(/(\d[\d,.]*\s*[KMBkmb]?)/);
-    if (likeNum) likes = parseMetric(likeNum[1]);
+    const likeMatch = likeText.match(/([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/i);
+    if (likeMatch) likes = parseMetric(likeMatch[1]);
 
     const commentText = buttons[1].textContent.trim();
-    const commentNum = commentText.match(/(\d[\d,.]*\s*[KMBkmb]?)/);
-    if (commentNum) replies = parseMetric(commentNum[1]);
+    const commentMatch = commentText.match(/([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/i);
+    if (commentMatch) replies = parseMetric(commentMatch[1]);
   }
   return { likes, replies, views: 0 };
 }
@@ -737,18 +756,18 @@ function openAnalysisPanel(tweetData) {
       <div class="aura-score-breakdown">
         <div class="aura-score-item">
           <div style="font-size: 10px; color: #999;">ENGAGEMENT</div>
-          <div style="font-weight: bold; color: ${getScoreColor(tweetData.scoreBreakdown.engagement)}">${tweetData.scoreBreakdown.engagement}</div>
-          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${tweetData.scoreBreakdown.engagement}%; background: ${getScoreColor(tweetData.scoreBreakdown.engagement)}"></div></div>
+          <div style="font-weight: bold; color: ${getScoreColor((tweetData.scoreBreakdown || {}).engagement || 0)}">${(tweetData.scoreBreakdown || {}).engagement || 0}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${(tweetData.scoreBreakdown || {}).engagement || 0}%; background: ${getScoreColor((tweetData.scoreBreakdown || {}).engagement || 0)}"></div></div>
         </div>
         <div class="aura-score-item">
           <div style="font-size: 10px; color: #999;">VELOCITY</div>
-          <div style="font-weight: bold; color: ${getScoreColor(tweetData.scoreBreakdown.velocity)}">${tweetData.scoreBreakdown.velocity}</div>
-          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${tweetData.scoreBreakdown.velocity}%; background: ${getScoreColor(tweetData.scoreBreakdown.velocity)}"></div></div>
+          <div style="font-weight: bold; color: ${getScoreColor((tweetData.scoreBreakdown || {}).velocity || 0)}">${(tweetData.scoreBreakdown || {}).velocity || 0}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${(tweetData.scoreBreakdown || {}).velocity || 0}%; background: ${getScoreColor((tweetData.scoreBreakdown || {}).velocity || 0)}"></div></div>
         </div>
         <div class="aura-score-item">
           <div style="font-size: 10px; color: #999;">OPPORTUNITY</div>
-          <div style="font-weight: bold; color: ${getScoreColor(tweetData.scoreBreakdown.competition)}">${tweetData.scoreBreakdown.competition}</div>
-          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${tweetData.scoreBreakdown.competition}%; background: ${getScoreColor(tweetData.scoreBreakdown.competition)}"></div></div>
+          <div style="font-weight: bold; color: ${getScoreColor((tweetData.scoreBreakdown || {}).competition || 0)}">${(tweetData.scoreBreakdown || {}).competition || 0}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${(tweetData.scoreBreakdown || {}).competition || 0}%; background: ${getScoreColor((tweetData.scoreBreakdown || {}).competition || 0)}"></div></div>
         </div>
       </div>
 
