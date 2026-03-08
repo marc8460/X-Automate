@@ -152,27 +152,29 @@ async function findAuraTab() {
 
 async function handleLogActivity(platform, action) {
   try {
-    const storage = await chrome.storage.local.get(['auraBaseUrl']);
-    const baseUrl = storage.auraBaseUrl;
-    if (!baseUrl) {
-      return { error: 'Aura dashboard URL not configured. Open your dashboard once to connect.' };
+    const auraTab = await findAuraTab();
+    if (!auraTab) {
+      return { error: 'Aura dashboard not open.' };
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const url = baseUrl.replace(/\/$/, '') + '/api/extension/activity';
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ platform, action, localDate: today })
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve({ error: 'Activity log timed out.' }), 10000);
+      chrome.tabs.sendMessage(auraTab.id, {
+        action: 'aura:api-proxy',
+        endpoint: '/api/extension/activity',
+        method: 'POST',
+        body: { platform, action, localDate: today }
+      }, (response) => {
+        clearTimeout(timeout);
+        if (chrome.runtime.lastError) {
+          resolve({ error: 'Could not reach Aura dashboard.' });
+          return;
+        }
+        resolve(response || { success: true });
+      });
     });
-
-    if (!resp.ok) {
-      return { error: `API error: ${resp.status}` };
-    }
-
-    return await resp.json();
   } catch (error) {
     return { error: error.message };
   }
@@ -187,10 +189,7 @@ async function handleFetchMediaVault() {
     }
 
     const url = baseUrl.replace(/\/$/, '') + '/api/extension/media-vault';
-    const resp = await fetch(url, {
-      method: 'GET',
-      credentials: 'include'
-    });
+    const resp = await fetch(url, { method: 'GET' });
 
     if (!resp.ok) {
       return { error: `API error: ${resp.status}` };
@@ -214,7 +213,6 @@ async function handleGenerateReplies(data) {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(data.payload)
     });
 
