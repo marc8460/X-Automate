@@ -187,9 +187,9 @@ export async function replyToThreadsComment(mediaId: string, replyText: string, 
   const { id: creationId } = await containerRes.json();
   console.log(`[threads/reply] Container created: ${creationId}, waiting for FINISHED status...`);
 
-  const maxAttempts = 10;
+  const maxAttempts = 6;
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, i === 0 ? 500 : 800));
     const statusRes = await fetch(
       `https://graph.threads.net/v1.0/${creationId}?fields=status,error_message&access_token=${token}`
     );
