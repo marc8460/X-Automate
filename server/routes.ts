@@ -1226,11 +1226,17 @@ Return ONLY valid JSON with no markdown:
       const yesterdayStart = new Date(todayStart);
       yesterdayStart.setDate(yesterdayStart.getDate() - 1);
 
-      const enrichedPosts = posts.map((p: any) => {
+      const insightResults = await Promise.all(
+        posts.map((p: any) => getThreadsPostMetrics(p.id, token).catch(() => null))
+      );
+
+      const enrichedPosts = posts.map((p: any, idx: number) => {
         const ts = new Date(p.timestamp);
         let dateGroup = ts.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
         if (ts >= todayStart) dateGroup = "Today";
         else if (ts >= yesterdayStart) dateGroup = "Yesterday";
+
+        const insights = insightResults[idx];
 
         return {
           id: p.id,
@@ -1241,10 +1247,11 @@ Return ONLY valid JSON with no markdown:
           thumbnail_url: p.thumbnail_url,
           shortcode: p.shortcode,
           is_quote_post: p.is_quote_post,
-          likes: p.like_count ?? 0,
-          replies: p.reply_count ?? 0,
-          quotes: p.quote_count ?? 0,
-          reposts: p.repost_count ?? 0,
+          likes: insights?.likes ?? p.like_count ?? 0,
+          replies: insights?.replies ?? p.reply_count ?? 0,
+          quotes: insights?.quotes ?? p.quote_count ?? 0,
+          reposts: insights?.reposts ?? p.repost_count ?? 0,
+          views: insights?.views ?? 0,
           dateGroup,
         };
       });
@@ -1282,6 +1289,7 @@ Return ONLY valid JSON with no markdown:
           username: c.username ?? "unknown",
           media_url: c.media_url,
           thumbnail_url: c.thumbnail_url,
+          replied_to: c.replied_to?.id ?? null,
         })),
       });
     } catch (err: any) {

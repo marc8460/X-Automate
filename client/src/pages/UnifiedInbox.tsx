@@ -58,6 +58,24 @@ function autoExpand(el: HTMLTextAreaElement) {
   el.style.height = `${el.scrollHeight}px`;
 }
 
+function usernameColor(username: string): string {
+  let hash = 0;
+  for (let i = 0; i < username.length; i++) {
+    hash = username.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const colors = [
+    "bg-pink-500/20 text-pink-300 border-pink-500/30",
+    "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+    "bg-rose-500/20 text-rose-300 border-rose-500/30",
+    "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+  ];
+  return colors[Math.abs(hash) % colors.length];
+}
+
 function sentimentColor(s: string) {
   if (s === "positive") return "text-emerald-400 border-emerald-400/30 bg-emerald-400/10";
   if (s === "negative") return "text-red-400 border-red-400/30 bg-red-400/10";
@@ -487,7 +505,7 @@ export default function UnifiedInbox() {
                               <img
                                 src={post.media_url}
                                 alt="Post media"
-                                className="w-full h-auto max-h-[400px] object-cover"
+                                className="w-full h-auto object-contain"
                                 data-testid={`img-post-media-${post.id}`}
                               />
                             </div>
@@ -510,6 +528,12 @@ export default function UnifiedInbox() {
                               <Repeat2 size={16} />
                               <span className="text-xs font-medium">{post.reposts}</span>
                             </div>
+                            {post.views > 0 && (
+                              <div className="flex items-center gap-1.5 hover:text-foreground transition-colors">
+                                <Eye size={16} />
+                                <span className="text-xs font-medium">{post.views}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -550,139 +574,177 @@ export default function UnifiedInbox() {
                                   </div>
                                 ) : (
                                   <div className="space-y-6">
-                                    {commentsData.comments.map((comment) => {
-                                      const card = threadsCardStates[comment.id] ?? EMPTY_CARD;
-                                      const hasReply = !!card.generatedReply;
+                                    {(() => {
+                                      const allComments = commentsData.comments;
+                                      const ownUsername = threadsInbox?.profile?.username;
+                                      const commentMap = new Map(allComments.map(c => [c.id, c]));
+                                      const childrenMap = new Map<string, typeof allComments>();
+                                      const topLevel: typeof allComments = [];
 
-                                      return (
-                                        <div key={comment.id} className="flex flex-col gap-3 group/comment" data-testid={`threads-comment-${comment.id}`}>
-                                          <div className="flex gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold shrink-0 border border-border/20">
-                                              {comment.username.charAt(0).toUpperCase()}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                              <div className="flex items-center gap-2 mb-1">
-                                                <span className="text-xs font-bold" data-testid={`text-comment-username-${comment.id}`}>
-                                                  {comment.username}
-                                                </span>
-                                                <span className="text-[10px] text-muted-foreground/50">
-                                                  {formatTime(comment.timestamp)}
-                                                </span>
+                                      for (const c of allComments) {
+                                        if (c.replied_to && commentMap.has(c.replied_to)) {
+                                          const children = childrenMap.get(c.replied_to) || [];
+                                          children.push(c);
+                                          childrenMap.set(c.replied_to, children);
+                                        } else {
+                                          topLevel.push(c);
+                                        }
+                                      }
+
+                                      const renderComment = (comment: typeof allComments[0], isChild: boolean) => {
+                                        const isOwn = ownUsername && comment.username === ownUsername;
+                                        const card = threadsCardStates[comment.id] ?? EMPTY_CARD;
+                                        const hasReply = !!card.generatedReply;
+                                        const children = childrenMap.get(comment.id) || [];
+
+                                        return (
+                                          <div key={comment.id} className={`flex flex-col gap-3 group/comment ${isChild ? "ml-11 pl-4 border-l-2 border-border/20" : ""}`} data-testid={`threads-comment-${comment.id}`}>
+                                            <div className="flex gap-3">
+                                              {isOwn && threadsInbox?.profile?.profilePicUrl ? (
+                                                <img
+                                                  src={threadsInbox.profile.profilePicUrl}
+                                                  alt={comment.username}
+                                                  className="w-8 h-8 rounded-full shrink-0 border border-border/20"
+                                                />
+                                              ) : (
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 border ${usernameColor(comment.username)}`}>
+                                                  {comment.username.charAt(0).toUpperCase()}
+                                                </div>
+                                              )}
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                  <span className="text-xs font-bold" data-testid={`text-comment-username-${comment.id}`}>
+                                                    {comment.username}
+                                                  </span>
+                                                  {isOwn && (
+                                                    <Badge variant="secondary" className="bg-primary/10 text-primary text-[9px] h-4 px-1 border-0">
+                                                      Author
+                                                    </Badge>
+                                                  )}
+                                                  <span className="text-[10px] text-muted-foreground/50">
+                                                    {formatTime(comment.timestamp)}
+                                                  </span>
+                                                </div>
+                                                <p className={`text-sm ${isOwn ? "text-primary/80 italic" : "text-foreground/80"}`} data-testid={`text-comment-content-${comment.id}`}>
+                                                  {comment.text}
+                                                </p>
                                               </div>
-                                              <p className="text-sm text-foreground/80" data-testid={`text-comment-content-${comment.id}`}>
-                                                {comment.text}
-                                              </p>
                                             </div>
-                                          </div>
 
-                                          {/* AI Reply UI */}
-                                          <div className="ml-11 space-y-3">
-                                            {!hasReply && !card.isGenerating && !card.isSent && (
-                                              <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 text-[11px] font-semibold gap-1.5 border-primary/20 hover:bg-primary/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-all group/gen"
-                                                onClick={() => handleThreadsGenerate(post.id, comment, post.text)}
-                                                data-testid={`button-generate-threads-reply-${comment.id}`}
-                                              >
-                                                <Sparkles size={12} className="group-hover/gen:animate-pulse" />
-                                                Generate Reply
-                                              </Button>
-                                            )}
+                                            {!isOwn && (
+                                              <div className="ml-11 space-y-3">
+                                                {!hasReply && !card.isGenerating && !card.isSent && (
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-8 text-[11px] font-semibold gap-1.5 border-primary/20 hover:bg-primary/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-all group/gen"
+                                                    onClick={() => handleThreadsGenerate(post.id, comment, post.text)}
+                                                    data-testid={`button-generate-threads-reply-${comment.id}`}
+                                                  >
+                                                    <Sparkles size={12} className="group-hover/gen:animate-pulse" />
+                                                    Generate Reply
+                                                  </Button>
+                                                )}
 
-                                            {card.isGenerating && (
-                                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
-                                                <RefreshCw size={12} className="animate-spin text-primary" />
-                                                Analyzing tone & context…
-                                              </div>
-                                            )}
+                                                {card.isGenerating && (
+                                                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
+                                                    <RefreshCw size={12} className="animate-spin text-primary" />
+                                                    Analyzing tone & context…
+                                                  </div>
+                                                )}
 
-                                            {hasReply && !card.isGenerating && (
-                                              <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                <div className="p-3 bg-primary/5 rounded-lg border border-primary/10 relative">
-                                                  <div className="absolute -left-1.5 top-4 w-3 h-3 bg-[#0a0a0a] border-l border-b border-primary/10 rotate-45" />
-                                                  <div className="flex items-start gap-2">
-                                                    <Sparkles className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-                                                    {card.isEditing ? (
-                                                      <textarea
-                                                        className={`${promptTextareaClass} bg-transparent border-0 p-0 focus:ring-0 flex-1 text-sm text-primary-foreground min-h-[60px]`}
-                                                        value={card.editedReply}
-                                                        onChange={(e) => {
-                                                          updateThreadsCard(comment.id, { editedReply: e.target.value });
-                                                          autoExpand(e.target);
-                                                        }}
-                                                        onInput={(e) => autoExpand(e.currentTarget as HTMLTextAreaElement)}
-                                                        autoFocus
-                                                      />
-                                                    ) : (
-                                                      <p className="text-sm text-primary-foreground/90 font-medium leading-relaxed flex-1" data-testid={`text-threads-reply-${comment.id}`}>
-                                                        {card.editedReply || card.generatedReply}
-                                                      </p>
+                                                {hasReply && !card.isGenerating && (
+                                                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                    <div className="p-3 bg-primary/5 rounded-lg border border-primary/10 relative">
+                                                      <div className="absolute -left-1.5 top-4 w-3 h-3 bg-[#0a0a0a] border-l border-b border-primary/10 rotate-45" />
+                                                      <div className="flex items-start gap-2">
+                                                        <Sparkles className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                                                        {card.isEditing ? (
+                                                          <textarea
+                                                            className={`${promptTextareaClass} bg-transparent border-0 p-0 focus:ring-0 flex-1 text-sm text-primary-foreground min-h-[60px]`}
+                                                            value={card.editedReply}
+                                                            onChange={(e) => {
+                                                              updateThreadsCard(comment.id, { editedReply: e.target.value });
+                                                              autoExpand(e.target);
+                                                            }}
+                                                            onInput={(e) => autoExpand(e.currentTarget as HTMLTextAreaElement)}
+                                                            autoFocus
+                                                          />
+                                                        ) : (
+                                                          <p className="text-sm text-primary-foreground/90 font-medium leading-relaxed flex-1" data-testid={`text-threads-reply-${comment.id}`}>
+                                                            {card.editedReply || card.generatedReply}
+                                                          </p>
+                                                        )}
+                                                      </div>
+                                                    </div>
+
+                                                    {!card.isSent && (
+                                                      <div className="flex items-center gap-2">
+                                                        <Button
+                                                          variant="ghost"
+                                                          size="sm"
+                                                          className="h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-secondary/40 gap-1.5"
+                                                          onClick={() => updateThreadsCard(comment.id, { isEditing: !card.isEditing })}
+                                                          data-testid={`button-edit-threads-reply-${comment.id}`}
+                                                        >
+                                                          {card.isEditing ? <><Check size={10} /> Save</> : <><Pencil size={10} /> Edit</>}
+                                                        </Button>
+                                                        <Button
+                                                          variant="ghost"
+                                                          size="sm"
+                                                          className="h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-secondary/40 gap-1.5"
+                                                          onClick={() => handleThreadsGenerate(post.id, comment, post.text)}
+                                                          disabled={card.isGenerating}
+                                                          data-testid={`button-regenerate-threads-reply-${comment.id}`}
+                                                        >
+                                                          <RefreshCw size={10} className={card.isGenerating ? "animate-spin" : ""} />
+                                                          Regenerate
+                                                        </Button>
+                                                        <Button
+                                                          variant="ghost"
+                                                          size="sm"
+                                                          className="h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-red-400 hover:bg-red-400/10 gap-1.5 ml-auto"
+                                                          onClick={() => updateThreadsCard(comment.id, { isSkipped: true, generatedReply: "" })}
+                                                          data-testid={`button-skip-threads-reply-${comment.id}`}
+                                                        >
+                                                          <SkipForward size={10} />
+                                                          Skip
+                                                        </Button>
+                                                        <Button
+                                                          size="sm"
+                                                          className="h-7 text-[10px] font-bold uppercase tracking-wider gap-1.5 bg-primary/20 text-primary hover:bg-primary/30 border border-primary/20"
+                                                          onClick={() => handleThreadsSend(post.id, comment.id)}
+                                                          disabled={card.isSending}
+                                                          data-testid={`button-send-threads-reply-${comment.id}`}
+                                                        >
+                                                          {card.isSending ? (
+                                                            <RefreshCw size={10} className="animate-spin" />
+                                                          ) : (
+                                                            <Send size={10} />
+                                                          )}
+                                                          {card.isSending ? "Sending..." : "Send Reply"}
+                                                        </Button>
+                                                      </div>
+                                                    )}
+
+                                                    {card.isSent && (
+                                                      <div className="flex items-center gap-2 text-[11px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-400/10 w-fit px-2 py-1 rounded border border-emerald-400/20">
+                                                        <Check size={12} />
+                                                        Sent
+                                                      </div>
                                                     )}
                                                   </div>
-                                                </div>
-
-                                                {!card.isSent && (
-                                                  <div className="flex items-center gap-2">
-                                                    <Button
-                                                      variant="ghost"
-                                                      size="sm"
-                                                      className="h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-secondary/40 gap-1.5"
-                                                      onClick={() => updateThreadsCard(comment.id, { isEditing: !card.isEditing })}
-                                                      data-testid={`button-edit-threads-reply-${comment.id}`}
-                                                    >
-                                                      {card.isEditing ? <><Check size={10} /> Save</> : <><Pencil size={10} /> Edit</>}
-                                                    </Button>
-                                                    <Button
-                                                      variant="ghost"
-                                                      size="sm"
-                                                      className="h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-secondary/40 gap-1.5"
-                                                      onClick={() => handleThreadsGenerate(post.id, comment, post.text)}
-                                                      disabled={card.isGenerating}
-                                                      data-testid={`button-regenerate-threads-reply-${comment.id}`}
-                                                    >
-                                                      <RefreshCw size={10} className={card.isGenerating ? "animate-spin" : ""} />
-                                                      Regenerate
-                                                    </Button>
-                                                    <Button
-                                                      variant="ghost"
-                                                      size="sm"
-                                                      className="h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-red-400 hover:bg-red-400/10 gap-1.5 ml-auto"
-                                                      onClick={() => updateThreadsCard(comment.id, { isSkipped: true, generatedReply: "" })}
-                                                      data-testid={`button-skip-threads-reply-${comment.id}`}
-                                                    >
-                                                      <SkipForward size={10} />
-                                                      Skip
-                                                    </Button>
-                                                    <Button
-                                                      size="sm"
-                                                      className="h-7 text-[10px] font-bold uppercase tracking-wider gap-1.5 bg-primary/20 text-primary hover:bg-primary/30 border border-primary/20"
-                                                      onClick={() => handleThreadsSend(post.id, comment.id)}
-                                                      disabled={card.isSending}
-                                                      data-testid={`button-send-threads-reply-${comment.id}`}
-                                                    >
-                                                      {card.isSending ? (
-                                                        <RefreshCw size={10} className="animate-spin" />
-                                                      ) : (
-                                                        <Send size={10} />
-                                                      )}
-                                                      {card.isSending ? "Sending..." : "Send Reply"}
-                                                    </Button>
-                                                  </div>
-                                                )}
-
-                                                {card.isSent && (
-                                                  <div className="flex items-center gap-2 text-[11px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-400/10 w-fit px-2 py-1 rounded border border-emerald-400/20">
-                                                    <Check size={12} />
-                                                    Sent
-                                                  </div>
                                                 )}
                                               </div>
                                             )}
+
+                                            {children.map(child => renderComment(child, true))}
                                           </div>
-                                        </div>
-                                      );
-                                    })}
+                                        );
+                                      };
+
+                                      return topLevel.map(c => renderComment(c, false));
+                                    })()}
                                   </div>
                                 )}
                               </div>

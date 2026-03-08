@@ -165,6 +165,7 @@ export type ThreadsInboxData = {
     replies: number;
     quotes: number;
     reposts: number;
+    views: number;
     dateGroup: string;
   }[];
   profile: {
@@ -189,6 +190,7 @@ export type ThreadsComment = {
   username: string;
   media_url?: string;
   thumbnail_url?: string;
+  replied_to?: string | null;
 };
 
 export function useThreadsComments(postId: string | null) {
