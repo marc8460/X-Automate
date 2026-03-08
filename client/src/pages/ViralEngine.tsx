@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { usePlatform } from "@/contexts/PlatformContext";
 import { useAnalyzePost, useScanScreenshot, useTwitterHomeTimeline, useAnalyzeFeedPost } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -109,8 +110,16 @@ const promptTextareaClass =
   "focus:shadow-[0_0_14px_hsl(288deg_100%_65%/0.12)] transition-all duration-150";
 
 export default function ViralEngine() {
+  const { selectedPlatform } = usePlatform();
+  const isThreadsMode = selectedPlatform === "threads";
   const [step, setStep] = useState<Step>("analyze");
-  const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>("screenshot");
+  const [analyzeMode, setAnalyzeMode] = useState<AnalyzeMode>(isThreadsMode ? "feed" : "screenshot");
+
+  // Sync default mode when platform changes
+  useEffect(() => {
+    setStep("analyze");
+    setAnalyzeMode(isThreadsMode ? "feed" : "screenshot");
+  }, [isThreadsMode]);
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -398,25 +407,37 @@ export default function ViralEngine() {
 
             {/* Mode toggle */}
             <div className="flex gap-1 p-1 bg-secondary/30 rounded-lg w-fit">
-              <button onClick={() => setAnalyzeMode("screenshot")}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
-                  analyzeMode === "screenshot" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground"
-                }`} data-testid="button-mode-screenshot">
-                <Camera size={14} /> Screenshot Scan
-              </button>
+              {!isThreadsMode && (
+                <button onClick={() => setAnalyzeMode("screenshot")}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                    analyzeMode === "screenshot" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground"
+                  }`} data-testid="button-mode-screenshot">
+                  <Camera size={14} /> Screenshot Scan
+                </button>
+              )}
               <button onClick={() => setAnalyzeMode("feed")}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
                   analyzeMode === "feed" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground"
                 }`} data-testid="button-mode-feed">
                 <LayoutGrid size={14} /> Browse Feed
               </button>
+              {!isThreadsMode && (
               <button onClick={() => setAnalyzeMode("manual")}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
                   analyzeMode === "manual" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground"
                 }`} data-testid="button-mode-manual">
                 <MessageSquare size={14} /> Manual Entry
               </button>
+              )}
             </div>
+
+            {/* X platform notice */}
+            {!isThreadsMode && (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30 border border-border/40 text-sm text-muted-foreground">
+                <Zap size={15} className="text-primary mt-0.5 shrink-0" />
+                <span>X doesn't support feed access without an expensive API tier. Use the <strong className="text-foreground">Aura Browser Extension</strong> for the best engagement workflow.</span>
+              </div>
+            )}
 
             {/* Hero: Screenshot Scan */}
             {analyzeMode === "screenshot" && (

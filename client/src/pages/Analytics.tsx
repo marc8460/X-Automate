@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useTwitterMetrics, useTwitterPeakTimes, useActivityLogs } from "@/lib/hooks";
 import { PlatformBadge } from "@/components/platform/PlatformBadge";
+import { usePlatform } from "@/contexts/PlatformContext";
 
 type AnalyticsTab = "x" | "threads" | "compare";
 
@@ -97,7 +98,9 @@ function PlatformEmptyState({ platform }: { platform: "threads" }) {
 }
 
 export default function Analytics() {
-  const [tab, setTab] = useState<AnalyticsTab>("x");
+  const [isCompare, setIsCompare] = useState(false);
+  const { selectedPlatform } = usePlatform();
+  const tab: AnalyticsTab = isCompare ? "compare" : (selectedPlatform === "threads" ? "threads" : "x");
   const { data: metrics, isLoading: metricsLoading } = useTwitterMetrics();
   const { data: peakData, isLoading: peakLoading } = useTwitterPeakTimes();
   const { data: logs } = useActivityLogs();
@@ -125,32 +128,18 @@ export default function Analytics() {
           <p className="text-muted-foreground mt-1">Unified performance metrics across all platforms.</p>
         </div>
 
-        {/* Platform tab selector */}
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary/30 border border-border/40 w-fit">
-          {(["x", "threads", "compare"] as AnalyticsTab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                tab === t
-                  ? "bg-primary/20 text-primary shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t === "compare" ? (
-                <>
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  Compare
-                </>
-              ) : (
-                <>
-                  <PlatformBadge platform={t} size="xs" />
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </>
-              )}
-            </button>
-          ))}
-        </div>
+        {/* Compare toggle */}
+        <button
+          onClick={() => setIsCompare((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border ${
+            isCompare
+              ? "bg-primary/20 text-primary border-primary/30 shadow-sm"
+              : "text-muted-foreground hover:text-foreground border-border/40 bg-secondary/30"
+          }`}
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          Compare Platforms
+        </button>
       </div>
 
       {/* X tab */}

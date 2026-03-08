@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { CheckCircle2, Target, Zap, RefreshCw } from "lucide-react";
 import { useDailyGoals, useLogActivity, type DailyGoal } from "@/lib/hooks";
+import { usePlatform } from "@/contexts/PlatformContext";
 
 type Platform = "x" | "threads" | "instagram";
 
@@ -151,7 +152,10 @@ function GoalCardSkeleton() {
 }
 
 export default function DailyGoals() {
-  const [platform, setPlatform] = useState<Platform>("x");
+  const { selectedPlatform } = usePlatform();
+  const platform = (selectedPlatform === "all" || !["x", "threads", "instagram"].includes(selectedPlatform)
+    ? "x"
+    : selectedPlatform) as Platform;
   const [logAction, setLogAction] = useState<string>("");
 
   const { data, isLoading, refetch, isFetching } = useDailyGoals(platform);
@@ -227,27 +231,13 @@ export default function DailyGoals() {
         )}
       </motion.div>
 
-      {/* Platform selector */}
+      {/* Refresh button */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3, delay: 0.1 }}
-        className="flex items-center gap-2 flex-wrap"
+        className="flex items-center"
       >
-        {(["x", "threads", "instagram"] as Platform[]).map((p) => (
-          <button
-            key={p}
-            onClick={() => setPlatform(p)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-150 ${
-              platform === p
-                ? "bg-primary text-primary-foreground shadow-[0_0_12px_rgba(217,70,239,0.4)]"
-                : "bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            {PLATFORM_LABELS[p]}
-          </button>
-        ))}
-
         <button
           onClick={() => refetch()}
           disabled={isFetching}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { usePlatform } from "@/contexts/PlatformContext";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -114,7 +115,17 @@ function ThreadsPreview({ text, imageUrl }: { text: string; imageUrl?: string | 
 // --- Main Composer ---
 
 export default function Composer() {
-  const [composerTab, setComposerTab] = useState<ComposerTab>("x");
+  const { selectedPlatform } = usePlatform();
+  const [composerTab, setComposerTab] = useState<ComposerTab>(
+    selectedPlatform === "threads" ? "threads" : "x"
+  );
+
+  // Sync composerTab when global platform changes
+  useEffect(() => {
+    if (selectedPlatform === "x") setComposerTab("x");
+    else if (selectedPlatform === "threads") setComposerTab("threads");
+    // Other platforms are not available yet, default to "x"
+  }, [selectedPlatform]);
   const [selectedStyle, setSelectedStyle] = useState(TWEET_STYLES[0]);
   const [showVault, setShowVault] = useState<number | null>(null);
   const [draftText, setDraftText] = useState("");
@@ -307,22 +318,17 @@ export default function Composer() {
           <p className="text-muted-foreground mt-1">Generate, refine, and schedule content across platforms.</p>
         </div>
 
-        {/* Platform tab selector */}
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary/30 border border-border/40 w-fit">
-          {(["x", "threads", "both"] as ComposerTab[]).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setComposerTab(tab)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                composerTab === tab
-                  ? "bg-primary/20 text-primary shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab === "both" ? "Both" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </div>
+        {/* "Post to Both" toggle — available platforms are set globally */}
+        <button
+          onClick={() => setComposerTab((t) => (t === "both" ? (selectedPlatform === "threads" ? "threads" : "x") : "both"))}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border ${
+            composerTab === "both"
+              ? "bg-primary/20 text-primary border-primary/30 shadow-sm"
+              : "text-muted-foreground hover:text-foreground border-border/40 bg-secondary/30"
+          }`}
+        >
+          Post to Both Platforms
+        </button>
       </div>
 
 

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { ChevronDown, Globe, Check } from "lucide-react";
+import { ChevronDown, Check } from "lucide-react";
 import { usePlatform } from "@/contexts/PlatformContext";
 import { cn } from "@/lib/utils";
-import type { SelectedPlatform } from "@/types/platform";
+import type { Platform } from "@/types/platform";
 
 function XIcon() {
   return (
@@ -20,12 +20,12 @@ function ThreadsIcon() {
   );
 }
 
-const OPTIONS: { value: SelectedPlatform; label: string; icon: React.ReactNode; available: boolean }[] = [
-  { value: "all", label: "All Platforms", icon: <Globe className="w-3.5 h-3.5 shrink-0" />, available: true },
-  { value: "x", label: "X", icon: <XIcon />, available: true },
-  { value: "threads", label: "Threads", icon: <ThreadsIcon />, available: true },
+const OPTIONS: { value: Platform; label: string; icon: React.ReactNode; available: boolean }[] = [
+  { value: "x",         label: "X",         icon: <XIcon />,                                                                                         available: true  },
+  { value: "threads",   label: "Threads",   icon: <ThreadsIcon />,                                                                                   available: true  },
   { value: "instagram", label: "Instagram", icon: <span className="w-3.5 h-3.5 text-[9px] font-bold flex items-center justify-center shrink-0">IG</span>, available: false },
-  { value: "tiktok", label: "TikTok", icon: <span className="w-3.5 h-3.5 text-[9px] font-bold flex items-center justify-center shrink-0">TT</span>, available: false },
+  { value: "tiktok",    label: "TikTok",    icon: <span className="w-3.5 h-3.5 text-[9px] font-bold flex items-center justify-center shrink-0">TT</span>, available: false },
+  { value: "reddit",    label: "Reddit",    icon: <span className="w-3.5 h-3.5 text-[9px] font-bold flex items-center justify-center shrink-0">Re</span>, available: false },
 ];
 
 export function PlatformSwitcher() {
@@ -47,7 +47,7 @@ export function PlatformSwitcher() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center h-8 gap-2 px-3 border border-border/50 bg-secondary/30 hover:bg-secondary/60 text-sm font-medium min-w-[120px] justify-between rounded-md transition-colors"
+        className="inline-flex items-center h-8 gap-2 px-3 border border-border/50 bg-secondary/30 hover:bg-secondary/60 text-sm font-medium min-w-[110px] justify-between rounded-md transition-colors"
         data-testid="button-platform-switcher"
       >
         <span className="flex items-center gap-2">
@@ -58,10 +58,10 @@ export function PlatformSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95">
+        <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95">
           {OPTIONS.map((opt, i) => (
             <div key={opt.value}>
-              {(i === 1 || i === 3) && <div className="-mx-1 my-1 h-px bg-muted" />}
+              {i === 2 && <div className="-mx-1 my-1 h-px bg-muted" />}
               <button
                 type="button"
                 disabled={!opt.available}

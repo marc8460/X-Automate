@@ -10,7 +10,7 @@ interface PlatformContextValue {
 const PlatformContext = createContext<PlatformContextValue | null>(null);
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
-  const [selectedPlatform, setSelectedPlatform] = useState<SelectedPlatform>("all");
+  const [selectedPlatform, setSelectedPlatform] = useState<SelectedPlatform>("x");
 
   const isVisible = (platform: Platform) =>
     selectedPlatform === "all" || selectedPlatform === platform;
