@@ -823,7 +823,7 @@ Return ONLY valid JSON with no markdown:
             }
 
             try {
-              const posts = await getThreadsPosts(token, 25);
+              const posts = await getThreadsPosts(token, 200);
               const now = new Date();
               const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
               const weekStart = new Date(todayStart);
@@ -1152,7 +1152,7 @@ Return ONLY valid JSON with no markdown:
     try {
       const [profileMetrics, posts] = await Promise.all([
         getThreadsUserMetrics(token),
-        getThreadsPosts(token, 50),
+        getThreadsPosts(token, 200),
       ]);
 
       let totalLikes = 0, totalReplies = 0, totalViews = 0, totalQuotes = 0, totalReposts = 0;
@@ -1259,7 +1259,7 @@ Return ONLY valid JSON with no markdown:
     try {
       const [profile, posts] = await Promise.all([
         getThreadsProfile(token),
-        getThreadsPosts(token, 25),
+        getThreadsPosts(token, 200),
       ]);
 
       const now = new Date();

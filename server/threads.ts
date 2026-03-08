@@ -38,17 +38,27 @@ export async function getThreadsUserMetrics(accessToken?: string | null) {
   return res.json();
 }
 
-export async function getThreadsPosts(accessToken?: string | null, limit = 25) {
+export async function getThreadsPosts(accessToken?: string | null, maxPosts = 200) {
   const token = accessToken || await getThreadsAccessToken();
   if (!token) return [];
 
-  const res = await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,media_product_type,media_type,media_url,thumbnail_url,text,timestamp,shortcode,is_quote_post,like_count,reply_count,quote_count,repost_count&limit=${limit}&access_token=${token}`);
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error?.message || "Failed to fetch Threads posts");
+  const fields = "id,media_product_type,media_type,media_url,thumbnail_url,text,timestamp,shortcode,is_quote_post,like_count,reply_count,quote_count,repost_count";
+  const perPage = 100;
+  let allPosts: any[] = [];
+  let url: string | null = `https://graph.threads.net/v1.0/me/threads?fields=${fields}&limit=${perPage}&access_token=${token}`;
+
+  while (url && allPosts.length < maxPosts) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || "Failed to fetch Threads posts");
+    }
+    const data = await res.json();
+    allPosts = allPosts.concat(data.data || []);
+    url = data.paging?.next ?? null;
   }
-  const data = await res.json();
-  return data.data || [];
+
+  return allPosts.slice(0, maxPosts);
 }
 
 export async function getThreadsPostInsights(mediaId: string, accessToken?: string | null) {

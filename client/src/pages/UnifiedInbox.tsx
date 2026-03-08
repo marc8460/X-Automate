@@ -24,7 +24,7 @@ import { apiRequest } from "@/lib/queryClient";
 import type { Platform } from "@/types/platform";
 import { usePlatform } from "@/contexts/PlatformContext";
 
-type InboxFilter = "all" | "x" | "threads";
+type InboxFilter = "x" | "threads";
 
 type CardState = {
   generatedReply: string;
@@ -126,11 +126,11 @@ export default function UnifiedInbox() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { selectedPlatform } = usePlatform();
-  const [filter, setFilter] = useState<InboxFilter>("all");
+  const [filter, setFilter] = useState<InboxFilter>("x");
 
   // Sync internal filter with global platform context
   useEffect(() => {
-    setFilter(selectedPlatform as InboxFilter);
+    setFilter((selectedPlatform === "all" ? "x" : selectedPlatform) as InboxFilter);
   }, [selectedPlatform]);
 
   const [customPrompt, setCustomPrompt] = useState("");
@@ -368,7 +368,7 @@ export default function UnifiedInbox() {
 
       {/* Platform filter tabs */}
       <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary/30 border border-border/40 w-fit">
-        {(["all", "x", "threads"] as InboxFilter[]).map((f) => (
+        {(["x", "threads"] as InboxFilter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -378,14 +378,10 @@ export default function UnifiedInbox() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {f === "all" ? (
-              "All"
-            ) : (
-              <>
-                <PlatformBadge platform={f as Platform} size="xs" />
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </>
-            )}
+            <>
+              <PlatformBadge platform={f as Platform} size="xs" />
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </>
           </button>
         ))}
       </div>
@@ -416,7 +412,7 @@ export default function UnifiedInbox() {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-display font-semibold flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-accent" />
-              {filter === "all" ? "All Messages" : filter === "x" ? "X Comments" : "Threads Messages"}
+              {filter === "x" ? "X Comments" : "Threads Messages"}
               {filteredThreads.length > 0 && (
                 <Badge variant="secondary" className="text-[10px] ml-1">{filteredThreads.length}</Badge>
               )}
@@ -923,7 +919,7 @@ export default function UnifiedInbox() {
 
           {/* Message cards */}
           <AnimatePresence>
-            {filteredThreads.map((thread, i) => {
+            {filter !== "threads" && filteredThreads.map((thread, i) => {
               const card = cardStates[thread.id] ?? EMPTY_CARD;
               const hasReply = !!card.generatedReply;
 
