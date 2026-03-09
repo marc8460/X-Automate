@@ -2771,12 +2771,28 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
   app.get("/api/creators", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
     const creators = await storage.getWatchedCreators(userId);
-    const grouped: Record<string, string[]> = { x: [], threads: [] };
+    const grouped: Record<string, any[]> = { x: [], threads: [] };
     for (const c of creators) {
       if (!grouped[c.platform]) grouped[c.platform] = [];
-      grouped[c.platform].push(c.username);
+      grouped[c.platform].push(c);
     }
     res.json(grouped);
+  });
+
+  app.post("/api/creators/add", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { username, platform } = req.body;
+    if (!username || !platform) {
+      return res.status(400).json({ error: "Missing username or platform" });
+    }
+    if (!["x", "threads"].includes(platform)) {
+      return res.status(400).json({ error: "Invalid platform" });
+    }
+    const result = await storage.addWatchedCreator(userId, username, platform);
+    if (result.error) {
+      return res.json({ error: result.error });
+    }
+    res.json({ success: true, creator: result.creator });
   });
 
   app.post("/api/creators/sync", isAuthenticated, async (req: Request, res: Response) => {

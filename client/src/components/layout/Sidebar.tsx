@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   Home, PenSquare, Inbox, Flame, BarChart2, Settings,
-  Image, Users, Zap, Hash, Bot, Key, ChevronRight, Target,
+  Image, Users, Zap, Hash, Bot, Key, ChevronRight, Target, Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,7 @@ const NAV: NavSection[] = [
     label: "Engagement",
     items: [
       { href: "/inbox", label: "Unified Inbox", icon: Inbox },
+      { href: "/creators", label: "Creator Monitor", icon: Eye },
     ],
   },
   {

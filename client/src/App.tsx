@@ -17,6 +17,7 @@ import Analytics from "@/pages/Analytics";
 import SettingsPage from "@/pages/Settings";
 import LandingPage from "@/pages/Landing";
 import DailyGoals from "@/pages/DailyGoals";
+import CreatorMonitor from "@/pages/CreatorMonitor";
 import { useSeedData } from "@/lib/hooks";
 import { useAuth } from "@/hooks/use-auth";
 import { registerPushNotifications } from "@/lib/pushSubscription";
@@ -52,6 +53,7 @@ function AuthenticatedRouter() {
         <Route path="/analytics" component={Analytics} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/goals" component={DailyGoals} />
+        <Route path="/creators" component={CreatorMonitor} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

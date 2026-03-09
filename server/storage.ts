@@ -102,6 +102,7 @@ export interface IStorage {
   getActivityProgress(userId: string, platform: string, localDate: string): Promise<Record<string, number>>;
 
   getWatchedCreators(userId: string): Promise<WatchedCreator[]>;
+  addWatchedCreator(userId: string, username: string, platform: string): Promise<{ error?: string; creator?: WatchedCreator }>;
   syncWatchedCreators(userId: string, usernames: string[], platform: string): Promise<void>;
   removeWatchedCreator(userId: string, username: string, platform: string): Promise<void>;
   getCreatorsToCheck(staleSecs?: number): Promise<WatchedCreator[]>;
@@ -493,6 +494,18 @@ export class DatabaseStorage implements IStorage {
 
   async getWatchedCreators(userId: string): Promise<WatchedCreator[]> {
     return db.select().from(watchedCreators).where(eq(watchedCreators.userId, userId));
+  }
+
+  async addWatchedCreator(userId: string, username: string, platform: string): Promise<{ error?: string; creator?: WatchedCreator }> {
+    const clean = username.replace(/^@/, '').trim().toLowerCase();
+    if (!clean) return { error: "Invalid username" };
+    const existing = await db.select().from(watchedCreators)
+      .where(and(eq(watchedCreators.userId, userId), eq(watchedCreators.username, clean), eq(watchedCreators.platform, platform)));
+    if (existing.length > 0) return { error: "Already tracking this creator" };
+    const total = await db.select().from(watchedCreators).where(eq(watchedCreators.userId, userId));
+    if (total.length >= 200) return { error: "Maximum 200 creators allowed" };
+    const [creator] = await db.insert(watchedCreators).values({ userId, username: clean, platform }).returning();
+    return { creator };
   }
 
   async syncWatchedCreators(userId: string, usernames: string[], platform: string): Promise<void> {
