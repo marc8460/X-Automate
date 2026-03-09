@@ -11,6 +11,13 @@ chrome.storage.local.get(['auraBaseUrl', 'aura_badges_enabled'], (result) => {
   console.log('Aura Threads: Loaded config — baseUrl:', auraBaseUrl, 'badges:', badgesEnabled);
 });
 
+// ─── Utilities ───
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // ─── Text Insertion ───
 
 function findComposer() {
@@ -570,18 +577,45 @@ function findActionBar(container) {
 function extractMetricsFromActionBar(actionBar) {
   let likes = 0;
   let replies = 0;
+  let reposts = 0;
   if (!actionBar) return { likes, replies, views: 0 };
 
+  const metricPattern = /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/i;
+  const nums = [];
   const buttons = Array.from(actionBar.children);
-  if (buttons.length >= 2) {
-    const likeText = buttons[0].textContent.trim();
-    const likeMatch = likeText.match(/([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/i);
-    if (likeMatch) likes = parseMetric(likeMatch[1]);
 
-    const commentText = buttons[1].textContent.trim();
-    const commentMatch = commentText.match(/([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/i);
-    if (commentMatch) replies = parseMetric(commentMatch[1]);
+  for (const btn of buttons) {
+    const text = btn.textContent.trim();
+    const match = text.match(metricPattern);
+    nums.push(match ? parseMetric(match[1]) : 0);
   }
+
+  if (nums.length >= 4) {
+    likes = nums[0];
+    replies = nums[1];
+    reposts = nums[2];
+  } else if (nums.length >= 2) {
+    likes = nums[0];
+    replies = nums[1];
+  }
+
+  if (likes === 0 && replies === 0) {
+    const fullText = actionBar.textContent;
+    const allNums = [];
+    const globalPattern = /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/gi;
+    let m;
+    while ((m = globalPattern.exec(fullText)) !== null) {
+      const val = parseMetric(m[1]);
+      if (val > 0) allNums.push(val);
+    }
+    if (allNums.length >= 2) {
+      likes = allNums[0];
+      replies = allNums[1];
+    } else if (allNums.length === 1) {
+      likes = allNums[0];
+    }
+  }
+
   return { likes, replies, views: 0 };
 }
 
@@ -821,11 +855,14 @@ function openAnalysisPanel(tweetData) {
       generateBtn.textContent = 'Regenerate Replies';
 
       if (response && response.replies) {
-        response.replies.forEach(reply => {
+        response.replies.forEach((replyObj) => {
+          const replyText = typeof replyObj === 'string' ? replyObj : (replyObj.text || '');
+          const replyLabel = typeof replyObj === 'string' ? '' : (replyObj.label || '');
           const card = document.createElement('div');
           card.className = 'aura-reply-card';
           card.innerHTML = `
-            <div style="font-size: 14px; line-height: 1.5;">${reply}</div>
+            ${replyLabel ? `<div style="font-size: 11px; font-weight: 700; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">${escapeHtml(replyLabel)}</div>` : ''}
+            <div style="font-size: 14px; line-height: 1.5;">${escapeHtml(replyText)}</div>
             <div class="aura-reply-actions">
               <button class="aura-btn aura-btn-secondary aura-copy-btn">Copy</button>
               <button class="aura-btn aura-btn-post aura-direct-post-btn">Auto-Post</button>
@@ -834,7 +871,7 @@ function openAnalysisPanel(tweetData) {
 
           const copyBtn = card.querySelector('.aura-copy-btn');
           copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(reply);
+            navigator.clipboard.writeText(replyText);
             copyBtn.textContent = 'Copied!';
             setTimeout(() => copyBtn.textContent = 'Copy', 2000);
           });
@@ -845,20 +882,19 @@ function openAnalysisPanel(tweetData) {
              postBtn.innerHTML = `<span class="aura-loading-spinner"></span> Posting...`;
              
              try {
-               const replyButton = tweetData.el.querySelector('svg[aria-label*="Reply"], svg[aria-label*="reply"], svg[aria-label*="Comment"], svg[aria-label*="comment"]');
+               const replyButton = tweetData.el.querySelector('svg[aria-label*="Reply"], svg[aria-label*="reply"], svg[aria-label*="Comment"], svg[aria-label*="comment"], svg[aria-label*="Svar"], svg[aria-label*="Kommentar"]');
                const replyClickTarget = replyButton ? replyButton.closest('div[role="button"]') || replyButton.closest('[role="button"]') || replyButton.parentElement : null;
                if (replyClickTarget) {
                  replyClickTarget.click();
                  const composer = await waitForComposer();
-                 await insertText(composer, reply);
+                 await insertText(composer, replyText);
                  
                  await new Promise(r => setTimeout(r, 500));
-                 const postBtnEl = document.querySelector('div[role="button"][tabindex="0"]');
                  const allBtns = document.querySelectorAll('div[role="button"]');
                  let submitBtn = null;
                  for (const btn of allBtns) {
                    const text = btn.textContent?.trim().toLowerCase();
-                   if (text === 'post' || text === 'reply') {
+                   if (text === 'post' || text === 'reply' || text === 'slå op' || text === 'svar') {
                      submitBtn = btn;
                      break;
                    }
@@ -880,7 +916,7 @@ function openAnalysisPanel(tweetData) {
              } catch (err) {
                console.error(err);
                showToast('Could not auto-post. Copied to clipboard instead.');
-               navigator.clipboard.writeText(reply);
+               navigator.clipboard.writeText(replyText);
                postBtn.disabled = false;
                postBtn.textContent = 'Auto-Post';
              }
