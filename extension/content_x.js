@@ -1166,8 +1166,12 @@ function injectImportButton() {
             const uname = match[1].toLowerCase();
             if (!creatorsMap.has(uname)) {
               let avatarUrl = null;
-              const cellImg = cell.querySelector('img[src*="pbs.twimg.com/profile_images"]');
+              const cellImg = cell.querySelector('img[src*="twimg.com/profile_images"], img[src*="pbs.twimg.com"]');
               if (cellImg) avatarUrl = cellImg.src;
+              if (!avatarUrl) {
+                const anyImg = cell.querySelector('img[src*="twimg.com"]');
+                if (anyImg && !anyImg.src.includes('/media/') && !anyImg.src.includes('emoji')) avatarUrl = anyImg.src;
+              }
               creatorsMap.set(uname, avatarUrl);
               foundNew = true;
             }
