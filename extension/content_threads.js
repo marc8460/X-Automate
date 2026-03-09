@@ -578,24 +578,29 @@ function calculateThreadsViralScore(metrics) {
   }
 }
 
+function isValidActionBar(div) {
+  for (const child of div.children) {
+    if (child.querySelector('img')) return false;
+  }
+  let svgChildCount = 0;
+  for (const child of div.children) {
+    if (child.querySelector('svg') || child.tagName === 'SVG') svgChildCount++;
+  }
+  return svgChildCount >= 3 && svgChildCount <= 6 && div.children.length <= 8;
+}
+
 function findActionBar(container) {
   const allDivs = container.querySelectorAll('div');
+  let lastMatch = null;
   for (const div of allDivs) {
-    if (div.closest('.aura-fab, .aura-widget, .aura-panel')) continue;
-    let svgChildCount = 0;
-    for (const child of div.children) {
-      if (child.querySelector('svg') || child.tagName === 'SVG') svgChildCount++;
-    }
-    if (svgChildCount >= 3 && svgChildCount <= 6) return div;
+    if (div.closest('.aura-fab, .aura-widget, .aura-panel, .aura-badge, .aura-analyze-btn')) continue;
+    if (isValidActionBar(div)) lastMatch = div;
   }
-  return null;
+  return lastMatch;
 }
 
 function extractMetricsFromActionBar(actionBar) {
-  let likes = 0;
-  let replies = 0;
-  let reposts = 0;
-  let views = 0;
+  let likes = 0, replies = 0, reposts = 0, views = 0;
   if (!actionBar) return { likes, replies, reposts, views };
 
   const metricPattern = /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/i;
@@ -603,8 +608,14 @@ function extractMetricsFromActionBar(actionBar) {
   const buttons = Array.from(actionBar.children);
   const nums = [];
   for (const btn of buttons) {
+    if (btn.closest('.aura-badge, .aura-analyze-btn')) { nums.push(0); continue; }
     const textNodes = [];
-    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT, null);
+    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (node.parentElement && node.parentElement.closest('.aura-badge, .aura-analyze-btn')) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
     let node;
     while ((node = walker.nextNode())) {
       const t = node.textContent.trim();
@@ -615,20 +626,14 @@ function extractMetricsFromActionBar(actionBar) {
     nums.push(match ? parseMetric(match[1]) : 0);
   }
 
-  if (nums.length >= 4) {
-    likes = nums[0];
-    replies = nums[1];
-    reposts = nums[2];
-  } else if (nums.length >= 3) {
-    likes = nums[0];
-    replies = nums[1];
-    reposts = nums[2];
+  const nonZero = nums.filter(n => n > 0);
+  if (nums.length >= 3) {
+    likes = nums[0]; replies = nums[1]; reposts = nums[2];
   } else if (nums.length >= 2) {
-    likes = nums[0];
-    replies = nums[1];
+    likes = nums[0]; replies = nums[1];
   }
 
-  if (likes === 0 && replies === 0) {
+  if (likes === 0 && replies === 0 && nonZero.length === 0) {
     const fullText = actionBar.innerText;
     const allNums = [];
     const globalPattern = /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/gi;
@@ -637,16 +642,31 @@ function extractMetricsFromActionBar(actionBar) {
       const val = parseMetric(m[1]);
       if (val > 0) allNums.push(val);
     }
-    if (allNums.length >= 3) {
-      likes = allNums[0]; replies = allNums[1]; reposts = allNums[2];
-    } else if (allNums.length >= 2) {
-      likes = allNums[0]; replies = allNums[1];
-    } else if (allNums.length === 1) {
-      likes = allNums[0];
-    }
+    if (allNums.length >= 3) { likes = allNums[0]; replies = allNums[1]; reposts = allNums[2]; }
+    else if (allNums.length >= 2) { likes = allNums[0]; replies = allNums[1]; }
+    else if (allNums.length === 1) { likes = allNums[0]; }
   }
 
   return { likes, replies, reposts, views };
+}
+
+function extractMetricsFromPostText(postEl) {
+  const lines = postEl.innerText.split('\n').filter(l => l.trim());
+  const metricLinePattern = /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|[KMBkmb])?)/gi;
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    const matches = [];
+    let m;
+    while ((m = metricLinePattern.exec(line)) !== null) {
+      matches.push(parseMetric(m[1]));
+    }
+    metricLinePattern.lastIndex = 0;
+    if (matches.length >= 2 && matches.length <= 4) {
+      return { likes: matches[0], replies: matches[1], reposts: matches[2] || 0, views: 0 };
+    }
+  }
+  return null;
 }
 
 function extractViewsFromPage(postEl) {
@@ -665,6 +685,7 @@ function extractViewsFromPage(postEl) {
 function parseTimeSincePost(postEl) {
   const timeTexts = postEl.querySelectorAll('time, span, a');
   for (const el of timeTexts) {
+    if (el.closest('.aura-badge, .aura-analyze-btn')) continue;
     const t = el.textContent.trim();
     const minMatch = t.match(/^(\d+)\s*(?:min\.?|m)$/i);
     if (minMatch) return parseInt(minMatch[1]) / 60;
@@ -695,24 +716,26 @@ function findAuthor(postEl) {
 }
 
 function findPostText(postEl, actionBar) {
-  const skipWords = new Set(['oversæt', 'translate', 'see translation', 'vis oversættelse', 'første tråd', 'first thread', 'relevante', 'vis aktivitet']);
-  const spans = postEl.querySelectorAll('span[dir="auto"], span[dir="ltr"]');
+  const skipWords = new Set(['oversæt', 'translate', 'see translation', 'vis oversættelse', 'første tråd', 'first thread', 'relevante', 'vis aktivitet', 'synes godt om', 'svar', 'del', 'mere', 'more', 'reply', 'share', 'like', 'repost']);
+  const authorName = findAuthor(postEl);
+  const elements = postEl.querySelectorAll('span[dir="auto"], span[dir="ltr"], div[dir="auto"]');
   const textParts = [];
   const seen = new Set();
 
-  for (const span of spans) {
-    if (actionBar && actionBar.contains(span)) continue;
-    if (span.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget')) continue;
-    const text = span.innerText.trim();
-    if (!text || text.length < 2) continue;
+  for (const el of elements) {
+    if (actionBar && actionBar.contains(el)) continue;
+    if (el.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget')) continue;
+    const text = el.innerText.trim();
+    if (!text) continue;
     if (skipWords.has(text.toLowerCase())) continue;
     if (/^\d+$/.test(text)) continue;
-    if (/^\d+\s*(min|t|h|d|u|w)\.?$/i.test(text)) continue;
+    if (/^\d+\s*(min|t|h|d|u|w|tusind|mio)\.?$/i.test(text)) continue;
+    if (text === authorName) continue;
     if (seen.has(text)) continue;
 
     let isChild = false;
-    for (const other of spans) {
-      if (other !== span && other.contains(span) && other.innerText.trim().includes(text)) {
+    for (const other of elements) {
+      if (other !== el && other.contains(el) && other.innerText.trim().includes(text)) {
         isChild = true;
         break;
       }
@@ -733,8 +756,17 @@ function findPostImages(postEl, actionBar) {
     if (actionBar && actionBar.contains(img)) continue;
     if (img.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget, .aura-panel')) continue;
     const src = img.src || '';
-    if (!src.includes('scontent') && !src.includes('cdninstagram') && !src.includes('fbcdn')) continue;
-    if (img.width < 50 || img.height < 50) continue;
+    if (!src || src.startsWith('data:') || src.includes('emoji') || src.includes('/static/')) continue;
+
+    const w = img.naturalWidth || img.width || 0;
+    const h = img.naturalHeight || img.height || 0;
+    if (w > 0 && h > 0 && w < 40 && h < 40) continue;
+
+    const style = window.getComputedStyle(img);
+    const isCircular = style.borderRadius === '50%' || parseInt(style.borderRadius) > 40;
+    const isSmallAvatar = (w > 0 && w <= 60 && h > 0 && h <= 60);
+    if (isCircular && isSmallAvatar) continue;
+
     const clean = src.replace(/\/s\d+x\d+\//, '/').replace(/\/w\d+\//, '/').replace(/\/p\d+x\d+\//, '/');
     if (!urls.includes(clean)) urls.push(clean);
   }
@@ -743,7 +775,13 @@ function findPostImages(postEl, actionBar) {
 
 function getThreadsPostData(postEl) {
   const actionBar = postEl._auraActionBar || findActionBar(postEl);
-  const metrics = extractMetricsFromActionBar(actionBar);
+  let metrics = extractMetricsFromActionBar(actionBar);
+
+  if (metrics.likes === 0 && metrics.replies === 0) {
+    const fallback = extractMetricsFromPostText(postEl);
+    if (fallback) metrics = fallback;
+  }
+
   const authorName = findAuthor(postEl);
   const text = findPostText(postEl, actionBar);
   const hoursSincePost = parseTimeSincePost(postEl);
@@ -751,7 +789,7 @@ function getThreadsPostData(postEl) {
   if (pageViews > 0) metrics.views = pageViews;
 
   const data = {
-    text,
+    text: text || `[Image post by @${authorName}]`,
     authorName,
     authorHandle: authorName,
     imageUrls: findPostImages(postEl, actionBar),
@@ -1038,14 +1076,7 @@ function scanForPosts() {
     if (div.closest('.aura-fab, .aura-widget, .aura-panel, .aura-overlay')) continue;
     if (processedBars.has(div)) continue;
 
-    let svgChildCount = 0;
-    for (const child of div.children) {
-      const hasSvg = child.querySelector('svg') || child.tagName === 'SVG';
-      if (hasSvg) svgChildCount++;
-    }
-
-    if (svgChildCount < 3 || svgChildCount > 6) continue;
-    if (div.children.length > 8) continue;
+    if (!isValidActionBar(div)) continue;
 
     processedBars.add(div);
 
