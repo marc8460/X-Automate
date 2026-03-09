@@ -1,0 +1,78 @@
+Add a feature to the existing Aura browser extension that allows the extension to automatically collect and track the accounts the user follows on both X (Twitter) and Threads.
+
+The goal is to avoid manual input of creators and instead populate the Creator Monitor automatically.
+
+Feature description:
+
+When the user opens their following list page on either X or Threads, the Aura extension should detect this page and extract the list of accounts the user follows directly from the DOM.
+
+Platform pages:
+
+X
+https://x.com/[username]/following
+
+Threads
+https://www.threads.net/@[username]/following
+
+Workflow:
+
+The user opens their following list on X or Threads.
+
+The Aura content script detects that the user is on a following page.
+
+The extension scrolls the page gradually to load more accounts (since both platforms load following lists dynamically).
+
+For every loaded account, the extension extracts:
+
+username / handle
+
+profile URL
+
+The extension stores the usernames in:
+
+chrome.storage.local
+
+Example structure:
+
+trackedCreators: {
+  threads: ["creator1","creator2","creator3"],
+  x: ["creatorA","creatorB","creatorC"]
+}
+
+These creators are automatically added to the Creator Monitor system that already exists in the extension.
+
+The background service worker will then periodically check these profiles for new posts using the existing Creator Monitor polling system.
+
+Polling workflow:
+
+load profile page
+↓
+find newest post ID
+↓
+compare with cached ID
+↓
+if different → new post detected
+↓
+send browser notification
+
+Additional requirements:
+
+Avoid duplicates when adding creators.
+
+Limit the number of tracked creators if needed (for example max 200).
+
+Allow users to remove creators manually from the popup UI.
+
+Store creators persistently so the list remains after browser restart.
+
+Optional improvement:
+
+Add a button that appears when the user is on a following page:
+
+"Import Following List"
+
+When clicked, Aura begins scanning the page and importing the creators automatically.
+
+Goal:
+
+Aura should be able to build a creator tracking list automatically from the user’s following list, allowing the extension to monitor those profiles for new posts and notify the user so they can comment early.
