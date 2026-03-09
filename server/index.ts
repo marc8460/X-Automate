@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startEngagementPoller } from "./engagementPoller";
+import { startCreatorMonitor } from "./creatorMonitor";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 
 const app = express();
@@ -30,6 +31,26 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/api/extension", (req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+app.use("/api/creators", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+app.use("/api/push", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
@@ -81,6 +102,7 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
 
   startEngagementPoller();
+  startCreatorMonitor();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

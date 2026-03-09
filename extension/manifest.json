@@ -8,8 +8,7 @@
     "storage",
     "scripting",
     "tabs",
-    "notifications",
-    "alarms"
+    "notifications"
   ],
   "host_permissions": [
     "https://x.com/*",

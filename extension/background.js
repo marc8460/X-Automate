@@ -1,106 +1,45 @@
-// ─── Creator Monitor (Alarm-based polling) ───
+// ─── Creator Monitor (Server-Side) ───
 
-const CREATOR_MONITOR_ALARM = 'aura-creator-monitor';
-const POLL_INTERVAL_MINUTES = 0.75;
 const MAX_TRACKED_CREATORS = 200;
 
-chrome.alarms.create(CREATOR_MONITOR_ALARM, { periodInMinutes: POLL_INTERVAL_MINUTES });
+async function syncCreatorsToServer(platform) {
+  try {
+    const store = await chrome.storage.local.get(['auraBaseUrl']);
+    const baseUrl = store.auraBaseUrl;
+    if (!baseUrl) return;
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === CREATOR_MONITOR_ALARM) {
-    migrateOldWatchlist().then(() => pollCreatorWatchlist());
-  }
-});
+    const { listKey } = getStorageKeys(platform);
+    const data = await chrome.storage.local.get([listKey]);
+    const usernames = data[listKey] || [];
 
-chrome.notifications.onClicked.addListener((notificationId) => {
-  if (notificationId.startsWith('aura-creator-')) {
-    const postUrl = notificationId.replace('aura-creator-', '');
-    chrome.tabs.create({ url: postUrl });
-    chrome.notifications.clear(notificationId);
+    const url = baseUrl.replace(/\/$/, '') + '/api/creators/sync';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usernames, platform })
+    });
+
+    if (resp.ok) {
+      console.log(`[Aura] Synced ${usernames.length} ${platform} creators to server`);
+    }
+  } catch (err) {
+    console.error(`[Aura] Server sync error:`, err);
   }
-});
+}
 
 async function migrateOldWatchlist() {
-  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
-  if (!storage.aura_creator_watchlist) return;
+  const store = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
+  if (!store.aura_creator_watchlist) return;
 
-  const oldList = storage.aura_creator_watchlist;
-  const oldPosts = storage.aura_creator_last_posts || {};
-
-  const xStorage = await chrome.storage.local.get(['aura_watchlist_x']);
-  const existingX = xStorage.aura_watchlist_x || [];
-
+  const oldList = store.aura_creator_watchlist;
+  const xStore = await chrome.storage.local.get(['aura_watchlist_x']);
+  const existingX = xStore.aura_watchlist_x || [];
   const mergedX = [...new Set([...existingX, ...oldList])];
 
-  await chrome.storage.local.set({
-    aura_watchlist_x: mergedX,
-    aura_lastposts_x: oldPosts
-  });
-
+  await chrome.storage.local.set({ aura_watchlist_x: mergedX });
   await chrome.storage.local.remove(['aura_creator_watchlist', 'aura_creator_last_posts']);
   console.log(`[Aura] Migrated ${oldList.length} creators from old format to X watchlist`);
-}
-
-async function pollCreatorWatchlist() {
-  try {
-    const storage = await chrome.storage.local.get(['aura_watchlist_threads', 'aura_lastposts_threads']);
-    const watchlist = storage.aura_watchlist_threads || [];
-    const lastPosts = storage.aura_lastposts_threads || {};
-
-    if (watchlist.length === 0) return;
-
-    for (const username of watchlist) {
-      try {
-        const latestPost = await fetchLatestPostForCreator(username);
-        if (!latestPost) continue;
-
-        const previousPostId = lastPosts[username];
-        if (previousPostId && previousPostId === latestPost.postId) continue;
-
-        if (previousPostId) {
-          const postUrl = `https://www.threads.net/@${username}/post/${latestPost.postId}`;
-          chrome.notifications.create(`aura-creator-${postUrl}`, {
-            type: 'basic',
-            iconUrl: 'icons/icon128.png',
-            title: `🔥 New post from @${username}`,
-            message: 'Posted just now — Reply early for maximum reach',
-            priority: 2
-          });
-        }
-
-        lastPosts[username] = latestPost.postId;
-      } catch (err) {
-        console.error(`[Aura] Error polling @${username}:`, err);
-      }
-    }
-
-    await chrome.storage.local.set({ aura_lastposts_threads: lastPosts });
-  } catch (err) {
-    console.error('[Aura] Creator monitor error:', err);
-  }
-}
-
-async function fetchLatestPostForCreator(username) {
-  try {
-    const resp = await fetch(`https://www.threads.net/@${username}`, {
-      headers: { 'Accept': 'text/html' }
-    });
-    if (!resp.ok) return null;
-    const html = await resp.text();
-
-    const postPattern = new RegExp(`/@${username}/post/([A-Za-z0-9_-]+)`, 'g');
-    const matches = [];
-    let match;
-    while ((match = postPattern.exec(html)) !== null) {
-      if (!matches.includes(match[1])) matches.push(match[1]);
-    }
-
-    if (matches.length === 0) return null;
-    return { postId: matches[0] };
-  } catch (err) {
-    console.error(`[Aura] Fetch error for @${username}:`, err);
-    return null;
-  }
+  syncCreatorsToServer('x');
 }
 
 function getStorageKeys(platform) {
@@ -129,14 +68,8 @@ async function handleAddCreator(username, platform) {
 
   watchlist.push(clean);
 
-  if (platform === 'threads') {
-    const latestPost = await fetchLatestPostForCreator(clean);
-    if (latestPost) {
-      lastPosts[clean] = latestPost.postId;
-    }
-  }
-
   await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts });
+  syncCreatorsToServer(platform);
 
   const all = await getAllWatchlists();
   return { ...all, message: `Now tracking @${clean}` };
@@ -153,6 +86,7 @@ async function handleRemoveCreator(username, platform) {
   delete lastPosts[clean];
 
   await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts });
+  syncCreatorsToServer(platform);
 
   const all = await getAllWatchlists();
   return { ...all, message: `Stopped tracking @${clean}` };
@@ -191,10 +125,16 @@ async function handleBulkImportCreators(usernames, platform) {
   }
 
   await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts });
+  syncCreatorsToServer(platform);
 
   const all = await getAllWatchlists();
   return { ...all, added, skipped, capped };
 }
+
+migrateOldWatchlist().then(() => {
+  syncCreatorsToServer('x');
+  syncCreatorsToServer('threads');
+});
 
 // ─── Message Listener ───
 

@@ -47,3 +47,9 @@ waitForPort = 5000
 stack = "MOCKUP_JS"
 mockupState = "FULLSTACK"
 integrations = ["javascript_log_in_with_replit:2.0.0"]
+
+[userenv]
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BL5_dOx-9Ho40ymWLL2xOGefCX9kBh8UQMfTJ71a7X8HIgT2Yk1EHCJbdXshLWf4v09WchHxwO2Sx0T00JqhR-Y"
+VAPID_PRIVATE_KEY = "PxBaSgzQiIKkl1YDv4gwxlV1KjRZvxX5P0xJCTKElYU"

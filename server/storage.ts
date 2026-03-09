@@ -18,6 +18,8 @@ import {
   connectedAccounts, type ConnectedAccount, type InsertConnectedAccount,
   followerSnapshots, type FollowerSnapshot, type InsertFollowerSnapshot,
   dailyActivityEvents, type DailyActivityEvent, type InsertDailyActivityEvent,
+  watchedCreators, type WatchedCreator, type InsertWatchedCreator,
+  pushSubscriptions, type PushSubscription, type InsertPushSubscription,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -98,6 +100,17 @@ export interface IStorage {
 
   logActivityEvent(data: InsertDailyActivityEvent): Promise<DailyActivityEvent>;
   getActivityProgress(userId: string, platform: string, localDate: string): Promise<Record<string, number>>;
+
+  getWatchedCreators(userId: string): Promise<WatchedCreator[]>;
+  syncWatchedCreators(userId: string, usernames: string[], platform: string): Promise<void>;
+  removeWatchedCreator(userId: string, username: string, platform: string): Promise<void>;
+  getCreatorsToCheck(staleSecs?: number): Promise<WatchedCreator[]>;
+  updateCreatorLastPost(id: number, postId: string): Promise<void>;
+  getAllWatchedCreatorsByPlatform(platform: string): Promise<WatchedCreator[]>;
+
+  savePushSubscription(userId: string, endpoint: string, p256dh: string, auth: string): Promise<void>;
+  getPushSubscriptions(userId: string): Promise<PushSubscription[]>;
+  removePushSubscription(endpoint: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -476,6 +489,67 @@ export class DatabaseStorage implements IStorage {
       progress[row.action] = row.count;
     }
     return progress;
+  }
+
+  async getWatchedCreators(userId: string): Promise<WatchedCreator[]> {
+    return db.select().from(watchedCreators).where(eq(watchedCreators.userId, userId));
+  }
+
+  async syncWatchedCreators(userId: string, usernames: string[], platform: string): Promise<void> {
+    const normalized = usernames.map(u => u.replace(/^@/, '').trim().toLowerCase()).filter(u => u.length > 0);
+    const existing = await db.select().from(watchedCreators)
+      .where(and(eq(watchedCreators.userId, userId), eq(watchedCreators.platform, platform)));
+
+    const existingSet = new Set(existing.map(c => c.username));
+    const newSet = new Set(normalized);
+
+    const toAdd = normalized.filter(u => !existingSet.has(u));
+    const toRemove = existing.filter(c => !newSet.has(c.username));
+
+    if (toRemove.length > 0) {
+      const removeIds = toRemove.map(c => c.id);
+      await db.delete(watchedCreators).where(inArray(watchedCreators.id, removeIds));
+    }
+
+    for (const username of toAdd) {
+      await db.insert(watchedCreators).values({ userId, username, platform }).onConflictDoNothing();
+    }
+  }
+
+  async removeWatchedCreator(userId: string, username: string, platform: string): Promise<void> {
+    await db.delete(watchedCreators).where(
+      and(eq(watchedCreators.userId, userId), eq(watchedCreators.username, username), eq(watchedCreators.platform, platform))
+    );
+  }
+
+  async getCreatorsToCheck(staleSecs = 45): Promise<WatchedCreator[]> {
+    const threshold = new Date(Date.now() - staleSecs * 1000);
+    return db.select().from(watchedCreators).where(
+      sql`${watchedCreators.lastCheckedAt} IS NULL OR ${watchedCreators.lastCheckedAt} < ${threshold}`
+    );
+  }
+
+  async updateCreatorLastPost(id: number, postId: string): Promise<void> {
+    await db.update(watchedCreators)
+      .set({ lastPostId: postId, lastCheckedAt: new Date() })
+      .where(eq(watchedCreators.id, id));
+  }
+
+  async getAllWatchedCreatorsByPlatform(platform: string): Promise<WatchedCreator[]> {
+    return db.select().from(watchedCreators).where(eq(watchedCreators.platform, platform));
+  }
+
+  async savePushSubscription(userId: string, endpoint: string, p256dh: string, auth: string): Promise<void> {
+    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+    await db.insert(pushSubscriptions).values({ userId, endpoint, p256dh, auth });
+  }
+
+  async getPushSubscriptions(userId: string): Promise<PushSubscription[]> {
+    return db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+  }
+
+  async removePushSubscription(endpoint: string): Promise<void> {
+    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
   }
 }
 

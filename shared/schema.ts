@@ -245,3 +245,30 @@ export const dailyActivityEvents = pgTable("daily_activity_events", {
 export const insertDailyActivityEventSchema = createInsertSchema(dailyActivityEvents).omit({ id: true, createdAt: true });
 export type InsertDailyActivityEvent = z.infer<typeof insertDailyActivityEventSchema>;
 export type DailyActivityEvent = typeof dailyActivityEvents.$inferSelect;
+
+export const watchedCreators = pgTable("watched_creators", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  username: text("username").notNull(),
+  platform: text("platform").notNull(),
+  lastPostId: text("last_post_id"),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertWatchedCreatorSchema = createInsertSchema(watchedCreators).omit({ id: true, createdAt: true });
+export type InsertWatchedCreator = z.infer<typeof insertWatchedCreatorSchema>;
+export type WatchedCreator = typeof watchedCreators.$inferSelect;
+
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;

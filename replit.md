@@ -33,7 +33,7 @@ Multi-user SaaS AI influencer automation dashboard. Users sign in via Replit Aut
 - **Hooks**: `useLiveCommentThreads(platform)` and `useLiveFollowerInteractions(platform)` accept optional platform filter
 
 ## Database Schema (shared/schema.ts)
-Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, follower_snapshots (userId, followerCount, followingCount, tweetCount, recordedAt), settings
+Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, follower_snapshots (userId, followerCount, followingCount, tweetCount, recordedAt), settings, watched_creators (userId, username, platform, lastPostId, lastCheckedAt), push_subscriptions (userId, endpoint, p256dh, auth)
 
 ## Project Structure
 ```
@@ -49,6 +49,8 @@ server/
   twitter.ts      - Twitter API client module (getTwitterClient, testTwitterConnection)
   threads.ts      - Threads API client (getThreadsClient, testThreadsConnection, fetchUserProfile, fetchUserPosts, fetchPostReplies, getThreadsPostInsights, getThreadsConversation, getThreadsPostMetrics)
   engagementPoller.ts - Polls X mentions + Threads replies, delta-tracks likes/retweets/followers, saves follower snapshots
+  creatorMonitor.ts - Server-side creator monitoring worker, polls watched creators every 45s, sends push notifications on new posts
+  pushNotifications.ts - Web Push notification sender using VAPID keys
   storage.ts      - DatabaseStorage with IStorage interface (platform-filtered queries)
   db.ts           - Drizzle + pg pool
   ranking.ts      - Comment Opportunity Score (0-100) for Viral Engine feed
@@ -56,7 +58,7 @@ shared/
   schema.ts       - Drizzle schema + Zod insert schemas + types
 extension/        - Chrome extension (Manifest V3) — supports X.com AND Threads
   manifest.json   - Extension config: permissions for x.com, twitter.com, threads.net, and Replit domains
-  background.js   - Service worker: handles post/reply/image/generate-replies/log-activity actions
+  background.js   - Service worker: handles post/reply/image/generate-replies/log-activity actions, syncs creator watchlists to server
   content_x.js    - X.com content script: tweet detection, opportunity scores, analysis panel, reply insertion, activity logging
   content_threads.js - Threads content script: post detection, viral scores, analysis panel, reply insertion, activity logging
   content_aura.js - Aura dashboard bridge: postMessage relay between web app and extension
@@ -131,11 +133,15 @@ uploads/          - User-uploaded media files (served statically)
 - TWITTER_ACCESS_SECRET — Twitter OAuth 1.0a Access Secret (legacy dev account fallback)
 - THREADS_APP_ID — Meta Threads App ID (for "Connect Threads" user flow, optional)
 - THREADS_APP_SECRET — Meta Threads App Secret (for "Connect Threads" user flow, optional)
+- VAPID_PUBLIC_KEY — Web Push VAPID public key (for push notifications)
+- VAPID_PRIVATE_KEY — Web Push VAPID private key (for push notifications)
 
 ## Chrome Extension (extension/)
-- **Manifest V3**: Permissions for `activeTab`, `storage`, `scripting`; host permissions for x.com, twitter.com, threads.net, and Replit domains
+- **Manifest V3**: Permissions for `activeTab`, `storage`, `scripting`, `notifications`; host permissions for x.com, twitter.com, threads.net, and Replit domains
 - **Dual-platform**: content_x.js runs on X.com, content_threads.js runs on threads.net — both provide identical viral analysis workflow
 - **Communication flow**: Aura web app → `window.postMessage` → content_aura.js → `chrome.runtime.sendMessage` → background.js → content scripts
+- **Server-side creator monitoring**: Extension syncs watchlists to server via `/api/creators/sync`. Server polls creators every 45s via `creatorMonitor.ts`. New post detected → Web Push notification → user clicks → post opens → extension activates
+- **Push notifications**: VAPID keys in env vars, `web-push` package, service worker `sw-push.js` handles push events and notification clicks
 - **In-feed features**: MutationObserver detects posts, extracts metrics from DOM, calculates Opportunity Score, shows Analyze button on hover
 - **Analysis panel**: Floating glass-panel UI with post metrics, score, AI reply generation (8 suggestions), custom instruction input
 - **Auto-post**: Extension can insert text into composer and click Post button automatically on both platforms

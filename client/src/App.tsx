@@ -19,6 +19,7 @@ import LandingPage from "@/pages/Landing";
 import DailyGoals from "@/pages/DailyGoals";
 import { useSeedData } from "@/lib/hooks";
 import { useAuth } from "@/hooks/use-auth";
+import { registerPushNotifications } from "@/lib/pushSubscription";
 
 function SeedOnMount() {
   const { mutate: seed } = useSeedData();
@@ -28,10 +29,18 @@ function SeedOnMount() {
   return null;
 }
 
+function PushNotificationSetup() {
+  useEffect(() => {
+    registerPushNotifications();
+  }, []);
+  return null;
+}
+
 function AuthenticatedRouter() {
   return (
     <Layout>
       <SeedOnMount />
+      <PushNotificationSetup />
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/vault" component={MediaVault} />

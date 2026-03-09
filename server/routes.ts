@@ -22,6 +22,7 @@ import {
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
 } from "@shared/schema";
+import { getVapidPublicKey, sendPushToUser } from "./pushNotifications";
 
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -2744,6 +2745,64 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     }
 
     res.status(201).json({ message: "Seed data created successfully" });
+  });
+
+  app.get("/api/push/vapid-key", (_req: Request, res: Response) => {
+    res.json({ publicKey: getVapidPublicKey() });
+  });
+
+  app.post("/api/push/subscribe", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { endpoint, keys } = req.body;
+    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+      return res.status(400).json({ error: "Missing subscription data" });
+    }
+    await storage.savePushSubscription(userId, endpoint, keys.p256dh, keys.auth);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/push/unsubscribe", isAuthenticated, async (req: Request, res: Response) => {
+    const { endpoint } = req.body;
+    if (!endpoint) return res.status(400).json({ error: "Missing endpoint" });
+    await storage.removePushSubscription(endpoint);
+    res.json({ success: true });
+  });
+
+  app.get("/api/creators", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const creators = await storage.getWatchedCreators(userId);
+    const grouped: Record<string, string[]> = { x: [], threads: [] };
+    for (const c of creators) {
+      if (!grouped[c.platform]) grouped[c.platform] = [];
+      grouped[c.platform].push(c.username);
+    }
+    res.json(grouped);
+  });
+
+  app.post("/api/creators/sync", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { usernames, platform } = req.body;
+    if (!Array.isArray(usernames) || !platform) {
+      return res.status(400).json({ error: "Missing usernames or platform" });
+    }
+    if (!["x", "threads"].includes(platform)) {
+      return res.status(400).json({ error: "Invalid platform" });
+    }
+    await storage.syncWatchedCreators(userId, usernames, platform);
+    const creators = await storage.getWatchedCreators(userId);
+    const grouped: Record<string, string[]> = { x: [], threads: [] };
+    for (const c of creators) {
+      if (!grouped[c.platform]) grouped[c.platform] = [];
+      grouped[c.platform].push(c.username);
+    }
+    res.json(grouped);
+  });
+
+  app.delete("/api/creators/:platform/:username", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { platform, username } = req.params;
+    await storage.removeWatchedCreator(userId, username.toLowerCase(), platform);
+    res.json({ success: true });
   });
 
   return httpServer;
