@@ -1148,7 +1148,7 @@ function injectImportButton() {
     btn.style.opacity = '0.8';
     btn.style.cursor = 'wait';
 
-    const usernames = new Set();
+    const creatorsMap = new Map();
     let noNewCount = 0;
     const maxScrollAttempts = 100;
 
@@ -1164,8 +1164,11 @@ function injectImportButton() {
           const match = href.match(/^\/([A-Za-z0-9_]+)\/?$/);
           if (match && match[1]) {
             const uname = match[1].toLowerCase();
-            if (!usernames.has(uname)) {
-              usernames.add(uname);
+            if (!creatorsMap.has(uname)) {
+              let avatarUrl = null;
+              const cellImg = cell.querySelector('img[src*="pbs.twimg.com/profile_images"]');
+              if (cellImg) avatarUrl = cellImg.src;
+              creatorsMap.set(uname, avatarUrl);
               foundNew = true;
             }
           }
@@ -1182,15 +1185,15 @@ function injectImportButton() {
           if (match && match[1]) {
             const uname = match[1].toLowerCase();
             const reserved = new Set(['home', 'explore', 'notifications', 'messages', 'settings', 'compose', 'i', 'search', 'lists', 'bookmarks', 'communities', 'premium', 'verified']);
-            if (!reserved.has(uname) && !usernames.has(uname)) {
-              usernames.add(uname);
+            if (!reserved.has(uname) && !creatorsMap.has(uname)) {
+              creatorsMap.set(uname, null);
               foundNew = true;
             }
           }
         }
       }
 
-      btn.innerHTML = `📥 Scanning... (${usernames.size} found)`;
+      btn.innerHTML = `📥 Scanning... (${creatorsMap.size} found)`;
 
       if (foundNew) {
         noNewCount = 0;
@@ -1204,12 +1207,12 @@ function injectImportButton() {
       await new Promise(r => setTimeout(r, 800));
     }
 
-    const allUsernames = Array.from(usernames);
-    btn.innerHTML = `📥 Importing ${allUsernames.length} creators...`;
+    const allCreators = Array.from(creatorsMap.entries()).map(([username, avatarUrl]) => ({ username, avatarUrl }));
+    btn.innerHTML = `📥 Importing ${allCreators.length} creators...`;
 
     chrome.runtime.sendMessage({
       action: 'aura:bulk-import-creators',
-      usernames: allUsernames,
+      creators: allCreators,
       platform: 'x'
     }, (resp) => {
       if (resp) {

@@ -9,14 +9,18 @@ async function syncCreatorsToServer(platform) {
     if (!baseUrl) return;
 
     const { listKey } = getStorageKeys(platform);
-    const data = await chrome.storage.local.get([listKey]);
+    const avatarKey = `aura_avatars_${platform}`;
+    const data = await chrome.storage.local.get([listKey, avatarKey]);
     const usernames = data[listKey] || [];
+    const avatars = data[avatarKey] || {};
+
+    const creators = usernames.map(u => ({ username: u, avatarUrl: avatars[u] || null }));
 
     const url = baseUrl.replace(/\/$/, '') + '/api/creators/sync';
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ usernames, platform })
+      body: JSON.stringify({ creators, platform })
     });
 
     if (resp.ok) {
@@ -105,26 +109,37 @@ async function handleGetWatchlist() {
   return await getAllWatchlists();
 }
 
-async function handleBulkImportCreators(usernames, platform) {
+async function handleBulkImportCreators(creatorsInput, platform) {
   const { listKey, postsKey } = getStorageKeys(platform);
-  const storage = await chrome.storage.local.get([listKey, postsKey]);
-  const watchlist = storage[listKey] || [];
-  const lastPosts = storage[postsKey] || {};
+  const avatarKey = `aura_avatars_${platform}`;
+  const storageData = await chrome.storage.local.get([listKey, postsKey, avatarKey]);
+  const watchlist = storageData[listKey] || [];
+  const lastPosts = storageData[postsKey] || {};
+  const avatars = storageData[avatarKey] || {};
 
   let added = 0;
   let skipped = 0;
   let capped = 0;
 
-  for (const raw of usernames) {
-    const clean = raw.replace(/^@/, '').trim().toLowerCase();
+  const items = Array.isArray(creatorsInput)
+    ? creatorsInput.map(c => typeof c === 'string' ? { username: c, avatarUrl: null } : c)
+    : [];
+
+  for (const item of items) {
+    const clean = (item.username || '').replace(/^@/, '').trim().toLowerCase();
     if (!clean || clean.length < 1) { skipped++; continue; }
-    if (watchlist.includes(clean)) { skipped++; continue; }
+    if (watchlist.includes(clean)) {
+      if (item.avatarUrl && !avatars[clean]) avatars[clean] = item.avatarUrl;
+      skipped++;
+      continue;
+    }
     if (watchlist.length >= MAX_TRACKED_CREATORS) { capped++; continue; }
     watchlist.push(clean);
+    if (item.avatarUrl) avatars[clean] = item.avatarUrl;
     added++;
   }
 
-  await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts });
+  await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts, [avatarKey]: avatars });
   syncCreatorsToServer(platform);
 
   const all = await getAllWatchlists();
@@ -140,7 +155,7 @@ migrateOldWatchlist().then(() => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'aura:bulk-import-creators') {
-    handleBulkImportCreators(message.usernames || [], message.platform || 'threads').then(r => sendResponse(r));
+    handleBulkImportCreators(message.creators || message.usernames || [], message.platform || 'threads').then(r => sendResponse(r));
     return true;
   } else if (message.action === 'aura:add-creator') {
     handleAddCreator(message.username, message.platform || 'threads').then(r => sendResponse(r));

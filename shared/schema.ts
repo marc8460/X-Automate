@@ -251,6 +251,7 @@ export const watchedCreators = pgTable("watched_creators", {
   userId: text("user_id").notNull(),
   username: text("username").notNull(),
   platform: text("platform").notNull(),
+  avatarUrl: text("avatar_url"),
   lastPostId: text("last_post_id"),
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

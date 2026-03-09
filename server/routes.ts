@@ -2797,19 +2797,24 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
 
   app.post("/api/creators/sync", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const { usernames, platform } = req.body;
-    if (!Array.isArray(usernames) || !platform) {
-      return res.status(400).json({ error: "Missing usernames or platform" });
+    const { creators: creatorsInput, usernames, platform } = req.body;
+    const creatorList: { username: string; avatarUrl?: string | null }[] = creatorsInput
+      ? creatorsInput
+      : Array.isArray(usernames)
+        ? usernames.map((u: string) => ({ username: u, avatarUrl: null }))
+        : null;
+    if (!creatorList || !platform) {
+      return res.status(400).json({ error: "Missing creators/usernames or platform" });
     }
     if (!["x", "threads"].includes(platform)) {
       return res.status(400).json({ error: "Invalid platform" });
     }
-    await storage.syncWatchedCreators(userId, usernames, platform);
-    const creators = await storage.getWatchedCreators(userId);
-    const grouped: Record<string, string[]> = { x: [], threads: [] };
-    for (const c of creators) {
+    await storage.syncWatchedCreators(userId, creatorList, platform);
+    const allCreators = await storage.getWatchedCreators(userId);
+    const grouped: Record<string, any[]> = { x: [], threads: [] };
+    for (const c of allCreators) {
       if (!grouped[c.platform]) grouped[c.platform] = [];
-      grouped[c.platform].push(c.username);
+      grouped[c.platform].push(c);
     }
     res.json(grouped);
   });

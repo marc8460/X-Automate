@@ -17,6 +17,7 @@ type WatchedCreator = {
   id: number;
   username: string;
   platform: string;
+  avatarUrl: string | null;
   lastPostId: string | null;
   lastCheckedAt: string | null;
   createdAt: string;
@@ -215,8 +216,16 @@ function PlatformSection({
               className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/30 border border-border/30 hover:border-border/60 transition-colors group"
               data-testid={`row-creator-${creator.username}`}
             >
-              <div className={`w-8 h-8 rounded-full ${platformBg} flex items-center justify-center shrink-0`}>
-                <span className={`text-xs font-bold ${platformColor}`}>
+              <div className={`w-8 h-8 rounded-full ${platformBg} flex items-center justify-center shrink-0 overflow-hidden`}>
+                {creator.avatarUrl ? (
+                  <img
+                    src={creator.avatarUrl}
+                    alt={creator.username}
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling && ((e.target as HTMLImageElement).nextElementSibling as HTMLElement).style.removeProperty('display'); }}
+                  />
+                ) : null}
+                <span className={`text-xs font-bold ${platformColor}`} style={creator.avatarUrl ? { display: 'none' } : undefined}>
                   {creator.username[0]?.toUpperCase()}
                 </span>
               </div>

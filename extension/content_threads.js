@@ -1471,7 +1471,7 @@ function checkForFollowingList() {
     btn.style.opacity = '0.8';
     btn.style.cursor = 'wait';
 
-    const usernames = new Set();
+    const creatorsMap = new Map();
     let noNewCount = 0;
     const maxScrollAttempts = 100;
 
@@ -1487,14 +1487,27 @@ function checkForFollowingList() {
         const match = href.match(/^\/@([A-Za-z0-9_.]+)\/?$/);
         if (match && match[1]) {
           const uname = match[1].toLowerCase();
-          if (!usernames.has(uname)) {
-            usernames.add(uname);
+          if (!creatorsMap.has(uname)) {
+            let avatarUrl = null;
+            const container = link.closest('div[class]');
+            if (container) {
+              const img = container.querySelector('img[src*="scontent"], img[src*="cdninstagram"], img[src*="fbcdn"]');
+              if (img) avatarUrl = img.src;
+            }
+            if (!avatarUrl) {
+              const parent = link.parentElement;
+              if (parent) {
+                const sibImg = parent.parentElement?.querySelector('img');
+                if (sibImg && sibImg.src && !sibImg.src.includes('emoji')) avatarUrl = sibImg.src;
+              }
+            }
+            creatorsMap.set(uname, avatarUrl);
             foundNew = true;
           }
         }
       }
 
-      btn.innerHTML = `📥 Scanning... (${usernames.size} found)`;
+      btn.innerHTML = `📥 Scanning... (${creatorsMap.size} found)`;
 
       if (foundNew) {
         noNewCount = 0;
@@ -1512,12 +1525,12 @@ function checkForFollowingList() {
       await new Promise(r => setTimeout(r, 800));
     }
 
-    const allUsernames = Array.from(usernames);
-    btn.innerHTML = `📥 Importing ${allUsernames.length} creators...`;
+    const allCreators = Array.from(creatorsMap.entries()).map(([username, avatarUrl]) => ({ username, avatarUrl }));
+    btn.innerHTML = `📥 Importing ${allCreators.length} creators...`;
 
     chrome.runtime.sendMessage({
       action: 'aura:bulk-import-creators',
-      usernames: allUsernames,
+      creators: allCreators,
       platform: 'threads'
     }, (resp) => {
       if (resp) {

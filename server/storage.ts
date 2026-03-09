@@ -103,7 +103,7 @@ export interface IStorage {
 
   getWatchedCreators(userId: string): Promise<WatchedCreator[]>;
   addWatchedCreator(userId: string, username: string, platform: string): Promise<{ error?: string; creator?: WatchedCreator }>;
-  syncWatchedCreators(userId: string, usernames: string[], platform: string): Promise<void>;
+  syncWatchedCreators(userId: string, creators: { username: string; avatarUrl?: string | null }[], platform: string): Promise<void>;
   removeWatchedCreator(userId: string, username: string, platform: string): Promise<void>;
   getCreatorsToCheck(staleSecs?: number): Promise<WatchedCreator[]>;
   updateCreatorLastPost(id: number, postId: string): Promise<void>;
@@ -508,15 +508,17 @@ export class DatabaseStorage implements IStorage {
     return { creator };
   }
 
-  async syncWatchedCreators(userId: string, usernames: string[], platform: string): Promise<void> {
-    const normalized = usernames.map(u => u.replace(/^@/, '').trim().toLowerCase()).filter(u => u.length > 0);
+  async syncWatchedCreators(userId: string, creators: { username: string; avatarUrl?: string | null }[], platform: string): Promise<void> {
+    const normalized = creators
+      .map(c => ({ username: c.username.replace(/^@/, '').trim().toLowerCase(), avatarUrl: c.avatarUrl || null }))
+      .filter(c => c.username.length > 0);
     const existing = await db.select().from(watchedCreators)
       .where(and(eq(watchedCreators.userId, userId), eq(watchedCreators.platform, platform)));
 
-    const existingSet = new Set(existing.map(c => c.username));
-    const newSet = new Set(normalized);
+    const existingMap = new Map(existing.map(c => [c.username, c]));
+    const newSet = new Set(normalized.map(c => c.username));
 
-    const toAdd = normalized.filter(u => !existingSet.has(u));
+    const toAdd = normalized.filter(c => !existingMap.has(c.username));
     const toRemove = existing.filter(c => !newSet.has(c.username));
 
     if (toRemove.length > 0) {
@@ -524,8 +526,15 @@ export class DatabaseStorage implements IStorage {
       await db.delete(watchedCreators).where(inArray(watchedCreators.id, removeIds));
     }
 
-    for (const username of toAdd) {
-      await db.insert(watchedCreators).values({ userId, username, platform }).onConflictDoNothing();
+    for (const creator of toAdd) {
+      await db.insert(watchedCreators).values({ userId, username: creator.username, platform, avatarUrl: creator.avatarUrl }).onConflictDoNothing();
+    }
+
+    for (const creator of normalized) {
+      const existing = existingMap.get(creator.username);
+      if (existing && creator.avatarUrl && !existing.avatarUrl) {
+        await db.update(watchedCreators).set({ avatarUrl: creator.avatarUrl }).where(eq(watchedCreators.id, existing.id));
+      }
     }
   }
 
