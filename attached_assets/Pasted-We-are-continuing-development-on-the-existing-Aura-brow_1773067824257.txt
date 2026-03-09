@@ -1,0 +1,128 @@
+We are continuing development on the existing Aura browser extension. The extension already supports Threads scanning and AI reply generation. I want to extend the system with two parallel detection systems for early commenting opportunities on Threads.
+
+The goal is to detect new posts as quickly as possible, especially from creators the user follows, and also identify very new posts in the For You feed.
+
+Please implement the following additions without breaking the existing extension architecture.
+
+1. Creator Monitor (Followed Creators)
+
+Aura should constantly monitor a watchlist of creators and detect when they publish a new post.
+
+The extension should:
+
+maintain a list of tracked creators
+
+periodically check their Threads profile page
+
+detect when a new post appears
+
+send a browser notification
+
+Polling interval should be about 45 seconds.
+
+Detection flow:
+
+fetch profile page
+↓
+parse HTML
+↓
+extract first post link
+↓
+compare with stored last post id
+↓
+if different → new post detected
+
+Example profile URL format:
+
+https://www.threads.net/@username
+
+The system should store the last detected post ID for each creator in chrome.storage.local.
+
+When a new post is detected:
+
+Show a notification like:
+
+🔥 New post from @creator
+Posted just now
+Reply early
+
+Clicking the notification should open the post.
+
+2. For You Feed Scanner
+
+At the same time, Aura should scan the Threads For You feed when the user is on Threads.
+
+The content script should:
+
+detect posts in the DOM
+
+extract timestamp information
+
+calculate post age
+
+detect posts uploaded within the last 5 minutes
+
+If a post is younger than 5 minutes, mark it as an early opportunity.
+
+Example UI overlay:
+
+⚡ Early Post
+Age: 2m
+Reply opportunity
+
+The scanner should run:
+
+when the page loads
+
+when the user scrolls
+
+periodically (every ~10 seconds)
+
+3. Duplicate Detection
+
+The system should avoid analyzing the same post multiple times.
+
+Use an in-memory cache such as:
+
+seenPosts = Set()
+
+Before analyzing a post:
+
+if postId already in seenPosts → skip
+4. Performance Considerations
+
+The system should be lightweight and avoid unnecessary work.
+
+Creator polling:
+
+every 45 seconds
+
+Feed scanning:
+
+every 10 seconds
+or triggered by scroll
+
+Avoid aggressive polling to prevent rate limits.
+
+5. Integration
+
+Both systems should run simultaneously:
+
+Creator Monitor → detects new posts from followed creators
+Feed Scanner → detects early posts from any creator
+
+When an opportunity is detected, Aura should:
+
+highlight the post
+
+optionally trigger the AI reply generator already built in the extension.
+
+Goal
+
+The result should allow Aura users to:
+
+get notified immediately when creators they follow post
+
+detect very early posts in the Threads feed
+
+comment before the comment section becomes crowded.
