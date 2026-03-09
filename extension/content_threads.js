@@ -223,6 +223,7 @@ auraStyles.textContent = `
     cursor: pointer;
     z-index: 10;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.2s, background 0.2s;
     display: flex;
     align-items: center;
@@ -230,6 +231,7 @@ auraStyles.textContent = `
   }
   .aura-threads-post:hover .aura-analyze-btn {
     opacity: 1;
+    pointer-events: auto;
   }
   .aura-analyze-btn:hover { background: #6d28d9; }
 
@@ -285,11 +287,12 @@ auraStyles.textContent = `
   }
   .aura-tweet-image {
     width: 100%;
-    max-height: 280px;
-    object-fit: cover;
+    max-height: 360px;
+    object-fit: contain;
     border-radius: 12px;
     margin-top: 10px;
     border: 1px solid #333;
+    background: #0a0a0a;
   }
   .aura-metrics-grid {
     display: grid;
@@ -525,40 +528,54 @@ function parseMetric(text) {
   return anyNum ? parseInt(anyNum, 10) : 0;
 }
 
-function calculateViralScore(metrics, minutesSincePost) {
-  const { likes, replies } = metrics;
-  // Threads views are not always visible/available via DOM easily
-  const views = metrics.views || (likes * 20); // Fallback estimate
+function calculateThreadsViralScore(metrics) {
+  const likes = metrics.likes || 0;
+  const comments = metrics.comments || metrics.replies || 0;
+  const reposts = metrics.reposts || 0;
+  const views = metrics.views || null;
+  const hoursSincePost = Math.max(metrics.hoursSincePost || 0.5, 0.1);
 
-  if (likes < 2) return null;
+  let engagementScore, velocityScore, conversationScore, mode;
 
-  const engagement = likes + replies;
+  const conversationRatio = comments / Math.max(likes, 1);
+  conversationScore = Math.min(conversationRatio * 40, 100);
 
-  let engagementScore = 0;
-  if (views > 0) {
-    const engagementRate = engagement / views;
-    engagementScore = Math.min(Math.pow(engagementRate / 0.10, 0.6), 1) * 100;
+  if (views && views > 0) {
+    mode = 'views';
+    const engagementRate = (likes + comments * 2 + reposts * 3) / views;
+    engagementScore = Math.min(engagementRate * 200, 100);
+
+    const velocity = views / hoursSincePost;
+    velocityScore = Math.min((velocity / 2000) * 100, 100);
+
+    const viralScore = Math.round(0.5 * engagementScore + 0.3 * velocityScore + 0.2 * conversationScore);
+
+    return {
+      total: Math.min(Math.max(viralScore, 0), 100),
+      engagement: Math.round(engagementScore),
+      velocity: Math.round(velocityScore),
+      conversation: Math.round(conversationScore),
+      mode
+    };
   } else {
-    engagementScore = Math.min(engagement / 30, 1) * 100;
+    mode = 'fallback';
+    const engagement = likes + comments * 2 + reposts * 3;
+
+    engagementScore = Math.min((engagement / 2000) * 100, 100);
+
+    const velocity = engagement / hoursSincePost;
+    velocityScore = Math.min((velocity / 300) * 100, 100);
+
+    const viralScore = Math.round(0.4 * engagementScore + 0.4 * velocityScore + 0.2 * conversationScore);
+
+    return {
+      total: Math.min(Math.max(viralScore, 0), 100),
+      engagement: Math.round(engagementScore),
+      velocity: Math.round(velocityScore),
+      conversation: Math.round(conversationScore),
+      mode
+    };
   }
-
-  let velocityScore = 50;
-  if (minutesSincePost > 0) {
-    const velocity = engagement / minutesSincePost;
-    velocityScore = Math.min(Math.pow(velocity / 2, 0.7), 1) * 100;
-  }
-
-  const replyRatio = likes > 0 ? replies / likes : 1;
-  const competitionScore = (1 - Math.min(replyRatio, 1)) * 100;
-
-  const viralScore = Math.round((engagementScore + velocityScore + competitionScore) / 3);
-
-  return {
-    total: Math.min(Math.max(viralScore, 0), 100),
-    engagement: Math.round(engagementScore),
-    velocity: Math.round(velocityScore),
-    competition: Math.round(competitionScore)
-  };
 }
 
 function findActionBar(container) {
@@ -578,19 +595,31 @@ function extractMetricsFromActionBar(actionBar) {
   let likes = 0;
   let replies = 0;
   let reposts = 0;
-  if (!actionBar) return { likes, replies, views: 0 };
+  let views = 0;
+  if (!actionBar) return { likes, replies, reposts, views };
 
   const metricPattern = /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/i;
-  const nums = [];
-  const buttons = Array.from(actionBar.children);
 
+  const buttons = Array.from(actionBar.children);
+  const nums = [];
   for (const btn of buttons) {
-    const text = btn.textContent.trim();
-    const match = text.match(metricPattern);
+    const textNodes = [];
+    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = node.textContent.trim();
+      if (t) textNodes.push(t);
+    }
+    const combined = textNodes.join(' ').trim();
+    const match = combined.match(metricPattern);
     nums.push(match ? parseMetric(match[1]) : 0);
   }
 
   if (nums.length >= 4) {
+    likes = nums[0];
+    replies = nums[1];
+    reposts = nums[2];
+  } else if (nums.length >= 3) {
     likes = nums[0];
     replies = nums[1];
     reposts = nums[2];
@@ -600,7 +629,7 @@ function extractMetricsFromActionBar(actionBar) {
   }
 
   if (likes === 0 && replies === 0) {
-    const fullText = actionBar.textContent;
+    const fullText = actionBar.innerText;
     const allNums = [];
     const globalPattern = /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?|thousand|million|billion|mil|tys|[KMBkmb])?)/gi;
     let m;
@@ -608,15 +637,45 @@ function extractMetricsFromActionBar(actionBar) {
       const val = parseMetric(m[1]);
       if (val > 0) allNums.push(val);
     }
-    if (allNums.length >= 2) {
-      likes = allNums[0];
-      replies = allNums[1];
+    if (allNums.length >= 3) {
+      likes = allNums[0]; replies = allNums[1]; reposts = allNums[2];
+    } else if (allNums.length >= 2) {
+      likes = allNums[0]; replies = allNums[1];
     } else if (allNums.length === 1) {
       likes = allNums[0];
     }
   }
 
-  return { likes, replies, views: 0 };
+  return { likes, replies, reposts, views };
+}
+
+function extractViewsFromPage(postEl) {
+  const fullText = postEl.innerText;
+  const viewPatterns = [
+    /([\d.,]+\s*(?:tusind[e]?|mio\.?|mia\.?))\s*(?:visninger|views)/i,
+    /([\d.,]+[KMB]?)\s*(?:visninger|views)/i
+  ];
+  for (const pattern of viewPatterns) {
+    const match = fullText.match(pattern);
+    if (match) return parseMetric(match[1]);
+  }
+  return 0;
+}
+
+function parseTimeSincePost(postEl) {
+  const timeTexts = postEl.querySelectorAll('time, span, a');
+  for (const el of timeTexts) {
+    const t = el.textContent.trim();
+    const minMatch = t.match(/^(\d+)\s*(?:min\.?|m)$/i);
+    if (minMatch) return parseInt(minMatch[1]) / 60;
+    const hourMatch = t.match(/^(\d+)\s*(?:t\.?|h|timer?|hours?)$/i);
+    if (hourMatch) return parseInt(hourMatch[1]);
+    const dayMatch = t.match(/^(\d+)\s*(?:d\.?|dage?|days?)$/i);
+    if (dayMatch) return parseInt(dayMatch[1]) * 24;
+    const weekMatch = t.match(/^(\d+)\s*(?:u\.?|uger?|weeks?|w)$/i);
+    if (weekMatch) return parseInt(weekMatch[1]) * 168;
+  }
+  return 0.5;
 }
 
 function findAuthor(postEl) {
@@ -636,25 +695,50 @@ function findAuthor(postEl) {
 }
 
 function findPostText(postEl, actionBar) {
+  const skipWords = new Set(['oversæt', 'translate', 'see translation', 'vis oversættelse', 'første tråd', 'first thread', 'relevante', 'vis aktivitet']);
   const spans = postEl.querySelectorAll('span[dir="auto"], span[dir="ltr"]');
-  let longestText = '';
+  const textParts = [];
+  const seen = new Set();
+
   for (const span of spans) {
     if (actionBar && actionBar.contains(span)) continue;
-    if (span.closest('.aura-badge, .aura-analyze-btn')) continue;
+    if (span.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget')) continue;
     const text = span.innerText.trim();
-    if (text.length > longestText.length) longestText = text;
-  }
-  if (!longestText) {
-    const divs = postEl.querySelectorAll('div');
-    for (const div of divs) {
-      if (actionBar && actionBar.contains(div)) continue;
-      if (div.children.length === 0 && div.textContent.trim().length > 20) {
-        const t = div.textContent.trim();
-        if (t.length > longestText.length) longestText = t;
+    if (!text || text.length < 2) continue;
+    if (skipWords.has(text.toLowerCase())) continue;
+    if (/^\d+$/.test(text)) continue;
+    if (/^\d+\s*(min|t|h|d|u|w)\.?$/i.test(text)) continue;
+    if (seen.has(text)) continue;
+
+    let isChild = false;
+    for (const other of spans) {
+      if (other !== span && other.contains(span) && other.innerText.trim().includes(text)) {
+        isChild = true;
+        break;
       }
     }
+    if (isChild) continue;
+
+    seen.add(text);
+    textParts.push(text);
   }
-  return longestText;
+
+  return textParts.join('\n');
+}
+
+function findPostImages(postEl, actionBar) {
+  const urls = [];
+  const imgs = postEl.querySelectorAll('img');
+  for (const img of imgs) {
+    if (actionBar && actionBar.contains(img)) continue;
+    if (img.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget, .aura-panel')) continue;
+    const src = img.src || '';
+    if (!src.includes('scontent') && !src.includes('cdninstagram') && !src.includes('fbcdn')) continue;
+    if (img.width < 50 || img.height < 50) continue;
+    const clean = src.replace(/\/s\d+x\d+\//, '/').replace(/\/w\d+\//, '/').replace(/\/p\d+x\d+\//, '/');
+    if (!urls.includes(clean)) urls.push(clean);
+  }
+  return urls;
 }
 
 function getThreadsPostData(postEl) {
@@ -662,30 +746,32 @@ function getThreadsPostData(postEl) {
   const metrics = extractMetricsFromActionBar(actionBar);
   const authorName = findAuthor(postEl);
   const text = findPostText(postEl, actionBar);
+  const hoursSincePost = parseTimeSincePost(postEl);
+  const pageViews = extractViewsFromPage(postEl);
+  if (pageViews > 0) metrics.views = pageViews;
 
   const data = {
     text,
     authorName,
     authorHandle: authorName,
-    imageUrls: [],
-    metrics,
-    minutesSincePost: 30,
+    imageUrls: findPostImages(postEl, actionBar),
+    metrics: {
+      likes: metrics.likes,
+      comments: metrics.replies,
+      reposts: metrics.reposts,
+      views: metrics.views || null,
+      hoursSincePost
+    },
+    hoursSincePost,
     url: window.location.href,
     el: postEl,
     scoreBreakdown: null,
     opportunityScore: null
   };
 
-  const img = postEl.querySelector('img[src*="scontent"], img[src*="cdninstagram"]');
-  if (img && !img.closest('a[href]')?.querySelector('span')) {
-    data.imageUrls.push(img.src);
-  }
-
-  const scoreResult = calculateViralScore(data.metrics, data.minutesSincePost);
-  if (scoreResult) {
-    data.opportunityScore = scoreResult.total;
-    data.scoreBreakdown = scoreResult;
-  }
+  const scoreResult = calculateThreadsViralScore(data.metrics);
+  data.opportunityScore = scoreResult.total;
+  data.scoreBreakdown = scoreResult;
 
   return data;
 }
@@ -704,17 +790,17 @@ function injectBadges(postEl) {
   if (!badgesEnabled) return;
   if (postEl.querySelector('.aura-badge')) return;
 
-  if (data.opportunityScore !== null && data.opportunityScore >= 30) {
+  if (data.opportunityScore !== null && data.opportunityScore > 0) {
     const badge = document.createElement('span');
     const colorClass = data.opportunityScore >= 75 ? 'aura-badge-high' : data.opportunityScore >= 50 ? 'aura-badge-med' : 'aura-badge-low';
     badge.className = `aura-badge ${colorClass}`;
     badge.textContent = `🔥 ${data.opportunityScore}`;
 
-    const authorLink = postEl.querySelector('a[href^="/@"], a[href^="/"]');
-    if (authorLink && authorLink.textContent.trim().length < 50) {
+    const authorLink = postEl.querySelector('a[href^="/@"]');
+    if (authorLink) {
+      authorLink.parentElement.style.display = 'inline-flex';
+      authorLink.parentElement.style.alignItems = 'center';
       authorLink.parentElement.appendChild(badge);
-    } else {
-      postEl.prepend(badge);
     }
   }
 
@@ -728,7 +814,9 @@ function injectBadges(postEl) {
     openAnalysisPanel(freshData);
   });
 
-  postEl.style.position = 'relative';
+  if (!postEl.style.position || postEl.style.position === 'static') {
+    postEl.style.position = 'relative';
+  }
   postEl.appendChild(analyzeBtn);
 }
 
@@ -753,57 +841,66 @@ function openAnalysisPanel(tweetData) {
   panel.className = 'aura-panel';
   activePanel = panel;
 
+  const sb = tweetData.scoreBreakdown || {};
+  const scoreEmoji = tweetData.opportunityScore >= 75 ? '🔥' : tweetData.opportunityScore >= 50 ? '⚡' : tweetData.opportunityScore >= 25 ? '💡' : '💤';
+  const modeLabel = sb.mode === 'views' ? '📊 Views mode' : '📈 Engagement mode';
+  const formatNum = (n) => n >= 1000000 ? (n/1000000).toFixed(1) + 'M' : n >= 1000 ? (n/1000).toFixed(1) + 'K' : String(n || 0);
+  const m = tweetData.metrics;
+
   panel.innerHTML = `
     <div class="aura-panel-header">
       <div style="display: flex; align-items: center; gap: 8px;">
         <span style="font-size: 20px;">✨</span>
         <span style="font-weight: bold; font-size: 16px;">Threads Viral Analysis</span>
+        <span style="background: ${getScoreColor(tweetData.opportunityScore)}22; color: ${getScoreColor(tweetData.opportunityScore)}; padding: 2px 8px; border-radius: 9999px; font-size: 13px; font-weight: 700;">${scoreEmoji} ${tweetData.opportunityScore}</span>
       </div>
       <button id="aura-close-panel" style="background: none; border: none; color: #999; cursor: pointer; font-size: 20px;">&times;</button>
     </div>
     <div class="aura-panel-content">
       <div class="aura-tweet-preview">
-        <div style="font-weight: bold; margin-bottom: 4px; color: #7c3aed;">@${tweetData.authorName}</div>
-        <div>${tweetData.text}</div>
-        ${tweetData.imageUrls.length > 0 ? `<img src="${tweetData.imageUrls[0]}" class="aura-tweet-image">` : ''}
+        <div style="font-weight: bold; margin-bottom: 4px; color: #7c3aed;">@${escapeHtml(tweetData.authorName)}</div>
+        <div style="white-space: pre-wrap;">${escapeHtml(tweetData.text)}</div>
+        ${tweetData.imageUrls.length > 0 ? tweetData.imageUrls.map(url => `<img src="${url}" class="aura-tweet-image">`).join('') : ''}
+        ${tweetData.imageUrls.length > 0 ? `<div style="font-size: 11px; color: #a78bfa; margin-top: 6px;">🔄 AI Vision will analyze this image</div>` : ''}
       </div>
 
       <div class="aura-metrics-grid">
         <div class="aura-metric-item">
-          <div class="aura-metric-value">${tweetData.metrics.likes}</div>
+          <div class="aura-metric-value">${formatNum(m.likes)}</div>
           <div class="aura-metric-label">Likes</div>
         </div>
         <div class="aura-metric-item">
-          <div class="aura-metric-value">${tweetData.metrics.replies}</div>
-          <div class="aura-metric-label">Replies</div>
+          <div class="aura-metric-value">${formatNum(m.comments)}</div>
+          <div class="aura-metric-label">Comments</div>
         </div>
         <div class="aura-metric-item">
-          <div class="aura-metric-value">${tweetData.opportunityScore}</div>
+          <div class="aura-metric-value">${formatNum(m.reposts)}</div>
+          <div class="aura-metric-label">Reposts</div>
+        </div>
+        <div class="aura-metric-item">
+          <div class="aura-metric-value" style="color: ${getScoreColor(tweetData.opportunityScore)}">${tweetData.opportunityScore}</div>
           <div class="aura-metric-label">Score</div>
-        </div>
-        <div class="aura-metric-item">
-          <div class="aura-metric-value">~${tweetData.minutesSincePost}m</div>
-          <div class="aura-metric-label">Age</div>
         </div>
       </div>
 
       <div class="aura-score-breakdown">
         <div class="aura-score-item">
           <div style="font-size: 10px; color: #999;">ENGAGEMENT</div>
-          <div style="font-weight: bold; color: ${getScoreColor((tweetData.scoreBreakdown || {}).engagement || 0)}">${(tweetData.scoreBreakdown || {}).engagement || 0}</div>
-          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${(tweetData.scoreBreakdown || {}).engagement || 0}%; background: ${getScoreColor((tweetData.scoreBreakdown || {}).engagement || 0)}"></div></div>
+          <div style="font-weight: bold; color: ${getScoreColor(sb.engagement || 0)}">${sb.engagement || 0}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.engagement || 0}%; background: ${getScoreColor(sb.engagement || 0)}"></div></div>
         </div>
         <div class="aura-score-item">
           <div style="font-size: 10px; color: #999;">VELOCITY</div>
-          <div style="font-weight: bold; color: ${getScoreColor((tweetData.scoreBreakdown || {}).velocity || 0)}">${(tweetData.scoreBreakdown || {}).velocity || 0}</div>
-          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${(tweetData.scoreBreakdown || {}).velocity || 0}%; background: ${getScoreColor((tweetData.scoreBreakdown || {}).velocity || 0)}"></div></div>
+          <div style="font-weight: bold; color: ${getScoreColor(sb.velocity || 0)}">${sb.velocity || 0}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.velocity || 0}%; background: ${getScoreColor(sb.velocity || 0)}"></div></div>
         </div>
         <div class="aura-score-item">
-          <div style="font-size: 10px; color: #999;">OPPORTUNITY</div>
-          <div style="font-weight: bold; color: ${getScoreColor((tweetData.scoreBreakdown || {}).competition || 0)}">${(tweetData.scoreBreakdown || {}).competition || 0}</div>
-          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${(tweetData.scoreBreakdown || {}).competition || 0}%; background: ${getScoreColor((tweetData.scoreBreakdown || {}).competition || 0)}"></div></div>
+          <div style="font-size: 10px; color: #999;">CONVERSATION</div>
+          <div style="font-weight: bold; color: ${getScoreColor(sb.conversation || 0)}">${sb.conversation || 0}</div>
+          <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.conversation || 0}%; background: ${getScoreColor(sb.conversation || 0)}"></div></div>
         </div>
       </div>
+      <div style="text-align: center; font-size: 10px; color: #666; margin-bottom: 12px;">${modeLabel}</div>
 
       <div style="margin-bottom: 12px;">
         <label style="display: block; font-size: 12px; font-weight: bold; color: #999; margin-bottom: 6px;">CUSTOM INSTRUCTIONS (OPTIONAL)</label>
@@ -954,24 +1051,34 @@ function scanForPosts() {
 
     let postEl = div;
     let bestContainer = null;
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 6; i++) {
       const parent = postEl.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) break;
+
+      if (parent.offsetWidth > 800) break;
+
+      const otherActionBars = parent.querySelectorAll('div');
+      let actionBarCount = 0;
+      for (const d of otherActionBars) {
+        if (d === div) continue;
+        let sc = 0;
+        for (const c of d.children) {
+          if (c.querySelector('svg') || c.tagName === 'SVG') sc++;
+        }
+        if (sc >= 3 && sc <= 6 && d.children.length <= 8) actionBarCount++;
+      }
+      if (actionBarCount > 2) break;
+
       postEl = parent;
 
-      const hasTextSpan = postEl.querySelector('span[dir="auto"], span[dir="ltr"]');
-      const hasAuthorLink = postEl.querySelector('a[href^="/@"], a[href^="/"]');
-      if (hasTextSpan || hasAuthorLink) {
+      const hasAuthorLink = postEl.querySelector('a[href^="/@"]');
+      if (hasAuthorLink) {
         bestContainer = postEl;
       }
 
       const cs = window.getComputedStyle(postEl);
       const hasBorder = cs.borderBottomWidth !== '0px' && cs.borderBottomStyle !== 'none';
-      const hasPadding = parseInt(cs.paddingBottom) > 4;
-
-      if (bestContainer && (hasBorder || hasPadding) && postEl.offsetHeight > 100) {
-        break;
-      }
+      if (bestContainer && hasBorder) break;
     }
 
     const container = bestContainer || postEl;
