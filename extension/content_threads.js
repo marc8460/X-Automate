@@ -317,6 +317,30 @@ auraStyles.textContent = `
   .aura-badge-med { background: rgba(234, 179, 8, 0.2); color: #eab308; }
   .aura-badge-low { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
 
+  .aura-early-badge {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.5);
+    color: #10b981;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 700;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.3), 0 0 4px rgba(16, 185, 129, 0.2);
+    animation: aura-early-glow 2s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes aura-early-glow {
+    0%, 100% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.3), 0 0 4px rgba(16, 185, 129, 0.2); }
+    50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.5), 0 0 8px rgba(16, 185, 129, 0.4); }
+  }
+
   .aura-panel {
     position: fixed;
     top: 50%; left: 50%;
@@ -561,45 +585,95 @@ function createFloatingWidget() {
     chrome.runtime.sendMessage({ action: 'aura:get-status' }, (status) => {
       const s = status || { connected: false, postsToday: 0, baseUrl: null };
 
-      widgetEl.innerHTML = `
-        <div class="aura-widget-header">
-          <span style="font-size: 18px;">✨</span>
-          <span>Aura (Threads)</span>
-        </div>
-        <div class="aura-widget-body">
-          <div class="aura-widget-row">
-            <span class="aura-widget-label">Dashboard</span>
-            <span class="aura-widget-value">
-              <span class="aura-status-dot ${s.connected ? 'connected' : 'disconnected'}"></span>
-              ${s.connected ? 'Connected' : 'Not Connected'}
-            </span>
-          </div>
-          <div class="aura-widget-row">
-            <span class="aura-widget-label">Posts Today</span>
-            <span class="aura-widget-value">${s.postsToday}</span>
-          </div>
-          <div class="aura-widget-row">
-            <span class="aura-widget-label">Score Badges</span>
-            <span class="aura-widget-value">
-              <label class="aura-toggle">
-                <input type="checkbox" id="aura-badge-toggle" ${badgesEnabled ? 'checked' : ''}>
-                <span class="aura-toggle-slider"></span>
-              </label>
-            </span>
-          </div>
-          ${s.connected && s.baseUrl ? `<a class="aura-widget-btn" href="${s.baseUrl}" target="_blank">Open Aura Dashboard</a>` : `<div style="color: #999; font-size: 12px; margin-top: 12px; text-align: center;">Open your Aura dashboard once to connect</div>`}
-        </div>
-      `;
+      const profileMatch = window.location.pathname.match(/^\/@([A-Za-z0-9_.]+)\/?$/);
+      const profileUsername = profileMatch ? profileMatch[1] : null;
 
-      const toggle = widgetEl.querySelector('#aura-badge-toggle');
-      if (toggle) {
-        toggle.addEventListener('change', () => {
-          badgesEnabled = toggle.checked;
-          chrome.storage.local.set({ aura_badges_enabled: badgesEnabled });
-          document.querySelectorAll('.aura-badge, .aura-analyze-btn').forEach(el => {
-            el.style.display = badgesEnabled ? '' : 'none';
+      const buildWidget = (trackingState) => {
+        let trackCreatorRow = '';
+        if (profileUsername) {
+          const isTracking = trackingState && trackingState.includes(profileUsername.toLowerCase());
+          trackCreatorRow = `
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;">
+              <button id="aura-track-creator-btn" style="
+                width: 100%;
+                padding: 8px 12px;
+                background: ${isTracking ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'};
+                border: 1px solid ${isTracking ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)'};
+                color: ${isTracking ? '#ef4444' : '#10b981'};
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+              ">${isTracking ? `Untrack @${profileUsername}` : `Track @${profileUsername}`}</button>
+            </div>
+          `;
+        }
+
+        widgetEl.innerHTML = `
+          <div class="aura-widget-header">
+            <span style="font-size: 18px;">✨</span>
+            <span>Aura (Threads)</span>
+          </div>
+          <div class="aura-widget-body">
+            <div class="aura-widget-row">
+              <span class="aura-widget-label">Dashboard</span>
+              <span class="aura-widget-value">
+                <span class="aura-status-dot ${s.connected ? 'connected' : 'disconnected'}"></span>
+                ${s.connected ? 'Connected' : 'Not Connected'}
+              </span>
+            </div>
+            <div class="aura-widget-row">
+              <span class="aura-widget-label">Posts Today</span>
+              <span class="aura-widget-value">${s.postsToday}</span>
+            </div>
+            <div class="aura-widget-row">
+              <span class="aura-widget-label">Score Badges</span>
+              <span class="aura-widget-value">
+                <label class="aura-toggle">
+                  <input type="checkbox" id="aura-badge-toggle" ${badgesEnabled ? 'checked' : ''}>
+                  <span class="aura-toggle-slider"></span>
+                </label>
+              </span>
+            </div>
+            ${s.connected && s.baseUrl ? `<a class="aura-widget-btn" href="${s.baseUrl}" target="_blank">Open Aura Dashboard</a>` : `<div style="color: #999; font-size: 12px; margin-top: 12px; text-align: center;">Open your Aura dashboard once to connect</div>`}
+            ${trackCreatorRow}
+          </div>
+        `;
+
+        const toggle = widgetEl.querySelector('#aura-badge-toggle');
+        if (toggle) {
+          toggle.addEventListener('change', () => {
+            badgesEnabled = toggle.checked;
+            chrome.storage.local.set({ aura_badges_enabled: badgesEnabled });
+            document.querySelectorAll('.aura-badge, .aura-analyze-btn').forEach(el => {
+              el.style.display = badgesEnabled ? '' : 'none';
+            });
           });
+        }
+
+        const trackBtn = widgetEl.querySelector('#aura-track-creator-btn');
+        if (trackBtn && profileUsername) {
+          trackBtn.addEventListener('click', () => {
+            const isTracking = trackingState && trackingState.includes(profileUsername.toLowerCase());
+            const action = isTracking ? 'aura:remove-creator' : 'aura:add-creator';
+            trackBtn.textContent = 'Working...';
+            trackBtn.disabled = true;
+            chrome.runtime.sendMessage({ action, username: profileUsername }, (resp) => {
+              if (resp && resp.watchlist) {
+                buildWidget(resp.watchlist);
+              }
+            });
+          });
+        }
+      };
+
+      if (profileUsername) {
+        chrome.runtime.sendMessage({ action: 'aura:get-watchlist' }, (resp) => {
+          buildWidget(resp && resp.watchlist ? resp.watchlist : []);
         });
+      } else {
+        buildWidget(null);
       }
     });
 
@@ -1283,6 +1357,55 @@ function scanForPosts() {
   }
 }
 
+// ─── For You Feed Scanner (Early Post Detection) ───
+
+const seenEarlyPosts = new Set();
+
+function getPostFingerprint(postEl) {
+  const author = findAuthor(postEl);
+  const text = (postEl.innerText || '').substring(0, 100);
+  return `${author}::${text}`;
+}
+
+function scanForEarlyPosts() {
+  const posts = document.querySelectorAll('.aura-threads-post');
+  for (const postEl of posts) {
+    if (postEl.querySelector('.aura-early-badge')) continue;
+
+    const fingerprint = getPostFingerprint(postEl);
+    if (seenEarlyPosts.has(fingerprint)) continue;
+
+    const hoursSince = parseTimeSincePost(postEl);
+    const minutesSince = hoursSince * 60;
+
+    if (minutesSince > 0 && minutesSince < 5) {
+      seenEarlyPosts.add(fingerprint);
+
+      if (!postEl.style.position || postEl.style.position === 'static') {
+        postEl.style.position = 'relative';
+      }
+
+      const badge = document.createElement('span');
+      badge.className = 'aura-early-badge';
+      const ageText = minutesSince < 1 ? '<1m' : `${Math.round(minutesSince)}m`;
+      badge.innerHTML = `⚡ Early Post · Age: ${ageText} · Reply opportunity`;
+      postEl.appendChild(badge);
+    }
+  }
+}
+
+let earlyPostInterval = null;
+let scrollDebounce = null;
+
+function startEarlyPostScanner() {
+  scanForEarlyPosts();
+  earlyPostInterval = setInterval(scanForEarlyPosts, 10000);
+  window.addEventListener('scroll', () => {
+    if (scrollDebounce) clearTimeout(scrollDebounce);
+    scrollDebounce = setTimeout(scanForEarlyPosts, 500);
+  }, { passive: true });
+}
+
 // ─── Main Observer ───
 
 let scanTimeout = null;
@@ -1297,6 +1420,7 @@ function init() {
   observer.observe(document.body, { childList: true, subtree: true });
   setTimeout(scanForPosts, 1000);
   setTimeout(scanForPosts, 3000);
+  setTimeout(startEarlyPostScanner, 2000);
 }
 
 if (document.readyState === 'loading') {

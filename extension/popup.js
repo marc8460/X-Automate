@@ -2,6 +2,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusEl = document.getElementById('dashboard-status');
   const postsCountEl = document.getElementById('posts-count');
   const openDashboardBtn = document.getElementById('open-dashboard');
+  const watchlistInput = document.getElementById('watchlist-input');
+  const watchlistAddBtn = document.getElementById('watchlist-add-btn');
+  const watchlistListEl = document.getElementById('watchlist-list');
+  const watchlistCountEl = document.getElementById('watchlist-count');
 
   const checkConnection = async () => {
     try {
@@ -38,6 +42,54 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  function renderWatchlist(watchlist) {
+    watchlistCountEl.textContent = `${watchlist.length} tracked`;
+    if (watchlist.length === 0) {
+      watchlistListEl.innerHTML = '<div class="watchlist-empty">No creators tracked yet</div>';
+      return;
+    }
+    watchlistListEl.innerHTML = watchlist.map(u => `
+      <div class="watchlist-item">
+        <span class="username">@${u}</span>
+        <button class="watchlist-remove" data-username="${u}" title="Remove">&times;</button>
+      </div>
+    `).join('');
+
+    watchlistListEl.querySelectorAll('.watchlist-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const username = btn.dataset.username;
+        btn.textContent = '...';
+        chrome.runtime.sendMessage({ action: 'aura:remove-creator', username }, (resp) => {
+          if (resp && resp.watchlist) renderWatchlist(resp.watchlist);
+        });
+      });
+    });
+  }
+
+  function loadWatchlist() {
+    chrome.runtime.sendMessage({ action: 'aura:get-watchlist' }, (resp) => {
+      renderWatchlist(resp && resp.watchlist ? resp.watchlist : []);
+    });
+  }
+
+  function addCreator() {
+    const username = watchlistInput.value.trim();
+    if (!username) return;
+    watchlistAddBtn.textContent = '...';
+    watchlistAddBtn.disabled = true;
+    chrome.runtime.sendMessage({ action: 'aura:add-creator', username }, (resp) => {
+      watchlistAddBtn.textContent = 'Track';
+      watchlistAddBtn.disabled = false;
+      watchlistInput.value = '';
+      if (resp && resp.watchlist) renderWatchlist(resp.watchlist);
+    });
+  }
+
+  watchlistAddBtn.addEventListener('click', addCreator);
+  watchlistInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addCreator();
+  });
+
   openDashboardBtn.addEventListener('click', async () => {
     const storage = await chrome.storage.local.get(['auraBaseUrl']);
     if (storage.auraBaseUrl) {
@@ -54,4 +106,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   checkConnection();
   loadStats();
+  loadWatchlist();
 });

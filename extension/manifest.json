@@ -7,7 +7,9 @@
     "activeTab",
     "storage",
     "scripting",
-    "tabs"
+    "tabs",
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
     "https://x.com/*",

@@ -154,6 +154,110 @@
       font-size: 11px;
       color: var(--muted);
     }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--foreground);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .section-title .count {
+      font-weight: 400;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .watchlist-section {
+      margin-bottom: 16px;
+    }
+
+    .watchlist-input-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .watchlist-input {
+      flex: 1;
+      padding: 8px 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--foreground);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .watchlist-input:focus {
+      border-color: var(--primary);
+    }
+
+    .watchlist-input::placeholder {
+      color: var(--muted);
+    }
+
+    .track-btn {
+      padding: 8px 14px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .track-btn:hover {
+      opacity: 0.9;
+    }
+
+    .watchlist-list {
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .watchlist-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    .watchlist-item .username {
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    .watchlist-remove {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 0 4px;
+      line-height: 1;
+    }
+
+    .watchlist-remove:hover {
+      color: #ef4444;
+    }
+
+    .watchlist-empty {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 8px 0;
+    }
   </style>
 </head>
 <body>
@@ -178,6 +282,18 @@
         <div class="stat-value" id="posts-count">0</div>
         <div class="stat-label">X posts today via extension</div>
       </div>
+    </div>
+
+    <div class="watchlist-section">
+      <div class="section-title">
+        <span>Creator Monitor</span>
+        <span class="count" id="watchlist-count">0 tracked</span>
+      </div>
+      <div class="watchlist-input-row">
+        <input type="text" class="watchlist-input" id="watchlist-input" placeholder="@username" />
+        <button class="track-btn" id="watchlist-add-btn">Track</button>
+      </div>
+      <div class="watchlist-list" id="watchlist-list"></div>
     </div>
 
     <button id="open-dashboard" class="button">Open Aura Dashboard</button>

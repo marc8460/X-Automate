@@ -1,5 +1,146 @@
+// ─── Creator Monitor (Alarm-based polling) ───
+
+const CREATOR_MONITOR_ALARM = 'aura-creator-monitor';
+const POLL_INTERVAL_MINUTES = 0.75;
+
+chrome.alarms.create(CREATOR_MONITOR_ALARM, { periodInMinutes: POLL_INTERVAL_MINUTES });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === CREATOR_MONITOR_ALARM) {
+    pollCreatorWatchlist();
+  }
+});
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  if (notificationId.startsWith('aura-creator-')) {
+    const postUrl = notificationId.replace('aura-creator-', '');
+    chrome.tabs.create({ url: postUrl });
+    chrome.notifications.clear(notificationId);
+  }
+});
+
+async function pollCreatorWatchlist() {
+  try {
+    const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
+    const watchlist = storage.aura_creator_watchlist || [];
+    const lastPosts = storage.aura_creator_last_posts || {};
+
+    if (watchlist.length === 0) return;
+
+    for (const username of watchlist) {
+      try {
+        const latestPost = await fetchLatestPostForCreator(username);
+        if (!latestPost) continue;
+
+        const previousPostId = lastPosts[username];
+        if (previousPostId && previousPostId === latestPost.postId) continue;
+
+        if (previousPostId) {
+          const postUrl = `https://www.threads.net/@${username}/post/${latestPost.postId}`;
+          chrome.notifications.create(`aura-creator-${postUrl}`, {
+            type: 'basic',
+            iconUrl: 'icons/icon128.png',
+            title: `🔥 New post from @${username}`,
+            message: 'Posted just now — Reply early for maximum reach',
+            priority: 2
+          });
+        }
+
+        lastPosts[username] = latestPost.postId;
+      } catch (err) {
+        console.error(`[Aura] Error polling @${username}:`, err);
+      }
+    }
+
+    await chrome.storage.local.set({ aura_creator_last_posts: lastPosts });
+  } catch (err) {
+    console.error('[Aura] Creator monitor error:', err);
+  }
+}
+
+async function fetchLatestPostForCreator(username) {
+  try {
+    const resp = await fetch(`https://www.threads.net/@${username}`, {
+      headers: { 'Accept': 'text/html' }
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+
+    const postPattern = new RegExp(`/@${username}/post/([A-Za-z0-9_-]+)`, 'g');
+    const matches = [];
+    let match;
+    while ((match = postPattern.exec(html)) !== null) {
+      if (!matches.includes(match[1])) matches.push(match[1]);
+    }
+
+    if (matches.length === 0) return null;
+    return { postId: matches[0] };
+  } catch (err) {
+    console.error(`[Aura] Fetch error for @${username}:`, err);
+    return null;
+  }
+}
+
+async function handleAddCreator(username) {
+  const clean = username.replace(/^@/, '').trim().toLowerCase();
+  if (!clean) return { error: 'Empty username' };
+
+  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
+  const watchlist = storage.aura_creator_watchlist || [];
+  const lastPosts = storage.aura_creator_last_posts || {};
+
+  if (watchlist.includes(clean)) return { watchlist, message: 'Already tracking' };
+
+  watchlist.push(clean);
+
+  const latestPost = await fetchLatestPostForCreator(clean);
+  if (latestPost) {
+    lastPosts[clean] = latestPost.postId;
+  }
+
+  await chrome.storage.local.set({
+    aura_creator_watchlist: watchlist,
+    aura_creator_last_posts: lastPosts
+  });
+
+  return { watchlist, message: `Now tracking @${clean}` };
+}
+
+async function handleRemoveCreator(username) {
+  const clean = username.replace(/^@/, '').trim().toLowerCase();
+  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
+  let watchlist = storage.aura_creator_watchlist || [];
+  const lastPosts = storage.aura_creator_last_posts || {};
+
+  watchlist = watchlist.filter(u => u !== clean);
+  delete lastPosts[clean];
+
+  await chrome.storage.local.set({
+    aura_creator_watchlist: watchlist,
+    aura_creator_last_posts: lastPosts
+  });
+
+  return { watchlist, message: `Stopped tracking @${clean}` };
+}
+
+async function handleGetWatchlist() {
+  const storage = await chrome.storage.local.get(['aura_creator_watchlist']);
+  return { watchlist: storage.aura_creator_watchlist || [] };
+}
+
+// ─── Message Listener ───
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'aura:post') {
+  if (message.action === 'aura:add-creator') {
+    handleAddCreator(message.username).then(r => sendResponse(r));
+    return true;
+  } else if (message.action === 'aura:remove-creator') {
+    handleRemoveCreator(message.username).then(r => sendResponse(r));
+    return true;
+  } else if (message.action === 'aura:get-watchlist') {
+    handleGetWatchlist().then(r => sendResponse(r));
+    return true;
+  } else if (message.action === 'aura:post') {
     handlePost(message.text, message.imageUrl);
   } else if (message.action === 'aura:reply') {
     handleReply(message.text, message.tweetUrl, message.imageUrl);
