@@ -1103,7 +1103,136 @@ async function handleInsertAction(data) {
   }
 }
 
+// ─── Following Page Import ───
+
+let importButtonInjected = false;
+
+function isFollowingPage() {
+  return /^\/[A-Za-z0-9_]+\/following\/?$/.test(window.location.pathname);
+}
+
+function injectImportButton() {
+  if (importButtonInjected || document.getElementById('aura-import-following-btn')) return;
+  if (!isFollowingPage()) return;
+
+  importButtonInjected = true;
+
+  const btn = document.createElement('button');
+  btn.id = 'aura-import-following-btn';
+  btn.style.cssText = `
+    position: fixed;
+    bottom: 90px;
+    right: 20px;
+    z-index: 2147483646;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.2s, box-shadow 0.2s;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  `;
+  btn.innerHTML = '📥 Import Following List';
+  btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+  btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.style.opacity = '0.8';
+    btn.style.cursor = 'wait';
+
+    const usernames = new Set();
+    let noNewCount = 0;
+    const maxScrollAttempts = 100;
+
+    for (let i = 0; i < maxScrollAttempts; i++) {
+      const cells = document.querySelectorAll('[data-testid="UserCell"]');
+      let foundNew = false;
+      for (const cell of cells) {
+        const links = cell.querySelectorAll('a[href^="/"][role="link"]');
+        for (const link of links) {
+          const href = link.getAttribute('href') || '';
+          const match = href.match(/^\/([A-Za-z0-9_]+)\/?$/);
+          if (match && match[1]) {
+            const uname = match[1].toLowerCase();
+            if (uname !== 'home' && uname !== 'explore' && uname !== 'notifications' && uname !== 'messages' && uname !== 'settings' && uname !== 'compose' && uname !== 'i') {
+              if (!usernames.has(uname)) {
+                usernames.add(uname);
+                foundNew = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (cells.length === 0) {
+        const allLinks = document.querySelectorAll('a[role="link"]');
+        for (const link of allLinks) {
+          const href = link.getAttribute('href') || '';
+          const match = href.match(/^\/([A-Za-z0-9_]+)\/?$/);
+          if (match && match[1]) {
+            const uname = match[1].toLowerCase();
+            const reserved = new Set(['home', 'explore', 'notifications', 'messages', 'settings', 'compose', 'i', 'search', 'lists', 'bookmarks', 'communities', 'premium', 'verified']);
+            if (!reserved.has(uname) && !usernames.has(uname)) {
+              usernames.add(uname);
+              foundNew = true;
+            }
+          }
+        }
+      }
+
+      btn.innerHTML = `📥 Scanning... (${usernames.size} found)`;
+
+      if (foundNew) {
+        noNewCount = 0;
+      } else {
+        noNewCount++;
+      }
+
+      if (noNewCount >= 3) break;
+
+      window.scrollBy(0, 600);
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    const allUsernames = Array.from(usernames);
+    btn.innerHTML = `📥 Importing ${allUsernames.length} creators...`;
+
+    chrome.runtime.sendMessage({
+      action: 'aura:bulk-import-creators',
+      usernames: allUsernames,
+      platform: 'x'
+    }, (resp) => {
+      if (resp) {
+        const msg = `Imported ${resp.added} creators (${resp.skipped} already tracked${resp.capped ? `, ${resp.capped} over limit` : ''})`;
+        btn.innerHTML = `✅ ${msg}`;
+        btn.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+        showToast(msg);
+      } else {
+        btn.innerHTML = '❌ Import failed';
+      }
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      setTimeout(() => {
+        btn.innerHTML = '📥 Import Following List';
+        btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+      }, 5000);
+    });
+  });
+
+  document.body.appendChild(btn);
+}
+
 // ─── Init ───
 
 createFloatingWidget();
+injectImportButton();
 console.log('Aura Content Script loaded on X.com');

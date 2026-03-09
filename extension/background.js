@@ -128,10 +128,41 @@ async function handleGetWatchlist() {
   return { watchlist: storage.aura_creator_watchlist || [] };
 }
 
+const MAX_TRACKED_CREATORS = 200;
+
+async function handleBulkImportCreators(usernames, platform) {
+  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
+  const watchlist = storage.aura_creator_watchlist || [];
+  const lastPosts = storage.aura_creator_last_posts || {};
+
+  let added = 0;
+  let skipped = 0;
+  let capped = 0;
+
+  for (const raw of usernames) {
+    const clean = raw.replace(/^@/, '').trim().toLowerCase();
+    if (!clean || clean.length < 1) { skipped++; continue; }
+    if (watchlist.includes(clean)) { skipped++; continue; }
+    if (watchlist.length >= MAX_TRACKED_CREATORS) { capped++; continue; }
+    watchlist.push(clean);
+    added++;
+  }
+
+  await chrome.storage.local.set({
+    aura_creator_watchlist: watchlist,
+    aura_creator_last_posts: lastPosts
+  });
+
+  return { watchlist, added, skipped, capped };
+}
+
 // ─── Message Listener ───
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'aura:add-creator') {
+  if (message.action === 'aura:bulk-import-creators') {
+    handleBulkImportCreators(message.usernames || [], message.platform || 'threads').then(r => sendResponse(r));
+    return true;
+  } else if (message.action === 'aura:add-creator') {
     handleAddCreator(message.username).then(r => sendResponse(r));
     return true;
   } else if (message.action === 'aura:remove-creator') {
