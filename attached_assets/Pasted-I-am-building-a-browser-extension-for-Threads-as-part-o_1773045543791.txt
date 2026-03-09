@@ -1,0 +1,164 @@
+I am building a browser extension for Threads as part of a project called Aura. The extension analyzes posts and calculates a Viral Score (0–100) that helps users identify posts worth replying to.
+
+The extension can extract the following metrics from the Threads post DOM:
+
+likes
+
+comments
+
+reposts
+
+time since upload
+
+views (sometimes available)
+
+However, I am not sure if views will always be available from the DOM, so the scoring system must support two calculation modes:
+
+Full calculation (with views)
+
+Fallback calculation (without views)
+
+Please implement both.
+
+1. Viral Score Formula (WITH Views)
+
+If the extension can extract views, use this formula.
+
+Step 1 — Engagement Rate
+engagementRate =
+(likes + comments*2 + reposts*3) / views
+
+Weights:
+
+comment = 2
+
+repost = 3
+
+Convert to score:
+
+engagementScore =
+min(engagementRate * 200, 100)
+Step 2 — Velocity Score
+
+First calculate hours since post.
+
+velocity = views / hoursSincePost
+
+Normalize:
+
+velocityScore =
+min((velocity / 2000) * 100, 100)
+
+Assume:
+
+2000 views/hour ≈ strong viral velocity.
+
+Step 3 — Conversation Score
+conversationRatio = comments / max(likes,1)
+
+Normalize:
+
+conversationScore =
+min(conversationRatio * 40, 100)
+
+Posts with high comment ratios indicate discussion-heavy posts.
+
+Step 4 — Final Viral Score
+viralScore =
+0.5 * engagementScore +
+0.3 * velocityScore +
+0.2 * conversationScore
+
+Return a score from 0–100.
+
+2. Fallback Formula (NO Views Available)
+
+If views cannot be extracted from the DOM, calculate the score using only:
+
+likes
+
+comments
+
+reposts
+
+time since upload
+
+Step 1 — Weighted Engagement
+engagement =
+likes + comments*2 + reposts*3
+Step 2 — Velocity
+velocity =
+engagement / hoursSincePost
+
+Normalize:
+
+velocityScore =
+min((velocity / 300) * 100, 100)
+
+Assume:
+
+300 engagement/hour ≈ viral.
+
+Step 3 — Conversation Score
+conversationRatio = comments / max(likes,1)
+conversationScore =
+min(conversationRatio * 40, 100)
+Step 4 — Engagement Score
+engagementScore =
+min((engagement / 2000) * 100, 100)
+
+Assume:
+
+2000 total engagement ≈ strong viral post.
+
+Step 5 — Final Viral Score
+viralScore =
+0.4 * engagementScore +
+0.4 * velocityScore +
+0.2 * conversationScore
+3. Requirements
+
+Please implement a JavaScript function:
+
+calculateThreadsViralScore(metrics)
+
+Input example:
+
+{
+  likes: number,
+  comments: number,
+  reposts: number,
+  views: number | null,
+  hoursSincePost: number
+}
+
+The function should:
+
+automatically detect if views is available
+
+use the correct formula
+
+return a score between 0–100
+
+round the final value.
+
+4. Expected Output
+
+Example:
+
+{
+  viralScore: 72,
+  engagementScore: 60,
+  velocityScore: 80,
+  conversationScore: 55,
+  mode: "views" | "fallback"
+}
+5. Code Style
+
+Use clean JavaScript and ensure:
+
+division by zero is handled
+
+missing metrics default safely
+
+the code works inside a browser extension environment.
