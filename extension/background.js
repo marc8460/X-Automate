@@ -2,12 +2,13 @@
 
 const CREATOR_MONITOR_ALARM = 'aura-creator-monitor';
 const POLL_INTERVAL_MINUTES = 0.75;
+const MAX_TRACKED_CREATORS = 200;
 
 chrome.alarms.create(CREATOR_MONITOR_ALARM, { periodInMinutes: POLL_INTERVAL_MINUTES });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === CREATOR_MONITOR_ALARM) {
-    pollCreatorWatchlist();
+    migrateOldWatchlist().then(() => pollCreatorWatchlist());
   }
 });
 
@@ -19,11 +20,32 @@ chrome.notifications.onClicked.addListener((notificationId) => {
   }
 });
 
+async function migrateOldWatchlist() {
+  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
+  if (!storage.aura_creator_watchlist) return;
+
+  const oldList = storage.aura_creator_watchlist;
+  const oldPosts = storage.aura_creator_last_posts || {};
+
+  const xStorage = await chrome.storage.local.get(['aura_watchlist_x']);
+  const existingX = xStorage.aura_watchlist_x || [];
+
+  const mergedX = [...new Set([...existingX, ...oldList])];
+
+  await chrome.storage.local.set({
+    aura_watchlist_x: mergedX,
+    aura_lastposts_x: oldPosts
+  });
+
+  await chrome.storage.local.remove(['aura_creator_watchlist', 'aura_creator_last_posts']);
+  console.log(`[Aura] Migrated ${oldList.length} creators from old format to X watchlist`);
+}
+
 async function pollCreatorWatchlist() {
   try {
-    const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
-    const watchlist = storage.aura_creator_watchlist || [];
-    const lastPosts = storage.aura_creator_last_posts || {};
+    const storage = await chrome.storage.local.get(['aura_watchlist_threads', 'aura_lastposts_threads']);
+    const watchlist = storage.aura_watchlist_threads || [];
+    const lastPosts = storage.aura_lastposts_threads || {};
 
     if (watchlist.length === 0) return;
 
@@ -52,7 +74,7 @@ async function pollCreatorWatchlist() {
       }
     }
 
-    await chrome.storage.local.set({ aura_creator_last_posts: lastPosts });
+    await chrome.storage.local.set({ aura_lastposts_threads: lastPosts });
   } catch (err) {
     console.error('[Aura] Creator monitor error:', err);
   }
@@ -81,59 +103,79 @@ async function fetchLatestPostForCreator(username) {
   }
 }
 
-async function handleAddCreator(username) {
+function getStorageKeys(platform) {
+  const p = platform === 'x' ? 'x' : 'threads';
+  return { listKey: `aura_watchlist_${p}`, postsKey: `aura_lastposts_${p}` };
+}
+
+async function handleAddCreator(username, platform) {
   const clean = username.replace(/^@/, '').trim().toLowerCase();
   if (!clean) return { error: 'Empty username' };
 
-  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
-  const watchlist = storage.aura_creator_watchlist || [];
-  const lastPosts = storage.aura_creator_last_posts || {};
+  const { listKey, postsKey } = getStorageKeys(platform);
+  const storage = await chrome.storage.local.get([listKey, postsKey]);
+  const watchlist = storage[listKey] || [];
+  const lastPosts = storage[postsKey] || {};
 
-  if (watchlist.includes(clean)) return { watchlist, message: 'Already tracking' };
+  if (watchlist.includes(clean)) {
+    const all = await getAllWatchlists();
+    return { ...all, message: 'Already tracking' };
+  }
+
+  if (watchlist.length >= MAX_TRACKED_CREATORS) {
+    const all = await getAllWatchlists();
+    return { ...all, error: 'Creator limit reached (200)' };
+  }
 
   watchlist.push(clean);
 
-  const latestPost = await fetchLatestPostForCreator(clean);
-  if (latestPost) {
-    lastPosts[clean] = latestPost.postId;
+  if (platform === 'threads') {
+    const latestPost = await fetchLatestPostForCreator(clean);
+    if (latestPost) {
+      lastPosts[clean] = latestPost.postId;
+    }
   }
 
-  await chrome.storage.local.set({
-    aura_creator_watchlist: watchlist,
-    aura_creator_last_posts: lastPosts
-  });
+  await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts });
 
-  return { watchlist, message: `Now tracking @${clean}` };
+  const all = await getAllWatchlists();
+  return { ...all, message: `Now tracking @${clean}` };
 }
 
-async function handleRemoveCreator(username) {
+async function handleRemoveCreator(username, platform) {
   const clean = username.replace(/^@/, '').trim().toLowerCase();
-  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
-  let watchlist = storage.aura_creator_watchlist || [];
-  const lastPosts = storage.aura_creator_last_posts || {};
+  const { listKey, postsKey } = getStorageKeys(platform);
+  const storage = await chrome.storage.local.get([listKey, postsKey]);
+  let watchlist = storage[listKey] || [];
+  const lastPosts = storage[postsKey] || {};
 
   watchlist = watchlist.filter(u => u !== clean);
   delete lastPosts[clean];
 
-  await chrome.storage.local.set({
-    aura_creator_watchlist: watchlist,
-    aura_creator_last_posts: lastPosts
-  });
+  await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts });
 
-  return { watchlist, message: `Stopped tracking @${clean}` };
+  const all = await getAllWatchlists();
+  return { ...all, message: `Stopped tracking @${clean}` };
+}
+
+async function getAllWatchlists() {
+  const storage = await chrome.storage.local.get(['aura_watchlist_x', 'aura_watchlist_threads']);
+  return {
+    x: storage.aura_watchlist_x || [],
+    threads: storage.aura_watchlist_threads || []
+  };
 }
 
 async function handleGetWatchlist() {
-  const storage = await chrome.storage.local.get(['aura_creator_watchlist']);
-  return { watchlist: storage.aura_creator_watchlist || [] };
+  await migrateOldWatchlist();
+  return await getAllWatchlists();
 }
 
-const MAX_TRACKED_CREATORS = 200;
-
 async function handleBulkImportCreators(usernames, platform) {
-  const storage = await chrome.storage.local.get(['aura_creator_watchlist', 'aura_creator_last_posts']);
-  const watchlist = storage.aura_creator_watchlist || [];
-  const lastPosts = storage.aura_creator_last_posts || {};
+  const { listKey, postsKey } = getStorageKeys(platform);
+  const storage = await chrome.storage.local.get([listKey, postsKey]);
+  const watchlist = storage[listKey] || [];
+  const lastPosts = storage[postsKey] || {};
 
   let added = 0;
   let skipped = 0;
@@ -148,12 +190,10 @@ async function handleBulkImportCreators(usernames, platform) {
     added++;
   }
 
-  await chrome.storage.local.set({
-    aura_creator_watchlist: watchlist,
-    aura_creator_last_posts: lastPosts
-  });
+  await chrome.storage.local.set({ [listKey]: watchlist, [postsKey]: lastPosts });
 
-  return { watchlist, added, skipped, capped };
+  const all = await getAllWatchlists();
+  return { ...all, added, skipped, capped };
 }
 
 // ─── Message Listener ───
@@ -163,10 +203,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleBulkImportCreators(message.usernames || [], message.platform || 'threads').then(r => sendResponse(r));
     return true;
   } else if (message.action === 'aura:add-creator') {
-    handleAddCreator(message.username).then(r => sendResponse(r));
+    handleAddCreator(message.username, message.platform || 'threads').then(r => sendResponse(r));
     return true;
   } else if (message.action === 'aura:remove-creator') {
-    handleRemoveCreator(message.username).then(r => sendResponse(r));
+    handleRemoveCreator(message.username, message.platform || 'threads').then(r => sendResponse(r));
     return true;
   } else if (message.action === 'aura:get-watchlist') {
     handleGetWatchlist().then(r => sendResponse(r));

@@ -287,14 +287,33 @@
     <div class="watchlist-section">
       <div class="section-title">
         <span>Creator Monitor</span>
-        <span class="count" id="watchlist-count">0 tracked</span>
       </div>
-      <div style="color: var(--muted); font-size: 11px; margin-bottom: 8px;">Visit your following page on X or Threads to auto-import</div>
+      <div style="color: var(--muted); font-size: 11px; margin-bottom: 10px;">Visit your following page on X or Threads to auto-import</div>
+
       <div class="watchlist-input-row">
         <input type="text" class="watchlist-input" id="watchlist-input" placeholder="@username" />
+        <div style="display: flex; gap: 4px;">
+          <button class="platform-toggle active" id="platform-x" style="padding: 6px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; background: var(--primary); color: white;">X</button>
+          <button class="platform-toggle" id="platform-threads" style="padding: 6px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--muted);">Threads</button>
+        </div>
         <button class="track-btn" id="watchlist-add-btn">Track</button>
       </div>
-      <div class="watchlist-list" id="watchlist-list"></div>
+
+      <div style="margin-bottom: 6px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+          <span style="font-size: 12px; font-weight: 600; color: var(--foreground);">X Creators</span>
+          <span style="font-size: 11px; color: var(--muted);" id="x-count">0</span>
+        </div>
+        <div class="watchlist-list" id="watchlist-list-x"></div>
+      </div>
+
+      <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+          <span style="font-size: 12px; font-weight: 600; color: var(--foreground);">Threads Creators</span>
+          <span style="font-size: 11px; color: var(--muted);" id="threads-count">0</span>
+        </div>
+        <div class="watchlist-list" id="watchlist-list-threads"></div>
+      </div>
     </div>
 
     <button id="open-dashboard" class="button">Open Aura Dashboard</button>

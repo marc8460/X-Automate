@@ -659,9 +659,9 @@ function createFloatingWidget() {
             const action = isTracking ? 'aura:remove-creator' : 'aura:add-creator';
             trackBtn.textContent = 'Working...';
             trackBtn.disabled = true;
-            chrome.runtime.sendMessage({ action, username: profileUsername }, (resp) => {
-              if (resp && resp.watchlist) {
-                buildWidget(resp.watchlist);
+            chrome.runtime.sendMessage({ action, username: profileUsername, platform: 'threads' }, (resp) => {
+              if (resp && resp.threads) {
+                buildWidget(resp.threads);
               }
             });
           });
@@ -670,7 +670,7 @@ function createFloatingWidget() {
 
       if (profileUsername) {
         chrome.runtime.sendMessage({ action: 'aura:get-watchlist' }, (resp) => {
-          buildWidget(resp && resp.watchlist ? resp.watchlist : []);
+          buildWidget(resp && resp.threads ? resp.threads : []);
         });
       } else {
         buildWidget(null);
@@ -1408,17 +1408,51 @@ function startEarlyPostScanner() {
 
 // ─── Following Page Import ───
 
-let importButtonInjected = false;
-
 function isFollowingPage() {
-  return /^\/@[A-Za-z0-9_.]+\/following\/?$/.test(window.location.pathname);
+  return /^\/@[A-Za-z0-9_.]+\/follow(ing|ers)\/?$/.test(window.location.pathname);
 }
 
-function injectImportButton() {
-  if (importButtonInjected || document.getElementById('aura-import-following-btn')) return;
-  if (!isFollowingPage()) return;
+function findFollowingModal() {
+  const dialogs = document.querySelectorAll('[role="dialog"], div[style*="position: fixed"], div[style*="position:fixed"]');
+  for (const dialog of dialogs) {
+    const links = dialog.querySelectorAll('a[href^="/@"]');
+    if (links.length >= 3) return dialog;
+  }
 
-  importButtonInjected = true;
+  const overlays = document.querySelectorAll('div');
+  for (const div of overlays) {
+    const cs = window.getComputedStyle(div);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') continue;
+    if (parseInt(cs.zIndex) < 100) continue;
+    const links = div.querySelectorAll('a[href^="/@"]');
+    if (links.length >= 3) return div;
+  }
+
+  return null;
+}
+
+function findScrollableContainer(modal) {
+  const candidates = modal.querySelectorAll('div');
+  for (const div of candidates) {
+    const cs = window.getComputedStyle(div);
+    if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') {
+      if (div.scrollHeight > div.clientHeight) return div;
+    }
+  }
+  return modal;
+}
+
+let importBtnActive = false;
+
+function checkForFollowingList() {
+  if (document.getElementById('aura-import-following-btn')) return;
+
+  const isDirectPage = isFollowingPage();
+  const modal = findFollowingModal();
+
+  if (!isDirectPage && !modal) return;
+
+  const targetContainer = modal || null;
 
   const btn = document.createElement('button');
   btn.id = 'aura-import-following-btn';
@@ -1426,7 +1460,7 @@ function injectImportButton() {
     position: fixed;
     bottom: 90px;
     right: 20px;
-    z-index: 2147483646;
+    z-index: 2147483647;
     background: linear-gradient(135deg, #10b981, #059669);
     color: white;
     border: none;
@@ -1447,6 +1481,8 @@ function injectImportButton() {
   btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
 
   btn.addEventListener('click', async () => {
+    if (importBtnActive) return;
+    importBtnActive = true;
     btn.disabled = true;
     btn.style.opacity = '0.8';
     btn.style.cursor = 'wait';
@@ -1455,10 +1491,14 @@ function injectImportButton() {
     let noNewCount = 0;
     const maxScrollAttempts = 100;
 
+    const scrollTarget = targetContainer ? findScrollableContainer(targetContainer) : null;
+    const searchRoot = targetContainer || document;
+
     for (let i = 0; i < maxScrollAttempts; i++) {
-      const links = document.querySelectorAll('a[href^="/@"]');
+      const links = searchRoot.querySelectorAll('a[href^="/@"]');
       let foundNew = false;
       for (const link of links) {
+        if (link.closest('#aura-import-following-btn')) continue;
         const href = link.getAttribute('href') || '';
         const match = href.match(/^\/@([A-Za-z0-9_.]+)\/?$/);
         if (match && match[1]) {
@@ -1480,7 +1520,11 @@ function injectImportButton() {
 
       if (noNewCount >= 3) break;
 
-      window.scrollBy(0, 600);
+      if (scrollTarget) {
+        scrollTarget.scrollTop += 400;
+      } else {
+        window.scrollBy(0, 600);
+      }
       await new Promise(r => setTimeout(r, 800));
     }
 
@@ -1503,6 +1547,7 @@ function injectImportButton() {
       btn.disabled = false;
       btn.style.opacity = '1';
       btn.style.cursor = 'pointer';
+      importBtnActive = false;
       setTimeout(() => {
         btn.innerHTML = '📥 Import Following List';
         btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
@@ -1511,6 +1556,17 @@ function injectImportButton() {
   });
 
   document.body.appendChild(btn);
+
+  if (targetContainer) {
+    const modalCloseObserver = new MutationObserver(() => {
+      if (!document.body.contains(targetContainer)) {
+        const existingBtn = document.getElementById('aura-import-following-btn');
+        if (existingBtn) existingBtn.remove();
+        modalCloseObserver.disconnect();
+      }
+    });
+    modalCloseObserver.observe(document.body, { childList: true, subtree: true });
+  }
 }
 
 // ─── Main Observer ───
@@ -1528,7 +1584,8 @@ function init() {
   setTimeout(scanForPosts, 1000);
   setTimeout(scanForPosts, 3000);
   setTimeout(startEarlyPostScanner, 2000);
-  injectImportButton();
+  checkForFollowingList();
+  setInterval(checkForFollowingList, 2000);
 }
 
 if (document.readyState === 'loading') {

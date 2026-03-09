@@ -4,8 +4,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openDashboardBtn = document.getElementById('open-dashboard');
   const watchlistInput = document.getElementById('watchlist-input');
   const watchlistAddBtn = document.getElementById('watchlist-add-btn');
-  const watchlistListEl = document.getElementById('watchlist-list');
-  const watchlistCountEl = document.getElementById('watchlist-count');
+  const xListEl = document.getElementById('watchlist-list-x');
+  const threadsListEl = document.getElementById('watchlist-list-threads');
+  const xCountEl = document.getElementById('x-count');
+  const threadsCountEl = document.getElementById('threads-count');
+  const platformXBtn = document.getElementById('platform-x');
+  const platformThreadsBtn = document.getElementById('platform-threads');
+
+  let selectedPlatform = 'x';
+
+  platformXBtn.addEventListener('click', () => {
+    selectedPlatform = 'x';
+    platformXBtn.style.background = 'var(--primary)';
+    platformXBtn.style.color = 'white';
+    platformThreadsBtn.style.background = 'var(--card)';
+    platformThreadsBtn.style.color = 'var(--muted)';
+  });
+
+  platformThreadsBtn.addEventListener('click', () => {
+    selectedPlatform = 'threads';
+    platformThreadsBtn.style.background = 'var(--primary)';
+    platformThreadsBtn.style.color = 'white';
+    platformXBtn.style.background = 'var(--card)';
+    platformXBtn.style.color = 'var(--muted)';
+  });
 
   const checkConnection = async () => {
     try {
@@ -42,33 +64,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  function renderWatchlist(watchlist) {
-    watchlistCountEl.textContent = `${watchlist.length} tracked`;
-    if (watchlist.length === 0) {
-      watchlistListEl.innerHTML = '<div class="watchlist-empty">No creators tracked yet</div>';
+  function renderPlatformList(listEl, creators, platform) {
+    if (creators.length === 0) {
+      listEl.innerHTML = '<div class="watchlist-empty">No creators tracked</div>';
       return;
     }
-    watchlistListEl.innerHTML = watchlist.map(u => `
+    listEl.innerHTML = creators.map(u => `
       <div class="watchlist-item">
         <span class="username">@${u}</span>
-        <button class="watchlist-remove" data-username="${u}" title="Remove">&times;</button>
+        <button class="watchlist-remove" data-username="${u}" data-platform="${platform}" title="Remove">&times;</button>
       </div>
     `).join('');
 
-    watchlistListEl.querySelectorAll('.watchlist-remove').forEach(btn => {
+    listEl.querySelectorAll('.watchlist-remove').forEach(btn => {
       btn.addEventListener('click', () => {
         const username = btn.dataset.username;
+        const plat = btn.dataset.platform;
         btn.textContent = '...';
-        chrome.runtime.sendMessage({ action: 'aura:remove-creator', username }, (resp) => {
-          if (resp && resp.watchlist) renderWatchlist(resp.watchlist);
+        chrome.runtime.sendMessage({ action: 'aura:remove-creator', username, platform: plat }, (resp) => {
+          if (resp) renderWatchlists(resp);
         });
       });
     });
   }
 
+  function renderWatchlists(data) {
+    const xList = data.x || [];
+    const threadsList = data.threads || [];
+    xCountEl.textContent = xList.length;
+    threadsCountEl.textContent = threadsList.length;
+    renderPlatformList(xListEl, xList, 'x');
+    renderPlatformList(threadsListEl, threadsList, 'threads');
+  }
+
   function loadWatchlist() {
     chrome.runtime.sendMessage({ action: 'aura:get-watchlist' }, (resp) => {
-      renderWatchlist(resp && resp.watchlist ? resp.watchlist : []);
+      if (resp) renderWatchlists(resp);
     });
   }
 
@@ -77,11 +108,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!username) return;
     watchlistAddBtn.textContent = '...';
     watchlistAddBtn.disabled = true;
-    chrome.runtime.sendMessage({ action: 'aura:add-creator', username }, (resp) => {
+    chrome.runtime.sendMessage({ action: 'aura:add-creator', username, platform: selectedPlatform }, (resp) => {
       watchlistAddBtn.textContent = 'Track';
       watchlistAddBtn.disabled = false;
       watchlistInput.value = '';
-      if (resp && resp.watchlist) renderWatchlist(resp.watchlist);
+      if (resp) renderWatchlists(resp);
     });
   }
 
