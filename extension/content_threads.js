@@ -65,6 +65,74 @@ async function waitForComposer(timeout = 10000) {
   throw new Error('Timeout waiting for composer');
 }
 
+async function handleInsertReply(tweetData, replyText, autoPost, imageUrl) {
+  try {
+    const replyButton = tweetData.el.querySelector('svg[aria-label*="Reply"], svg[aria-label*="reply"], svg[aria-label*="Comment"], svg[aria-label*="comment"], svg[aria-label*="Svar"], svg[aria-label*="Kommentar"]');
+    const replyClickTarget = replyButton ? replyButton.closest('div[role="button"]') || replyButton.closest('[role="button"]') || replyButton.parentElement : null;
+    if (replyClickTarget) {
+      replyClickTarget.click();
+    }
+
+    await new Promise(r => setTimeout(r, 500));
+    const composer = await waitForComposer();
+
+    if (imageUrl) {
+      showToast('Attaching image...');
+      const blobDataUrl = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'aura:image', imageUrl }, (res) => {
+          resolve(res?.blob || null);
+        });
+      });
+      if (blobDataUrl) {
+        try {
+          const response = await fetch(blobDataUrl);
+          const blob = await response.blob();
+          const fileInput = document.querySelector('input[type="file"]');
+          if (fileInput) {
+            const file = new File([blob], 'aura_reply_image.jpg', { type: blob.type });
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            fileInput.files = dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 1500));
+          }
+        } catch (e) {
+          console.error('[Aura] Image attach failed:', e);
+        }
+      }
+    }
+
+    const composerEl = findComposer() || composer;
+    await insertText(composerEl, replyText);
+
+    if (autoPost) {
+      await new Promise(r => setTimeout(r, 500));
+      const allBtns = document.querySelectorAll('div[role="button"]');
+      let submitBtn = null;
+      for (const btn of allBtns) {
+        const text = btn.textContent?.trim().toLowerCase();
+        if (text === 'post' || text === 'reply' || text === 'slå op' || text === 'svar') {
+          submitBtn = btn;
+          break;
+        }
+      }
+      if (submitBtn && !submitBtn.disabled) {
+        submitBtn.click();
+        showToast('Reply posted by Aura ⚡' + (imageUrl ? ' (with photo)' : ''));
+        chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'threads', activityAction: 'reply_posted' });
+      } else {
+        showToast('Reply inserted — click Post to send');
+      }
+    } else {
+      showToast('Reply inserted with typing delay — click Post to send');
+    }
+  } catch (err) {
+    console.error('[Aura] Insert reply error:', err);
+    showToast('Could not insert reply. Copied to clipboard instead.');
+    navigator.clipboard.writeText(replyText);
+  }
+}
+
 // ─── Toast ───
 
 function showToast(message) {
@@ -377,6 +445,66 @@ auraStyles.textContent = `
   .aura-btn-secondary { background: transparent; border: 1px solid #333; color: white; }
   .aura-btn-post { background: #22c55e; color: white; }
   .aura-btn-post:hover { background: #16a34a; }
+  .aura-btn-attach { background: transparent; border: 1px solid #7c3aed; color: #a78bfa; font-size: 12px; padding: 4px 12px; }
+  .aura-btn-attach:hover { background: rgba(124, 58, 237, 0.15); }
+
+  .aura-attach-section {
+    margin-top: 8px;
+    margin-bottom: 4px;
+  }
+  .aura-attach-preview {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding: 6px;
+    background: rgba(124, 58, 237, 0.1);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    border-radius: 8px;
+  }
+  .aura-media-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 6px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+  }
+  .aura-media-thumb {
+    cursor: pointer;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 2px solid transparent;
+    transition: border-color 0.2s;
+    position: relative;
+  }
+  .aura-media-thumb:hover {
+    border-color: #7c3aed;
+  }
+  .aura-media-thumb img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    display: block;
+  }
+  .aura-media-mood {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    color: #a78bfa;
+    font-size: 9px;
+    padding: 2px 4px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .aura-overlay {
     position: fixed;
@@ -716,7 +844,7 @@ function findAuthor(postEl) {
 }
 
 function findPostText(postEl, actionBar) {
-  const skipWords = new Set(['oversæt', 'translate', 'see translation', 'vis oversættelse', 'første tråd', 'first thread', 'relevante', 'vis aktivitet', 'synes godt om', 'svar', 'del', 'mere', 'more', 'reply', 'share', 'like', 'repost']);
+  const skipWords = new Set(['oversæt', 'translate', 'see translation', 'vis oversættelse', 'første tråd', 'first thread', 'relevante', 'vis aktivitet', 'synes godt om', 'svar', 'del', 'mere', 'more', 'reply', 'share', 'like', 'repost', 'spoiler', 'følg', 'follow', 'following', 'følger']);
   const authorName = findAuthor(postEl);
   const elements = postEl.querySelectorAll('span[dir="auto"], span[dir="ltr"], div[dir="auto"]');
   const textParts = [];
@@ -757,15 +885,20 @@ function findPostImages(postEl, actionBar) {
     if (img.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget, .aura-panel')) continue;
     const src = img.src || '';
     if (!src || src.startsWith('data:') || src.includes('emoji') || src.includes('/static/')) continue;
+    if (src.includes('profile_images') || src.includes('profile_pic')) continue;
 
     const w = img.naturalWidth || img.width || 0;
     const h = img.naturalHeight || img.height || 0;
     if (w > 0 && h > 0 && w < 40 && h < 40) continue;
 
     const style = window.getComputedStyle(img);
-    const isCircular = style.borderRadius === '50%' || parseInt(style.borderRadius) > 40;
-    const isSmallAvatar = (w > 0 && w <= 60 && h > 0 && h <= 60);
-    if (isCircular && isSmallAvatar) continue;
+    const br = style.borderRadius;
+    const isCircular = br === '50%' || br === '9999px' || parseInt(br) >= 40;
+    const parentW = img.parentElement ? img.parentElement.offsetWidth : 0;
+    const parentH = img.parentElement ? img.parentElement.offsetHeight : 0;
+    const isSmallContainer = parentW > 0 && parentW <= 80 && parentH > 0 && parentH <= 80;
+    if (isCircular && isSmallContainer) continue;
+    if (isCircular && w > 0 && w <= 80 && h > 0 && h <= 80) continue;
 
     const clean = src.replace(/\/s\d+x\d+\//, '/').replace(/\/w\d+\//, '/').replace(/\/p\d+x\d+\//, '/');
     if (!urls.includes(clean)) urls.push(clean);
@@ -949,6 +1082,7 @@ function openAnalysisPanel(tweetData) {
         Generate Viral Replies
       </button>
 
+      <div id="aura-vision-result" style="display: none; margin-bottom: 12px;"></div>
       <div id="aura-replies-container" class="aura-replies-list"></div>
     </div>
   `;
@@ -971,96 +1105,125 @@ function openAnalysisPanel(tweetData) {
   const generateBtn = panel.querySelector('#aura-generate-btn');
   const repliesContainer = panel.querySelector('#aura-replies-container');
   const customInstructionsInput = panel.querySelector('#aura-custom-instructions');
+  const visionResultEl = panel.querySelector('#aura-vision-result');
 
   generateBtn.addEventListener('click', async () => {
     generateBtn.disabled = true;
-    generateBtn.innerHTML = `<span class="aura-loading-spinner"></span> Generating...`;
-    repliesContainer.innerHTML = '';
+    generateBtn.innerHTML = '<span class="aura-loading-spinner"></span> Analyzing' + (tweetData.imageUrls.length > 0 ? ' image + text...' : '...');
+    repliesContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">✨ Generating viral replies...</div>';
+    visionResultEl.style.display = 'none';
 
     const payload = {
       tweetText: tweetData.text,
       authorHandle: tweetData.authorName,
       metrics: tweetData.metrics,
       customInstructions: customInstructionsInput.value,
-      platform: 'threads'
+      platform: 'threads',
+      imageUrl: tweetData.imageUrls.length > 0 ? tweetData.imageUrls[0] : null
     };
 
     chrome.runtime.sendMessage({ action: 'aura:generate-replies', data: { payload } }, (response) => {
       generateBtn.disabled = false;
       generateBtn.textContent = 'Regenerate Replies';
 
-      if (response && response.replies) {
-        response.replies.forEach((replyObj) => {
+      if (response && response.imageDescription) {
+        visionResultEl.style.display = 'block';
+        visionResultEl.innerHTML = `
+          <div style="background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 10px; padding: 10px;">
+            <div style="font-size: 12px; font-weight: bold; color: #a78bfa; margin-bottom: 4px;">👁 AI Vision Analysis</div>
+            <div style="font-size: 13px; color: #d1d5db; line-height: 1.4;">${escapeHtml(response.imageDescription)}</div>
+          </div>
+        `;
+      }
+
+      if (response && response.replies && response.replies.length > 0) {
+        repliesContainer.innerHTML = '';
+        response.replies.forEach((replyObj, idx) => {
           const replyText = typeof replyObj === 'string' ? replyObj : (replyObj.text || '');
           const replyLabel = typeof replyObj === 'string' ? '' : (replyObj.label || '');
           const card = document.createElement('div');
           card.className = 'aura-reply-card';
           card.innerHTML = `
             ${replyLabel ? `<div style="font-size: 11px; font-weight: 700; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">${escapeHtml(replyLabel)}</div>` : ''}
-            <div style="font-size: 14px; line-height: 1.5;">${escapeHtml(replyText)}</div>
+            <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(replyText)}</div>
+            <div class="aura-attach-section" id="aura-attach-${idx}">
+              <button class="aura-btn aura-btn-attach aura-attach-btn" data-idx="${idx}">📷 Attach Photo</button>
+              <div class="aura-attach-preview" id="aura-attach-preview-${idx}" style="display: none;"></div>
+              <div class="aura-media-grid" id="aura-media-grid-${idx}" style="display: none;"></div>
+            </div>
             <div class="aura-reply-actions">
-              <button class="aura-btn aura-btn-secondary aura-copy-btn">Copy</button>
-              <button class="aura-btn aura-btn-post aura-direct-post-btn">Auto-Post</button>
+              <button class="aura-btn aura-btn-secondary aura-copy-btn">📋 Copy</button>
+              <button class="aura-btn aura-btn-primary aura-insert-btn">✏️ Insert</button>
+              <button class="aura-btn aura-btn-post aura-post-btn">⚡ Post Reply</button>
             </div>
           `;
 
-          const copyBtn = card.querySelector('.aura-copy-btn');
-          copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(replyText);
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+          let selectedImageUrl = null;
+
+          card.querySelector('.aura-attach-btn').addEventListener('click', () => {
+            const grid = card.querySelector(`#aura-media-grid-${idx}`);
+            if (grid.style.display !== 'none') {
+              grid.style.display = 'none';
+              return;
+            }
+            grid.innerHTML = '<div style="text-align: center; padding: 12px; color: #999; font-size: 12px;">Loading media vault...</div>';
+            grid.style.display = 'grid';
+
+            chrome.runtime.sendMessage({ action: 'aura:fetch-media-vault' }, (res) => {
+              if (res && res.items && res.items.length > 0) {
+                grid.innerHTML = '';
+                res.items.forEach(item => {
+                  const thumb = document.createElement('div');
+                  thumb.className = 'aura-media-thumb';
+                  thumb.innerHTML = `<img src="${item.url}" alt="${item.mood || ''}" /><div class="aura-media-mood">${escapeHtml(item.mood || '')}</div>`;
+                  thumb.addEventListener('click', () => {
+                    selectedImageUrl = item.url;
+                    grid.style.display = 'none';
+                    const preview = card.querySelector(`#aura-attach-preview-${idx}`);
+                    preview.style.display = 'flex';
+                    preview.innerHTML = `
+                      <img src="${item.url}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #7c3aed;" />
+                      <span style="font-size: 12px; color: #a78bfa;">${escapeHtml(item.mood || 'Photo')} attached</span>
+                      <button class="aura-btn aura-btn-secondary aura-remove-img" style="padding: 2px 6px; font-size: 11px; margin-left: auto;">✕</button>
+                    `;
+                    preview.querySelector('.aura-remove-img').addEventListener('click', () => {
+                      selectedImageUrl = null;
+                      preview.style.display = 'none';
+                      preview.innerHTML = '';
+                    });
+                  });
+                  grid.appendChild(thumb);
+                });
+              } else {
+                grid.innerHTML = `<div style="text-align: center; padding: 12px; color: #999; font-size: 12px;">${res?.error || 'No images in your media vault.'}</div>`;
+              }
+            });
           });
 
-          const postBtn = card.querySelector('.aura-direct-post-btn');
-          postBtn.addEventListener('click', async () => {
-             postBtn.disabled = true;
-             postBtn.innerHTML = `<span class="aura-loading-spinner"></span> Posting...`;
-             
-             try {
-               const replyButton = tweetData.el.querySelector('svg[aria-label*="Reply"], svg[aria-label*="reply"], svg[aria-label*="Comment"], svg[aria-label*="comment"], svg[aria-label*="Svar"], svg[aria-label*="Kommentar"]');
-               const replyClickTarget = replyButton ? replyButton.closest('div[role="button"]') || replyButton.closest('[role="button"]') || replyButton.parentElement : null;
-               if (replyClickTarget) {
-                 replyClickTarget.click();
-                 const composer = await waitForComposer();
-                 await insertText(composer, replyText);
-                 
-                 await new Promise(r => setTimeout(r, 500));
-                 const allBtns = document.querySelectorAll('div[role="button"]');
-                 let submitBtn = null;
-                 for (const btn of allBtns) {
-                   const text = btn.textContent?.trim().toLowerCase();
-                   if (text === 'post' || text === 'reply' || text === 'slå op' || text === 'svar') {
-                     submitBtn = btn;
-                     break;
-                   }
-                 }
-                 if (submitBtn) {
-                   submitBtn.click();
-                   showToast('Reply posted by Aura ⚡');
-                   chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'threads', activityAction: 'reply_posted' });
-                 } else {
-                   showToast('Reply inserted! Click Post to send.');
-                   chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'threads', activityAction: 'reply_posted' });
-                 }
-                 panel.remove();
-                 overlay.remove();
-                 activePanel = null;
-               } else {
-                 throw new Error('Could not find reply button');
-               }
-             } catch (err) {
-               console.error(err);
-               showToast('Could not auto-post. Copied to clipboard instead.');
-               navigator.clipboard.writeText(replyText);
-               postBtn.disabled = false;
-               postBtn.textContent = 'Auto-Post';
-             }
+          card.querySelector('.aura-copy-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(replyText);
+            showToast('Copied to clipboard');
+          });
+
+          card.querySelector('.aura-insert-btn').addEventListener('click', () => {
+            handleInsertReply(tweetData, replyText, false, selectedImageUrl);
+            panel.remove();
+            overlay.remove();
+            activePanel = null;
+          });
+
+          card.querySelector('.aura-post-btn').addEventListener('click', () => {
+            handleInsertReply(tweetData, replyText, true, selectedImageUrl);
+            panel.remove();
+            overlay.remove();
+            activePanel = null;
           });
 
           repliesContainer.appendChild(card);
         });
       } else {
-        repliesContainer.innerHTML = `<div style="color: #ef4444; text-align: center; padding: 20px;">${response?.error || 'Failed to generate replies. Please try again.'}</div>`;
+        const errMsg = response?.error || response?.message || 'Failed to generate replies. Please try again.';
+        repliesContainer.innerHTML = `<div style="color: #ef4444; text-align: center; padding: 20px;">${escapeHtml(errMsg)}</div>`;
       }
     });
   });
