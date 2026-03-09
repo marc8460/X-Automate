@@ -1158,15 +1158,15 @@ function injectImportButton() {
       for (const cell of cells) {
         const links = cell.querySelectorAll('a[href^="/"][role="link"]');
         for (const link of links) {
+          const linkText = link.textContent.trim();
+          if (!linkText.startsWith('@')) continue;
           const href = link.getAttribute('href') || '';
           const match = href.match(/^\/([A-Za-z0-9_]+)\/?$/);
           if (match && match[1]) {
             const uname = match[1].toLowerCase();
-            if (uname !== 'home' && uname !== 'explore' && uname !== 'notifications' && uname !== 'messages' && uname !== 'settings' && uname !== 'compose' && uname !== 'i') {
-              if (!usernames.has(uname)) {
-                usernames.add(uname);
-                foundNew = true;
-              }
+            if (!usernames.has(uname)) {
+              usernames.add(uname);
+              foundNew = true;
             }
           }
         }
@@ -1175,6 +1175,8 @@ function injectImportButton() {
       if (cells.length === 0) {
         const allLinks = document.querySelectorAll('a[role="link"]');
         for (const link of allLinks) {
+          const linkText = link.textContent.trim();
+          if (!linkText.startsWith('@')) continue;
           const href = link.getAttribute('href') || '';
           const match = href.match(/^\/([A-Za-z0-9_]+)\/?$/);
           if (match && match[1]) {

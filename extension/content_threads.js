@@ -277,68 +277,29 @@ auraStyles.textContent = `
   .aura-toggle input:checked + .aura-toggle-slider { background: #7c3aed; }
   .aura-toggle input:checked + .aura-toggle-slider::before { transform: translateX(18px); }
 
-  .aura-analyze-btn {
-    position: absolute;
-    right: 12px;
-    top: 12px;
-    background: #7c3aed;
-    color: white;
-    border: none;
-    border-radius: 9999px;
-    padding: 4px 12px;
+  .aura-badge {
+    display: block;
+    padding: 3px 10px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: bold;
-    cursor: pointer;
-    z-index: 10;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s, background 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    margin-top: 2px;
+    width: fit-content;
   }
-  .aura-threads-post:hover .aura-analyze-btn {
-    opacity: 1;
-    pointer-events: auto;
-  }
-  .aura-analyze-btn:hover { background: #6d28d9; }
-
-  .aura-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: bold;
-    margin-left: 8px;
-    vertical-align: middle;
-  }
-  .aura-badge-high { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
-  .aura-badge-med { background: rgba(234, 179, 8, 0.2); color: #eab308; }
-  .aura-badge-low { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+  .aura-badge-high { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+  .aura-badge-med { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+  .aura-badge-low { background: rgba(107, 114, 128, 0.15); color: #9ca3af; }
 
   .aura-early-badge {
-    position: absolute;
-    left: 12px;
-    top: 12px;
-    background: rgba(16, 185, 129, 0.15);
-    border: 1px solid rgba(16, 185, 129, 0.5);
+    display: block;
+    padding: 6px 12px;
+    background: rgba(16, 185, 129, 0.08);
+    border-left: 3px solid #10b981;
     color: #10b981;
-    padding: 4px 10px;
-    border-radius: 9999px;
-    font-size: 11px;
-    font-weight: 700;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    box-shadow: 0 0 12px rgba(16, 185, 129, 0.3), 0 0 4px rgba(16, 185, 129, 0.2);
-    animation: aura-early-glow 2s ease-in-out infinite;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
     pointer-events: none;
-  }
-  @keyframes aura-early-glow {
-    0%, 100% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.3), 0 0 4px rgba(16, 185, 129, 0.2); }
-    50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.5), 0 0 8px rgba(16, 185, 129, 0.4); }
   }
 
   .aura-panel {
@@ -628,7 +589,7 @@ function createFloatingWidget() {
               <span class="aura-widget-value">${s.postsToday}</span>
             </div>
             <div class="aura-widget-row">
-              <span class="aura-widget-label">Score Badges</span>
+              <span class="aura-widget-label">Viral Scores</span>
               <span class="aura-widget-value">
                 <label class="aura-toggle">
                   <input type="checkbox" id="aura-badge-toggle" ${badgesEnabled ? 'checked' : ''}>
@@ -646,7 +607,7 @@ function createFloatingWidget() {
           toggle.addEventListener('change', () => {
             badgesEnabled = toggle.checked;
             chrome.storage.local.set({ aura_badges_enabled: badgesEnabled });
-            document.querySelectorAll('.aura-badge, .aura-analyze-btn').forEach(el => {
+            document.querySelectorAll('.aura-badge').forEach(el => {
               el.style.display = badgesEnabled ? '' : 'none';
             });
           });
@@ -795,7 +756,7 @@ function findActionBar(container) {
   const allDivs = container.querySelectorAll('div');
   let lastMatch = null;
   for (const div of allDivs) {
-    if (div.closest('.aura-fab, .aura-widget, .aura-panel, .aura-badge, .aura-analyze-btn')) continue;
+    if (div.closest('.aura-fab, .aura-widget, .aura-panel, .aura-badge')) continue;
     if (isValidActionBar(div)) lastMatch = div;
   }
   return lastMatch;
@@ -810,11 +771,11 @@ function extractMetricsFromActionBar(actionBar) {
   const buttons = Array.from(actionBar.children);
   const nums = [];
   for (const btn of buttons) {
-    if (btn.closest('.aura-badge, .aura-analyze-btn')) { nums.push(0); continue; }
+    if (btn.closest('.aura-badge')) { nums.push(0); continue; }
     const textNodes = [];
     const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        if (node.parentElement && node.parentElement.closest('.aura-badge, .aura-analyze-btn')) return NodeFilter.FILTER_REJECT;
+        if (node.parentElement && node.parentElement.closest('.aura-badge')) return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
       }
     });
@@ -887,7 +848,7 @@ function extractViewsFromPage(postEl) {
 function parseTimeSincePost(postEl) {
   const timeTexts = postEl.querySelectorAll('time, span, a');
   for (const el of timeTexts) {
-    if (el.closest('.aura-badge, .aura-analyze-btn')) continue;
+    if (el.closest('.aura-badge')) continue;
     const t = el.textContent.trim();
     const minMatch = t.match(/^(\d+)\s*(?:min\.?|m)$/i);
     if (minMatch) return parseInt(minMatch[1]) / 60;
@@ -926,7 +887,7 @@ function findPostText(postEl, actionBar) {
 
   for (const el of elements) {
     if (actionBar && actionBar.contains(el)) continue;
-    if (el.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget')) continue;
+    if (el.closest('.aura-badge, .aura-fab, .aura-widget')) continue;
     const text = el.innerText.trim();
     if (!text) continue;
     if (skipWords.has(text.toLowerCase())) continue;
@@ -956,7 +917,7 @@ function findPostImages(postEl, actionBar) {
   const imgs = postEl.querySelectorAll('img');
   for (const img of imgs) {
     if (actionBar && actionBar.contains(img)) continue;
-    if (img.closest('.aura-badge, .aura-analyze-btn, .aura-fab, .aura-widget, .aura-panel')) continue;
+    if (img.closest('.aura-badge, .aura-fab, .aura-widget, .aura-panel')) continue;
     const src = img.src || '';
     if (!src || src.startsWith('data:') || src.includes('emoji') || src.includes('/static/')) continue;
     if (src.includes('profile_images') || src.includes('profile_pic')) continue;
@@ -1036,33 +997,19 @@ function injectBadges(postEl) {
   if (postEl.querySelector('.aura-badge')) return;
 
   if (data.opportunityScore !== null && data.opportunityScore > 0) {
-    const badge = document.createElement('span');
+    const badge = document.createElement('div');
     const colorClass = data.opportunityScore >= 75 ? 'aura-badge-high' : data.opportunityScore >= 50 ? 'aura-badge-med' : 'aura-badge-low';
     badge.className = `aura-badge ${colorClass}`;
     badge.textContent = `🔥 ${data.opportunityScore}`;
 
     const authorLink = postEl.querySelector('a[href^="/@"]');
     if (authorLink) {
-      authorLink.parentElement.style.display = 'inline-flex';
-      authorLink.parentElement.style.alignItems = 'center';
-      authorLink.parentElement.appendChild(badge);
+      const container = authorLink.closest('div') || authorLink.parentElement;
+      if (container) {
+        container.parentElement.insertBefore(badge, container.nextSibling);
+      }
     }
   }
-
-  const analyzeBtn = document.createElement('button');
-  analyzeBtn.className = 'aura-analyze-btn';
-  analyzeBtn.innerHTML = `<span>✨ Analyze</span>`;
-  analyzeBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const freshData = getThreadsPostData(postEl);
-    openAnalysisPanel(freshData);
-  });
-
-  if (!postEl.style.position || postEl.style.position === 'static') {
-    postEl.style.position = 'relative';
-  }
-  postEl.appendChild(analyzeBtn);
 }
 
 // ─── Analysis Panel ───
@@ -1381,15 +1328,11 @@ function scanForEarlyPosts() {
     if (minutesSince > 0 && minutesSince < 5) {
       seenEarlyPosts.add(fingerprint);
 
-      if (!postEl.style.position || postEl.style.position === 'static') {
-        postEl.style.position = 'relative';
-      }
-
-      const badge = document.createElement('span');
+      const badge = document.createElement('div');
       badge.className = 'aura-early-badge';
       const ageText = minutesSince < 1 ? '<1m' : `${Math.round(minutesSince)}m`;
-      badge.innerHTML = `⚡ Early Post · Age: ${ageText} · Reply opportunity`;
-      postEl.appendChild(badge);
+      badge.textContent = `⚡ Early Post · ${ageText} ago · Reply now for max reach`;
+      postEl.prepend(badge);
     }
   }
 }
