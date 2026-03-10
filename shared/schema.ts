@@ -288,3 +288,10 @@ export const creatorAlerts = pgTable("creator_alerts", {
 export const insertCreatorAlertSchema = createInsertSchema(creatorAlerts).omit({ id: true, createdAt: true, dismissed: true });
 export type InsertCreatorAlert = z.infer<typeof insertCreatorAlertSchema>;
 export type CreatorAlert = typeof creatorAlerts.$inferSelect;
+
+export const avatarCacheTable = pgTable("avatar_cache", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  avatarUrl: text("avatar_url"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+});

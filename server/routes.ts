@@ -5,12 +5,14 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
+import { eq, sql } from "drizzle-orm";
 import { getTwitterClient, getTwitterClientForUser, testTwitterConnectionForUser, generateTwitterOAuthUrl, handleTwitterOAuthCallback } from "./twitter";
 import { testThreadsConnectionForUser, getThreadsAccessTokenForUser, createThreadsPost, replyToThreadsComment, generateThreadsOAuthUrl, storeThreadsOAuthState, handleThreadsOAuthCallback, getThreadsPosts, getThreadsPostInsights, getThreadsConversation, getThreadsPostMetrics, getThreadsProfile, getThreadsUserMetrics } from "./threads";
 import { storage } from "./storage";
 import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
 import { rankTweets } from "./ranking";
 import { isAuthenticated } from "./replit_integrations/auth";
+import { db } from "./db";
 import {
   insertTweetSchema,
   insertMediaItemSchema,
@@ -21,6 +23,7 @@ import {
   insertActivityLogSchema,
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
+  avatarCacheTable,
 } from "@shared/schema";
 import { getVapidPublicKey, sendPushToUser } from "./pushNotifications";
 
@@ -55,6 +58,128 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  const memAvatarCache = new Map<string, { url: string | null; ts: number }>();
+  const igFetchingSet = new Set<string>();
+  let igLastFetchMs = 0;
+  const IG_INTERVAL = 4000;
+
+  async function fetchIgProfilePicViaCurl(username: string): Promise<string | null> {
+    const safeUser = username.replace(/[^a-z0-9._]/g, "");
+    const { exec } = await import("child_process");
+    return new Promise((resolve) => {
+      const cmd = `curl -s "https://i.instagram.com/api/v1/users/web_profile_info/?username=${safeUser}" -H "User-Agent: Instagram 76.0.0.15.395 Android (24/7.0; 640dpi; 1440x2560; samsung; SM-G930F; herolte; samsungexynos8890; en_US; 138226743)" -H "x-ig-app-id: 936619743392459" --max-time 8`;
+      exec(cmd, { maxBuffer: 1024 * 512 }, (err, stdout) => {
+        if (err || !stdout) return resolve(null);
+        try {
+          const data = JSON.parse(stdout);
+          const user = data?.data?.user;
+          resolve(user?.profile_pic_url_hd || user?.profile_pic_url || null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  async function getCachedAvatarUrl(username: string): Promise<string | null> {
+    const mem = memAvatarCache.get(username);
+    if (mem && Date.now() - mem.ts < 86400000) return mem.url;
+    const rows = await db.select().from(avatarCacheTable).where(eq(avatarCacheTable.username, username)).limit(1);
+    if (rows.length > 0 && rows[0].avatarUrl) {
+      const age = Date.now() - new Date(rows[0].fetchedAt).getTime();
+      if (age < 7 * 86400000) {
+        memAvatarCache.set(username, { url: rows[0].avatarUrl, ts: Date.now() });
+        return rows[0].avatarUrl;
+      }
+    }
+    return null;
+  }
+
+  async function saveAvatarToDb(username: string, url: string | null) {
+    memAvatarCache.set(username, { url, ts: Date.now() });
+    try {
+      await db.insert(avatarCacheTable)
+        .values({ username, avatarUrl: url })
+        .onConflictDoUpdate({
+          target: avatarCacheTable.username,
+          set: { avatarUrl: url, fetchedAt: new Date() },
+        });
+    } catch {}
+  }
+
+  const bgQueue: string[] = [];
+  let bgRunning = false;
+
+  async function processBgQueue() {
+    if (bgRunning) return;
+    bgRunning = true;
+    while (bgQueue.length > 0) {
+      const username = bgQueue.shift()!;
+      if (memAvatarCache.has(username)) { igFetchingSet.delete(username); continue; }
+
+      const dbUrl = await getCachedAvatarUrl(username);
+      if (dbUrl) { igFetchingSet.delete(username); continue; }
+
+      const wait = Math.max(0, IG_INTERVAL - (Date.now() - igLastFetchMs));
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      igLastFetchMs = Date.now();
+
+      const url = await fetchIgProfilePicViaCurl(username);
+      await saveAvatarToDb(username, url);
+      igFetchingSet.delete(username);
+    }
+    bgRunning = false;
+  }
+
+  function queueAvatarFetch(username: string) {
+    if (memAvatarCache.has(username) || igFetchingSet.has(username)) return;
+    igFetchingSet.add(username);
+    bgQueue.push(username);
+    processBgQueue();
+  }
+
+  app.get("/api/threads-avatar/:username", async (req: Request, res: Response) => {
+    try {
+      const username = req.params.username.replace(/^@/, "").toLowerCase();
+      if (!username || !/^[a-z0-9._]+$/.test(username)) return res.status(400).end();
+
+      const cachedUrl = await getCachedAvatarUrl(username);
+      if (cachedUrl) {
+        try {
+          const imgRes = await fetch(cachedUrl, {
+            headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*" },
+          });
+          if (imgRes.ok && imgRes.body) {
+            const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+            res.set("Content-Type", contentType);
+            res.set("Cache-Control", "public, max-age=86400");
+            const reader = imgRes.body.getReader();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(value);
+            }
+            res.end();
+            return;
+          }
+        } catch {}
+      }
+
+      queueAvatarFetch(username);
+      res.redirect(302, `https://ui-avatars.com/api/?name=${encodeURIComponent(username.charAt(0).toUpperCase())}&background=6366f1&color=fff&size=128&bold=true`);
+    } catch {
+      res.status(500).end();
+    }
+  });
+
+  app.post("/api/threads-avatar/prefetch", async (req: Request, res: Response) => {
+    const { usernames } = req.body;
+    if (!Array.isArray(usernames)) return res.status(400).json({ error: "usernames required" });
+    const toFetch = usernames.slice(0, 30).map((u: string) => u.toLowerCase().replace(/^@/, ""));
+    for (const u of toFetch) queueAvatarFetch(u);
+    res.json({ queued: toFetch.length });
+  });
 
   // --- OAuth Connect Routes (must be before isAuthenticated middleware for callbacks) ---
 
@@ -1333,19 +1458,39 @@ Return ONLY valid JSON with no markdown:
       const rawComments = await getThreadsConversation(req.params.postId, token);
       console.log(`[threads/comments] Post ${req.params.postId}: ${rawComments.length} comments`);
 
+      const usernames = [...new Set(rawComments.map((c: any) => (c.username ?? "").toLowerCase()).filter(Boolean))];
+      const avatarMap = new Map<string, string>();
+      if (usernames.length > 0) {
+        const cachedAvatars = await db.select().from(avatarCacheTable).where(
+          sql`${avatarCacheTable.username} = ANY(${usernames})`
+        );
+        for (const row of cachedAvatars) {
+          if (row.avatarUrl) {
+            avatarMap.set(row.username, row.avatarUrl);
+            memAvatarCache.set(row.username, { url: row.avatarUrl, ts: Date.now() });
+          }
+        }
+        for (const u of usernames) {
+          if (!avatarMap.has(u)) queueAvatarFetch(u);
+        }
+      }
+
       res.json({
         postId: req.params.postId,
-        comments: rawComments.map((c: any) => ({
-          id: c.id,
-          text: c.text ?? "",
-          createdAt: c.timestamp,
-          authorUsername: c.username ?? "unknown",
-          authorId: c.user_id ?? null,
-          authorProfilePicture: null,
-          media_url: c.media_url,
-          thumbnail_url: c.thumbnail_url,
-          parentCommentId: c.replied_to?.id ?? null,
-        })),
+        comments: rawComments.map((c: any) => {
+          const uname = (c.username ?? "unknown").toLowerCase();
+          return {
+            id: c.id,
+            text: c.text ?? "",
+            createdAt: c.timestamp,
+            authorUsername: c.username ?? "unknown",
+            authorId: c.user_id ?? null,
+            authorProfilePicture: avatarMap.get(uname) || null,
+            media_url: c.media_url,
+            thumbnail_url: c.thumbnail_url,
+            parentCommentId: c.replied_to?.id ?? null,
+          };
+        }),
       });
     } catch (err: any) {
       console.error("[threads/comments] Error:", err.message);
@@ -2849,92 +2994,6 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
         res.end();
       };
       await pump();
-    } catch {
-      res.status(500).end();
-    }
-  });
-
-  const avatarCache = new Map<string, { url: string | null; fetchedAt: number }>();
-  let igLastFetchTime = 0;
-  const IG_FETCH_INTERVAL = 2000;
-  const igFetchQueue: Array<{ username: string; resolve: (url: string | null) => void }> = [];
-  let igQueueRunning = false;
-
-  async function fetchIgProfilePicViaCurl(username: string): Promise<string | null> {
-    const { exec } = await import("child_process");
-    return new Promise((resolve) => {
-      const safeUser = username.replace(/[^a-z0-9._]/g, "");
-      const cmd = `curl -s "https://i.instagram.com/api/v1/users/web_profile_info/?username=${safeUser}" -H "User-Agent: Instagram 76.0.0.15.395 Android (24/7.0; 640dpi; 1440x2560; samsung; SM-G930F; herolte; samsungexynos8890; en_US; 138226743)" -H "x-ig-app-id: 936619743392459" --max-time 10`;
-      exec(cmd, { maxBuffer: 1024 * 512 }, (err, stdout) => {
-        if (err || !stdout) return resolve(null);
-        try {
-          const data = JSON.parse(stdout);
-          const user = data?.data?.user;
-          resolve(user?.profile_pic_url_hd || user?.profile_pic_url || null);
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-  }
-
-  async function processIgQueue() {
-    if (igQueueRunning) return;
-    igQueueRunning = true;
-    while (igFetchQueue.length > 0) {
-      const item = igFetchQueue.shift()!;
-      const cached = avatarCache.get(item.username);
-      if (cached && Date.now() - cached.fetchedAt < 86400000) {
-        item.resolve(cached.url);
-        continue;
-      }
-      const elapsed = Date.now() - igLastFetchTime;
-      if (elapsed < IG_FETCH_INTERVAL) {
-        await new Promise(r => setTimeout(r, IG_FETCH_INTERVAL - elapsed));
-      }
-      igLastFetchTime = Date.now();
-      const picUrl = await fetchIgProfilePicViaCurl(item.username);
-      avatarCache.set(item.username, { url: picUrl, fetchedAt: Date.now() });
-      item.resolve(picUrl);
-    }
-    igQueueRunning = false;
-  }
-
-  function getIgProfilePic(username: string): Promise<string | null> {
-    const cached = avatarCache.get(username);
-    if (cached && Date.now() - cached.fetchedAt < 86400000) {
-      return Promise.resolve(cached.url);
-    }
-    return new Promise((resolve) => {
-      igFetchQueue.push({ username, resolve });
-      processIgQueue();
-    });
-  }
-
-  app.get("/api/threads-avatar/:username", async (req: Request, res: Response) => {
-    try {
-      const username = req.params.username.replace(/^@/, "").toLowerCase();
-      if (!username || !/^[a-z0-9._]+$/.test(username)) return res.status(400).end();
-
-      const picUrl = await getIgProfilePic(username);
-      if (!picUrl) return res.status(404).end();
-
-      const imgRes = await fetch(picUrl, {
-        headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*" },
-      });
-      if (!imgRes.ok || !imgRes.body) return res.status(404).end();
-
-      const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-      res.set("Content-Type", contentType);
-      res.set("Cache-Control", "public, max-age=86400");
-
-      const reader = imgRes.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(value);
-      }
-      res.end();
     } catch {
       res.status(500).end();
     }

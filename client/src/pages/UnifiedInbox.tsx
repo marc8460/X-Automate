@@ -607,7 +607,7 @@ export default function UnifiedInbox() {
                                               <ThreadsAvatar
                                                 key={comment.id}
                                                 username={comment.authorUsername}
-                                                ownProfilePicUrl={isOwn ? (threadsInbox?.profile?.profilePicUrl ?? null) : null}
+                                                ownProfilePicUrl={isOwn ? (threadsInbox?.profile?.profilePicUrl ?? null) : (comment.authorProfilePicture || null)}
                                               />
                                               <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
