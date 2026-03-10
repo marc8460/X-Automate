@@ -186,6 +186,7 @@ export default function UnifiedInbox() {
             setTimeout(() => {
               qc.invalidateQueries({ queryKey: ["/api/threads/inbox"] });
               qc.invalidateQueries({ queryKey: ["/api/threads/posts"] });
+              qc.invalidateQueries({ queryKey: ["/api/threads/posts", postId, "comments"] });
               qc.invalidateQueries({ queryKey: ["/api/engagement/daily-summary"] });
             }, 1500);
           },
@@ -766,17 +767,11 @@ export default function UnifiedInbox() {
                                             {card.isSent && (card.editedReply || card.generatedReply) && (
                                               <div className="ml-11 pl-4 border-l-2 border-emerald-500/30 mt-2">
                                                 <div className="flex gap-3">
-                                                  {threadsInbox?.profile?.profilePicUrl ? (
-                                                    <img
-                                                      src={threadsInbox.profile.profilePicUrl}
-                                                      alt={ownUsername || "You"}
-                                                      className="w-7 h-7 rounded-full shrink-0 border border-emerald-500/30"
-                                                    />
-                                                  ) : (
-                                                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-[9px] font-bold shrink-0 border border-emerald-500/30 text-emerald-300">
-                                                      {(ownUsername || "Y").charAt(0).toUpperCase()}
-                                                    </div>
-                                                  )}
+                                                  <ThreadsAvatar
+                                                    username={ownUsername}
+                                                    ownProfilePicUrl={threadsInbox?.profile?.profilePicUrl ?? null}
+                                                    size="sm"
+                                                  />
                                                   <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 mb-1">
                                                       <span className="text-xs font-bold">{ownUsername || "You"}</span>

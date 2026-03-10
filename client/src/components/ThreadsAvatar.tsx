@@ -21,14 +21,14 @@ function usernameColor(username: string): string {
 interface ThreadsAvatarProps {
   username: string | null | undefined;
   ownProfilePicUrl?: string | null;
+  size?: "sm" | "md";
 }
 
-export function ThreadsAvatar({ username, ownProfilePicUrl }: ThreadsAvatarProps) {
+export function ThreadsAvatar({ username, ownProfilePicUrl, size = "md" }: ThreadsAvatarProps) {
   const [fallbackIndex, setFallbackIndex] = useState(0);
 
   const safeUsername = username && username !== "unknown" ? username : null;
 
-  // Reset fallback chain whenever the identity or own pic changes
   useEffect(() => {
     setFallbackIndex(0);
   }, [username, ownProfilePicUrl]);
@@ -36,11 +36,13 @@ export function ThreadsAvatar({ username, ownProfilePicUrl }: ThreadsAvatarProps
   const sources: string[] = [];
   if (ownProfilePicUrl) sources.push(ownProfilePicUrl);
   if (safeUsername) {
-    sources.push(`https://unavatar.io/threads/${safeUsername}`);
     sources.push(`https://unavatar.io/instagram/${safeUsername}`);
+    sources.push(`https://unavatar.io/threads/${safeUsername}`);
     sources.push(`https://unavatar.io/${safeUsername}`);
   }
 
+  const sizeClass = size === "sm" ? "w-7 h-7" : "w-8 h-8";
+  const textSize = size === "sm" ? "text-[9px]" : "text-[10px]";
   const currentSrc = fallbackIndex < sources.length ? sources[fallbackIndex] : undefined;
 
   if (currentSrc) {
@@ -48,8 +50,10 @@ export function ThreadsAvatar({ username, ownProfilePicUrl }: ThreadsAvatarProps
       <img
         src={currentSrc}
         alt={safeUsername ?? "user"}
-        className="w-8 h-8 rounded-full shrink-0 border border-border/20"
+        className={`${sizeClass} rounded-full shrink-0 border border-border/20 object-cover`}
         onError={() => setFallbackIndex((i) => Math.min(i + 1, sources.length))}
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
       />
     );
   }
@@ -58,7 +62,7 @@ export function ThreadsAvatar({ username, ownProfilePicUrl }: ThreadsAvatarProps
   const colorClass = safeUsername ? usernameColor(safeUsername) : "bg-muted text-muted-foreground border-border/30";
 
   return (
-    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 border ${colorClass}`}>
+    <div className={`${sizeClass} rounded-full flex items-center justify-center ${textSize} font-bold shrink-0 border ${colorClass}`}>
       {display}
     </div>
   );
