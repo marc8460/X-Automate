@@ -2854,5 +2854,91 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     }
   });
 
+  const avatarCache = new Map<string, { url: string | null; fetchedAt: number }>();
+  let igLastFetchTime = 0;
+  const IG_FETCH_INTERVAL = 2000;
+  const igFetchQueue: Array<{ username: string; resolve: (url: string | null) => void }> = [];
+  let igQueueRunning = false;
+
+  async function fetchIgProfilePicViaCurl(username: string): Promise<string | null> {
+    const { exec } = await import("child_process");
+    return new Promise((resolve) => {
+      const safeUser = username.replace(/[^a-z0-9._]/g, "");
+      const cmd = `curl -s "https://i.instagram.com/api/v1/users/web_profile_info/?username=${safeUser}" -H "User-Agent: Instagram 76.0.0.15.395 Android (24/7.0; 640dpi; 1440x2560; samsung; SM-G930F; herolte; samsungexynos8890; en_US; 138226743)" -H "x-ig-app-id: 936619743392459" --max-time 10`;
+      exec(cmd, { maxBuffer: 1024 * 512 }, (err, stdout) => {
+        if (err || !stdout) return resolve(null);
+        try {
+          const data = JSON.parse(stdout);
+          const user = data?.data?.user;
+          resolve(user?.profile_pic_url_hd || user?.profile_pic_url || null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  async function processIgQueue() {
+    if (igQueueRunning) return;
+    igQueueRunning = true;
+    while (igFetchQueue.length > 0) {
+      const item = igFetchQueue.shift()!;
+      const cached = avatarCache.get(item.username);
+      if (cached && Date.now() - cached.fetchedAt < 86400000) {
+        item.resolve(cached.url);
+        continue;
+      }
+      const elapsed = Date.now() - igLastFetchTime;
+      if (elapsed < IG_FETCH_INTERVAL) {
+        await new Promise(r => setTimeout(r, IG_FETCH_INTERVAL - elapsed));
+      }
+      igLastFetchTime = Date.now();
+      const picUrl = await fetchIgProfilePicViaCurl(item.username);
+      avatarCache.set(item.username, { url: picUrl, fetchedAt: Date.now() });
+      item.resolve(picUrl);
+    }
+    igQueueRunning = false;
+  }
+
+  function getIgProfilePic(username: string): Promise<string | null> {
+    const cached = avatarCache.get(username);
+    if (cached && Date.now() - cached.fetchedAt < 86400000) {
+      return Promise.resolve(cached.url);
+    }
+    return new Promise((resolve) => {
+      igFetchQueue.push({ username, resolve });
+      processIgQueue();
+    });
+  }
+
+  app.get("/api/threads-avatar/:username", async (req: Request, res: Response) => {
+    try {
+      const username = req.params.username.replace(/^@/, "").toLowerCase();
+      if (!username || !/^[a-z0-9._]+$/.test(username)) return res.status(400).end();
+
+      const picUrl = await getIgProfilePic(username);
+      if (!picUrl) return res.status(404).end();
+
+      const imgRes = await fetch(picUrl, {
+        headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*" },
+      });
+      if (!imgRes.ok || !imgRes.body) return res.status(404).end();
+
+      const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=86400");
+
+      const reader = imgRes.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(value);
+      }
+      res.end();
+    } catch {
+      res.status(500).end();
+    }
+  });
+
   return httpServer;
 }

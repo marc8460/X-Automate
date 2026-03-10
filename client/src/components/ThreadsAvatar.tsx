@@ -36,9 +36,7 @@ export function ThreadsAvatar({ username, ownProfilePicUrl, size = "md" }: Threa
   const sources: string[] = [];
   if (ownProfilePicUrl) sources.push(ownProfilePicUrl);
   if (safeUsername) {
-    sources.push(`https://unavatar.io/instagram/${safeUsername}`);
-    sources.push(`https://unavatar.io/threads/${safeUsername}`);
-    sources.push(`https://unavatar.io/${safeUsername}`);
+    sources.push(`/api/threads-avatar/${safeUsername}`);
   }
 
   const sizeClass = size === "sm" ? "w-7 h-7" : "w-8 h-8";
