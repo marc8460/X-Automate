@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import Groq from "groq-sdk";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { getTwitterClient, getTwitterClientForUser, testTwitterConnectionForUser, generateTwitterOAuthUrl, handleTwitterOAuthCallback } from "./twitter";
 import { testThreadsConnectionForUser, getThreadsAccessTokenForUser, createThreadsPost, replyToThreadsComment, generateThreadsOAuthUrl, storeThreadsOAuthState, handleThreadsOAuthCallback, getThreadsPosts, getThreadsPostInsights, getThreadsConversation, getThreadsPostMetrics, getThreadsProfile, getThreadsUserMetrics } from "./threads";
 import { storage } from "./storage";
@@ -1462,7 +1462,7 @@ Return ONLY valid JSON with no markdown:
       const avatarMap = new Map<string, string>();
       if (usernames.length > 0) {
         const cachedAvatars = await db.select().from(avatarCacheTable).where(
-          sql`${avatarCacheTable.username} = ANY(${usernames})`
+          inArray(avatarCacheTable.username, usernames)
         );
         for (const row of cachedAvatars) {
           if (row.avatarUrl) {
