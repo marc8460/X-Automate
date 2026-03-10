@@ -214,7 +214,7 @@ async function pollUserThreads(userId: string) {
           userId,
           rootTweetId: post.id,
           lastCommentId: reply.id,
-          lastCommentText: reply.text,
+          lastCommentText: reply.text ?? "",
           lastCommentAuthor: `@${reply.username}`,
           lastCommentAuthorName: reply.username,
           lastCommentAt: createdAt,

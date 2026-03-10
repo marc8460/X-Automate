@@ -10,7 +10,16 @@
       "Bash(npm run check 2>&1)",
       "Bash(npm run build 2>&1 | tail -10)",
       "WebFetch(domain:developers.facebook.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(echo $DATABASE_URL)",
+      "Bash(npm run dev 2>&1)",
+      "Bash(pkill node)",
+      "Bash(npm run:*)",
+      "Bash(fuser -k 5000/tcp 2>/dev/null; sleep 1; echo \"Port cleared\")",
+      "Bash(fuser -k 5000/tcp 2>/dev/null; lsof -ti:5000 | xargs kill -9 2>/dev/null; sleep 2 && echo \"cleared\")",
+      "Bash(ls /proc/*/fd 2>/dev/null | xargs -I{} sh -c 'readlink {} 2>/dev/null | grep -q \"socket:\\\\[6383431\\\\]\" && dirname {}' 2>/dev/null | head -5)",
+      "Bash(for pid:*)",
+      "Bash(kill -9 8431 2>/dev/null && echo \"Killed PID 8431\" || echo \"Could not kill\")"
     ]
   }
 }

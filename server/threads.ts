@@ -77,7 +77,7 @@ export async function getThreadsConversation(mediaId: string, accessToken?: stri
   const token = accessToken || await getThreadsAccessToken();
   if (!token) return [];
 
-  const res = await fetch(`https://graph.threads.net/v1.0/${mediaId}/conversation?fields=id,text,timestamp,username,media_url,thumbnail_url,replied_to&access_token=${token}`);
+  const res = await fetch(`https://graph.threads.net/v1.0/${mediaId}/conversation?fields=id,text,timestamp,username,user_id,media_url,thumbnail_url,replied_to&access_token=${token}`);
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.error?.message || "Failed to fetch conversation");

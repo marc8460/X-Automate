@@ -18,6 +18,7 @@ import {
 import type { CommentThread } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { ThreadsAvatar } from "@/components/ThreadsAvatar";
 import { PlatformBadge } from "@/components/platform/PlatformBadge";
 import { ReplyViaExtension } from "@/lib/extensionBridge";
 import { apiRequest } from "@/lib/queryClient";
@@ -65,23 +66,6 @@ function autoExpand(el: HTMLTextAreaElement) {
   el.style.height = `${el.scrollHeight}px`;
 }
 
-function usernameColor(username: string): string {
-  let hash = 0;
-  for (let i = 0; i < username.length; i++) {
-    hash = username.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const colors = [
-    "bg-pink-500/20 text-pink-300 border-pink-500/30",
-    "bg-purple-500/20 text-purple-300 border-purple-500/30",
-    "bg-blue-500/20 text-blue-300 border-blue-500/30",
-    "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-    "bg-amber-500/20 text-amber-300 border-amber-500/30",
-    "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-    "bg-rose-500/20 text-rose-300 border-rose-500/30",
-    "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
-  ];
-  return colors[Math.abs(hash) % colors.length];
-}
 
 function sentimentColor(s: string) {
   if (s === "positive") return "text-emerald-400 border-emerald-400/30 bg-emerald-400/10";
@@ -167,7 +151,7 @@ export default function UnifiedInbox() {
     (postId: string, comment: any, postText: string) => {
       updateThreadsCard(comment.id, { isGenerating: true, generatedReply: "", editedReply: "", generatedReplies: [], selectedReplyIndex: 0 });
       threadsGenerateReply.mutate(
-        { postId, commentText: comment.text, postText, customPrompt: customPrompt.trim() || undefined },
+        { postId, commentText: comment.text, postText, replyStyleInstructions: customPrompt.trim() || undefined },
         {
           onSuccess: (data) => {
             const replies = data.replies ?? [data.reply];
@@ -176,7 +160,6 @@ export default function UnifiedInbox() {
               generatedReply: replies[0],
               editedReply: replies[0],
               selectedReplyIndex: 0,
-              sentiment: data.sentiment,
               isGenerating: false,
             });
           },
@@ -591,41 +574,28 @@ export default function UnifiedInbox() {
                                   <div className="space-y-6">
                                     {(() => {
                                       const allComments = commentsData.comments;
-                                      const rootPostId = commentsData.postId ?? post.id;
                                       const ownUsername = threadsInbox?.profile?.username;
                                       const commentMap = new Map(allComments.map(c => [c.id, c]));
                                       const childrenMap = new Map<string, typeof allComments>();
                                       const topLevel: typeof allComments = [];
 
                                       const sorted = [...allComments].sort((a, b) =>
-                                        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                                        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
                                       );
 
                                       for (const c of sorted) {
-                                        const parentId = c.replied_to;
+                                        const parentId = c.parentCommentId;
                                         if (parentId && commentMap.has(parentId)) {
                                           const children = childrenMap.get(parentId) || [];
                                           children.push(c);
                                           childrenMap.set(parentId, children);
-                                        } else if (parentId === rootPostId && ownUsername && c.username === ownUsername) {
-                                          const priorComments = sorted.filter(
-                                            p => p.username !== ownUsername && new Date(p.timestamp) < new Date(c.timestamp)
-                                          );
-                                          const nearestParent = priorComments[priorComments.length - 1];
-                                          if (nearestParent) {
-                                            const children = childrenMap.get(nearestParent.id) || [];
-                                            children.push(c);
-                                            childrenMap.set(nearestParent.id, children);
-                                          } else {
-                                            topLevel.push(c);
-                                          }
                                         } else {
                                           topLevel.push(c);
                                         }
                                       }
 
                                       const renderComment = (comment: typeof allComments[0], isChild: boolean) => {
-                                        const isOwn = ownUsername && comment.username === ownUsername;
+                                        const isOwn = ownUsername && comment.authorUsername === ownUsername;
                                         const card = threadsCardStates[comment.id] ?? EMPTY_CARD;
                                         const hasReply = !!card.generatedReply;
                                         const children = childrenMap.get(comment.id) || [];
@@ -633,21 +603,15 @@ export default function UnifiedInbox() {
                                         return (
                                           <div key={comment.id} className={`flex flex-col gap-3 group/comment ${isChild ? "ml-11 pl-4 border-l-2 border-border/20" : ""}`} data-testid={`threads-comment-${comment.id}`}>
                                             <div className="flex gap-3">
-                                              {isOwn && threadsInbox?.profile?.profilePicUrl ? (
-                                                <img
-                                                  src={threadsInbox.profile.profilePicUrl}
-                                                  alt={comment.username}
-                                                  className="w-8 h-8 rounded-full shrink-0 border border-border/20"
-                                                />
-                                              ) : (
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 border ${usernameColor(comment.username)}`}>
-                                                  {comment.username.charAt(0).toUpperCase()}
-                                                </div>
-                                              )}
+                                              <ThreadsAvatar
+                                                key={comment.id}
+                                                username={comment.authorUsername}
+                                                ownProfilePicUrl={isOwn ? (threadsInbox?.profile?.profilePicUrl ?? null) : null}
+                                              />
                                               <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
                                                   <span className="text-xs font-bold" data-testid={`text-comment-username-${comment.id}`}>
-                                                    {comment.username}
+                                                    {comment.authorUsername}
                                                   </span>
                                                   {isOwn && (
                                                     <Badge variant="secondary" className="bg-primary/10 text-primary text-[9px] h-4 px-1 border-0">
@@ -655,7 +619,7 @@ export default function UnifiedInbox() {
                                                     </Badge>
                                                   )}
                                                   <span className="text-[10px] text-muted-foreground/50">
-                                                    {formatTime(comment.timestamp)}
+                                                    {formatTime(comment.createdAt)}
                                                   </span>
                                                 </div>
                                                 <p className={`text-sm ${isOwn ? "text-primary/80 italic" : "text-foreground/80"}`} data-testid={`text-comment-content-${comment.id}`}>

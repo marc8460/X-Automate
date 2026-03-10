@@ -1327,23 +1327,24 @@ Return ONLY valid JSON with no markdown:
   app.get("/api/threads/posts/:postId/comments", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
     const token = await getThreadsAccessTokenForUser(userId);
-    if (!token) return res.json({ comments: [] });
+    if (!token) return res.json({ postId: req.params.postId, comments: [] });
 
     try {
-      const comments = await getThreadsConversation(req.params.postId, token);
-      console.log(`[threads/comments] Post ${req.params.postId}: ${comments.length} comments, replied_to values:`,
-        comments.map((c: any) => ({ id: c.id, username: c.username, replied_to: c.replied_to?.id ?? null }))
-      );
+      const rawComments = await getThreadsConversation(req.params.postId, token);
+      console.log(`[threads/comments] Post ${req.params.postId}: ${rawComments.length} comments`);
+
       res.json({
         postId: req.params.postId,
-        comments: comments.map((c: any) => ({
+        comments: rawComments.map((c: any) => ({
           id: c.id,
           text: c.text ?? "",
-          timestamp: c.timestamp,
-          username: c.username ?? "unknown",
+          createdAt: c.timestamp,
+          authorUsername: c.username ?? "unknown",
+          authorId: c.user_id ?? null,
+          authorProfilePicture: null,
           media_url: c.media_url,
           thumbnail_url: c.thumbnail_url,
-          replied_to: c.replied_to?.id ?? null,
+          parentCommentId: c.replied_to?.id ?? null,
         })),
       });
     } catch (err: any) {
@@ -1353,23 +1354,16 @@ Return ONLY valid JSON with no markdown:
   });
 
   app.post("/api/threads/posts/:postId/generate-reply", isAuthenticated, async (req: Request, res: Response) => {
-    const { commentText, postText, customPrompt } = req.body;
+    const { commentText, postText, replyStyleInstructions } = req.body;
     if (!commentText) return res.status(400).json({ error: "commentText is required" });
 
     try {
       const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-      const systemMsg = `You are a social media expert replying to a comment on Threads.
-Be natural, engaging, and concise. Match the energy of the comment.
-${customPrompt ? `Additional style: ${customPrompt}` : ""}
-${postText ? `Context — the original post said: "${postText}"` : ""}
+      const systemMsg = `You are replying to a comment on Threads. Write short, natural replies suitable for social media.
+${replyStyleInstructions ? `Style: ${replyStyleInstructions}` : ""}
+${postText ? `The original post said: "${postText}"` : ""}
 
-Generate exactly 3 different reply options, each with a different tone/approach.
-Format your response as:
-1. [first reply]
-2. [second reply]
-3. [third reply]
-
-Each reply should be standalone text without quotes. Vary the style: one friendly/warm, one witty/playful, one concise/casual.`;
+Generate exactly 3 different reply options. Output each reply on its own line with a blank line between them. Do not number them, label them, or add any extra text.`;
 
       const completion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
@@ -1377,32 +1371,15 @@ Each reply should be standalone text without quotes. Vary the style: one friendl
           { role: "system", content: systemMsg },
           { role: "user", content: `Reply to this comment: "${commentText}"` },
         ],
-        max_tokens: 600,
+        max_tokens: 300,
         temperature: 0.9,
       });
 
       const raw = completion.choices[0]?.message?.content?.trim() ?? "";
-      const lines = raw.split("\n").filter(l => l.trim());
-      const replies: string[] = [];
-      for (const line of lines) {
-        const cleaned = line.replace(/^\d+[\.\)]\s*/, "").trim();
-        if (cleaned) replies.push(cleaned);
-      }
+      const replies = raw.split("\n").map(l => l.trim()).filter(Boolean).slice(0, 3);
       while (replies.length < 3) replies.push(replies[0] || "Thanks! 🙏");
-      const finalReplies = replies.slice(0, 3);
 
-      const sentimentCompletion = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: "Classify the sentiment of this text as exactly one word: positive, negative, or neutral." },
-          { role: "user", content: commentText },
-        ],
-        max_tokens: 5,
-        temperature: 0,
-      });
-      const sentiment = sentimentCompletion.choices[0]?.message?.content?.trim()?.toLowerCase() ?? "neutral";
-
-      res.json({ replies: finalReplies, reply: finalReplies[0], sentiment });
+      res.json({ replies, reply: replies[0] });
     } catch (err: any) {
       console.error("[threads/generate-reply] Error:", err.message);
       res.status(500).json({ error: err.message });

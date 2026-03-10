@@ -186,11 +186,13 @@ export function useThreadsInbox() {
 export type ThreadsComment = {
   id: string;
   text: string;
-  timestamp: string;
-  username: string;
+  createdAt: string;
+  authorUsername: string;
+  authorId: string | null;
+  authorProfilePicture: string | null;
   media_url?: string;
   thumbnail_url?: string;
-  replied_to?: string | null;
+  parentCommentId?: string | null;
 };
 
 export function useThreadsComments(postId: string | null) {
@@ -207,9 +209,9 @@ export function useThreadsComments(postId: string | null) {
 
 export function useThreadsGenerateReply() {
   return useMutation({
-    mutationFn: async ({ postId, commentText, postText, customPrompt }: { postId: string; commentText: string; postText?: string; customPrompt?: string }) => {
-      const res = await apiRequest("POST", `/api/threads/posts/${postId}/generate-reply`, { commentText, postText, customPrompt });
-      return res.json() as Promise<{ replies: string[]; reply: string; sentiment: string }>;
+    mutationFn: async ({ postId, commentText, postText, replyStyleInstructions }: { postId: string; commentText: string; postText?: string; replyStyleInstructions?: string }) => {
+      const res = await apiRequest("POST", `/api/threads/posts/${postId}/generate-reply`, { commentText, postText, replyStyleInstructions });
+      return res.json() as Promise<{ replies: string[]; reply: string }>;
     },
   });
 }
