@@ -99,11 +99,13 @@ function NotificationStatus() {
 }
 
 function CreatorAvatar({
+  creatorId,
   username,
   avatarUrl,
   platformBg,
   platformColor,
 }: {
+  creatorId: number;
   username: string;
   avatarUrl: string | null;
   platformBg: string;
@@ -116,10 +118,9 @@ function CreatorAvatar({
     <div className={`w-8 h-8 rounded-full ${platformBg} flex items-center justify-center shrink-0 overflow-hidden`}>
       {showImg ? (
         <img
-          src={avatarUrl}
+          src={`/api/avatar/${creatorId}`}
           alt={username}
           className="w-full h-full object-cover"
-          referrerPolicy="no-referrer"
           onError={() => setImgFailed(true)}
         />
       ) : (
@@ -250,6 +251,7 @@ function PlatformSection({
               data-testid={`row-creator-${creator.username}`}
             >
               <CreatorAvatar
+                creatorId={creator.id}
                 username={creator.username}
                 avatarUrl={creator.avatarUrl}
                 platformBg={platformBg}

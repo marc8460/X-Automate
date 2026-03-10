@@ -102,6 +102,7 @@ export interface IStorage {
   getActivityProgress(userId: string, platform: string, localDate: string): Promise<Record<string, number>>;
 
   getWatchedCreators(userId: string): Promise<WatchedCreator[]>;
+  getWatchedCreatorById(id: number): Promise<WatchedCreator | undefined>;
   addWatchedCreator(userId: string, username: string, platform: string): Promise<{ error?: string; creator?: WatchedCreator }>;
   syncWatchedCreators(userId: string, creators: { username: string; avatarUrl?: string | null }[], platform: string): Promise<void>;
   removeWatchedCreator(userId: string, username: string, platform: string): Promise<void>;
@@ -494,6 +495,11 @@ export class DatabaseStorage implements IStorage {
 
   async getWatchedCreators(userId: string): Promise<WatchedCreator[]> {
     return db.select().from(watchedCreators).where(eq(watchedCreators.userId, userId));
+  }
+
+  async getWatchedCreatorById(id: number): Promise<WatchedCreator | undefined> {
+    const [result] = await db.select().from(watchedCreators).where(eq(watchedCreators.id, id));
+    return result;
   }
 
   async addWatchedCreator(userId: string, username: string, platform: string): Promise<{ error?: string; creator?: WatchedCreator }> {

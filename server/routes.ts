@@ -2826,5 +2826,36 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     res.json({ success: true });
   });
 
+  app.get("/api/avatar/:creatorId", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.creatorId);
+      if (isNaN(id)) return res.status(400).end();
+      const creator = await storage.getWatchedCreatorById(id);
+      if (!creator || !creator.avatarUrl) return res.status(404).end();
+
+      const imgRes = await fetch(creator.avatarUrl, {
+        headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*" },
+      });
+      if (!imgRes.ok || !imgRes.body) return res.status(404).end();
+
+      const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=86400");
+
+      const reader = imgRes.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+        res.end();
+      };
+      await pump();
+    } catch {
+      res.status(500).end();
+    }
+  });
+
   return httpServer;
 }
