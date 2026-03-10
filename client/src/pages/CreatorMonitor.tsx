@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -95,6 +95,39 @@ function NotificationStatus() {
         )}
       </div>
     </Card>
+  );
+}
+
+function CreatorAvatar({
+  username,
+  avatarUrl,
+  platformBg,
+  platformColor,
+}: {
+  username: string;
+  avatarUrl: string | null;
+  platformBg: string;
+  platformColor: string;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const showImg = avatarUrl && !imgFailed;
+
+  return (
+    <div className={`w-8 h-8 rounded-full ${platformBg} flex items-center justify-center shrink-0 overflow-hidden`}>
+      {showImg ? (
+        <img
+          src={avatarUrl}
+          alt={username}
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <span className={`text-xs font-bold ${platformColor}`}>
+          {username[0]?.toUpperCase()}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -216,19 +249,12 @@ function PlatformSection({
               className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/30 border border-border/30 hover:border-border/60 transition-colors group"
               data-testid={`row-creator-${creator.username}`}
             >
-              <div className={`w-8 h-8 rounded-full ${platformBg} flex items-center justify-center shrink-0 overflow-hidden`}>
-                {creator.avatarUrl ? (
-                  <img
-                    src={creator.avatarUrl}
-                    alt={creator.username}
-                    className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling && ((e.target as HTMLImageElement).nextElementSibling as HTMLElement).style.removeProperty('display'); }}
-                  />
-                ) : null}
-                <span className={`text-xs font-bold ${platformColor}`} style={creator.avatarUrl ? { display: 'none' } : undefined}>
-                  {creator.username[0]?.toUpperCase()}
-                </span>
-              </div>
+              <CreatorAvatar
+                username={creator.username}
+                avatarUrl={creator.avatarUrl}
+                platformBg={platformBg}
+                platformColor={platformColor}
+              />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">
                   @{creator.username}
