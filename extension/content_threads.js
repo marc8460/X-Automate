@@ -1524,11 +1524,11 @@ function checkForFollowingList() {
       if (noNewCount >= 3) break;
 
       if (scrollTarget) {
-        scrollTarget.scrollTop += 400;
+        scrollTarget.scrollTop += 300;
       } else {
-        window.scrollBy(0, 600);
+        window.scrollBy(0, 300);
       }
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 1500));
     }
 
     const allCreators = Array.from(creatorsMap.entries()).map(([username, avatarUrl]) => ({ username, avatarUrl }));
