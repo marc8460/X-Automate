@@ -2826,6 +2826,26 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     res.json({ success: true });
   });
 
+  app.get("/api/alerts", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const alerts = await storage.getActiveAlerts(userId);
+    res.json(alerts);
+  });
+
+  app.post("/api/alerts/:id/dismiss", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    await storage.dismissAlert(id, userId);
+    res.json({ success: true });
+  });
+
+  app.post("/api/alerts/dismiss-all", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    await storage.dismissAllAlerts(userId);
+    res.json({ success: true });
+  });
+
   app.get("/api/avatar/:creatorId", async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.creatorId);

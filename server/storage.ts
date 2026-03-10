@@ -20,6 +20,7 @@ import {
   dailyActivityEvents, type DailyActivityEvent, type InsertDailyActivityEvent,
   watchedCreators, type WatchedCreator, type InsertWatchedCreator,
   pushSubscriptions, type PushSubscription, type InsertPushSubscription,
+  creatorAlerts, type CreatorAlert, type InsertCreatorAlert,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -113,6 +114,11 @@ export interface IStorage {
   savePushSubscription(userId: string, endpoint: string, p256dh: string, auth: string): Promise<void>;
   getPushSubscriptions(userId: string): Promise<PushSubscription[]>;
   removePushSubscription(endpoint: string): Promise<void>;
+
+  createCreatorAlert(data: InsertCreatorAlert): Promise<CreatorAlert>;
+  getActiveAlerts(userId: string): Promise<CreatorAlert[]>;
+  dismissAlert(id: number, userId: string): Promise<void>;
+  dismissAllAlerts(userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -578,6 +584,29 @@ export class DatabaseStorage implements IStorage {
 
   async removePushSubscription(endpoint: string): Promise<void> {
     await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  }
+
+  async createCreatorAlert(data: InsertCreatorAlert): Promise<CreatorAlert> {
+    const [result] = await db.insert(creatorAlerts).values(data).returning();
+    return result;
+  }
+
+  async getActiveAlerts(userId: string): Promise<CreatorAlert[]> {
+    return db.select().from(creatorAlerts)
+      .where(and(eq(creatorAlerts.userId, userId), eq(creatorAlerts.dismissed, false)))
+      .orderBy(desc(creatorAlerts.createdAt));
+  }
+
+  async dismissAlert(id: number, userId: string): Promise<void> {
+    await db.update(creatorAlerts)
+      .set({ dismissed: true })
+      .where(and(eq(creatorAlerts.id, id), eq(creatorAlerts.userId, userId)));
+  }
+
+  async dismissAllAlerts(userId: string): Promise<void> {
+    await db.update(creatorAlerts)
+      .set({ dismissed: true })
+      .where(and(eq(creatorAlerts.userId, userId), eq(creatorAlerts.dismissed, false)));
   }
 }
 

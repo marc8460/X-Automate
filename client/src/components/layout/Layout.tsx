@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { TopNav } from "./TopNav";
+import { CreatorAlertBanner } from "@/components/CreatorAlertBanner";
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
@@ -15,6 +16,7 @@ export function Layout({ children }: { children: ReactNode }) {
       
       <div className="flex-1 flex flex-col md:pl-64 min-w-0 transition-all duration-300">
         <TopNav />
+        <CreatorAlertBanner />
         <main className="flex-1 p-6 md:p-8 max-w-7xl mx-auto w-full">
           {children}
         </main>

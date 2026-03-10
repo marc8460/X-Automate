@@ -273,3 +273,18 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
+export const creatorAlerts = pgTable("creator_alerts", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  creatorUsername: text("creator_username").notNull(),
+  platform: text("platform").notNull(),
+  postId: text("post_id").notNull(),
+  postUrl: text("post_url").notNull(),
+  dismissed: boolean("dismissed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertCreatorAlertSchema = createInsertSchema(creatorAlerts).omit({ id: true, createdAt: true, dismissed: true });
+export type InsertCreatorAlert = z.infer<typeof insertCreatorAlertSchema>;
+export type CreatorAlert = typeof creatorAlerts.$inferSelect;

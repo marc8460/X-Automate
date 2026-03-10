@@ -83,6 +83,14 @@ async function pollCreators() {
                 body: "Posted just now — Reply early for maximum reach",
                 url: postUrl,
               });
+
+              await storage.createCreatorAlert({
+                userId: uid,
+                creatorUsername: creator.username,
+                platform: creator.platform,
+                postId: latestPostId,
+                postUrl,
+              });
             }
           }
         } catch (err: any) {
