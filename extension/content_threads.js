@@ -1489,22 +1489,20 @@ function checkForFollowingList() {
           const uname = match[1].toLowerCase();
           if (!creatorsMap.has(uname)) {
             let avatarUrl = null;
-            let node = link;
-            for (let lvl = 0; lvl < 8 && node.parentElement; lvl++) {
-              node = node.parentElement;
-              const imgs = node.querySelectorAll('img');
-              for (const img of imgs) {
-                const s = img.src || '';
-                if (s && (s.includes('scontent') || s.includes('cdninstagram') || s.includes('fbcdn')) && !s.includes('emoji') && img.width !== 0) {
-                  avatarUrl = s;
-                  break;
-                }
+            const row = link.closest('[data-pressable-container="true"]');
+            if (row) {
+              const img = row.querySelector('img');
+              if (img && img.src && !img.src.includes('emoji') && !img.src.includes('data:')) {
+                avatarUrl = img.src;
               }
-              if (avatarUrl) break;
-              if (imgs.length > 0) {
-                const firstImg = imgs[0];
-                if (firstImg.src && !firstImg.src.includes('emoji') && !firstImg.src.includes('data:')) {
-                  avatarUrl = firstImg.src;
+            }
+            if (!avatarUrl) {
+              let node = link;
+              for (let lvl = 0; lvl < 10 && node.parentElement; lvl++) {
+                node = node.parentElement;
+                const img = node.querySelector('img');
+                if (img && img.src && !img.src.includes('emoji') && !img.src.includes('data:') && img.src.startsWith('http')) {
+                  avatarUrl = img.src;
                   break;
                 }
               }
