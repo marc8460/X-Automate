@@ -323,8 +323,9 @@ export async function registerRoutes(
           time: new Date().toISOString(),
           status: "success",
         });
-        const today = new Date().toISOString().split("T")[0];
-        await storage.logActivityEvent({ userId, platform: "threads", action: "post_created", localDate: today });
+        const todayThreadsPost = new Date().toISOString().split("T")[0];
+        await storage.logActivityEvent({ userId, platform: "threads", action: "post_created", localDate: todayThreadsPost });
+        broadcastUpdate({ type: "daily-goals-update" });
         return res.json({ success: true, tweetId: result.id });
       } catch (err: any) {
         console.error("[post-now] Threads API error:", err.message);
@@ -394,6 +395,9 @@ export async function registerRoutes(
         time: new Date().toISOString(),
         status: "success",
       });
+      const todayXPost = new Date().toISOString().split("T")[0];
+      await storage.logActivityEvent({ userId, platform: "x", action: "post_created", localDate: todayXPost });
+      broadcastUpdate({ type: "daily-goals-update" });
       res.json({ success: true, tweetId: result.data.id });
     } catch (err: any) {
       console.error("[post-now] Twitter API error:", err.data || err.message || err);
@@ -716,6 +720,9 @@ Return ONLY valid JSON with no markdown:
           time: new Date().toISOString(),
           status: "success",
         });
+        const todayThreads = new Date().toISOString().split("T")[0];
+        await storage.logActivityEvent({ userId, platform: "threads", action: "reply_posted", localDate: todayThreads });
+        broadcastUpdate({ type: "daily-goals-update" });
         return res.json({ success: true, tweetId: result.id, threadId: resolvedThreadId });
       } catch (err: any) {
         console.error("Send Threads reply error:", err);
@@ -738,6 +745,9 @@ Return ONLY valid JSON with no markdown:
         time: new Date().toISOString(),
         status: "success",
       });
+      const todayX = new Date().toISOString().split("T")[0];
+      await storage.logActivityEvent({ userId, platform: "x", action: "reply_posted", localDate: todayX });
+      broadcastUpdate({ type: "daily-goals-update" });
       res.json({ success: true, tweetId: result.data.id, threadId: resolvedThreadId });
     } catch (err: any) {
       console.error("Send reply error:", err);
