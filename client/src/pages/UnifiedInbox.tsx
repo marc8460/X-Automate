@@ -7,7 +7,7 @@ import {
   Heart, MessageSquare, RefreshCw, Send, SkipForward, Pencil, Check,
   Wand2, AlertTriangle, Users, Repeat2, Pause, Play, Eye, ExternalLink, Sparkles, Quote,
 } from "lucide-react";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   useLiveCommentThreads, useLiveFollowerInteractions, useEngagementStatus,
   useEngagementSSE, useGenerateEngagementReply, useSendEngagementReply,
@@ -121,6 +121,7 @@ export default function UnifiedInbox() {
   const [cardStates, setCardStates] = useState<Record<string, CardState>>({});
   const [threadsCardStates, setThreadsCardStates] = useState<Record<string, CardState>>({});
   const [selectedThreadsPost, setSelectedThreadsPost] = useState<string | null>(null);
+  const replyParentMapRef = useRef<Map<string, string>>(new Map());
   const isExtensionConnected = useExtensionStatus();
 
   useEngagementSSE();
@@ -178,6 +179,7 @@ export default function UnifiedInbox() {
       const card = threadsCardStates[commentId] ?? EMPTY_CARD;
       const replyText = card.editedReply || card.generatedReply;
       if (!replyText) return;
+      replyParentMapRef.current.set(replyText.trim().toLowerCase(), commentId);
       updateThreadsCard(commentId, { isSent: true, isSending: false, sentReplyText: replyText });
       threadsSendReply.mutate(
         { postId, commentId, replyText },
@@ -585,7 +587,14 @@ export default function UnifiedInbox() {
                                       );
 
                                       for (const c of sorted) {
-                                        const parentId = c.parentCommentId;
+                                        let parentId = c.parentCommentId;
+                                        const isOwn = ownUsername && c.authorUsername === ownUsername;
+                                        if (isOwn && (!parentId || !commentMap.has(parentId))) {
+                                          const mappedParent = replyParentMapRef.current.get((c.text || "").trim().toLowerCase());
+                                          if (mappedParent && commentMap.has(mappedParent)) {
+                                            parentId = mappedParent;
+                                          }
+                                        }
                                         if (parentId && commentMap.has(parentId)) {
                                           const children = childrenMap.get(parentId) || [];
                                           children.push(c);
@@ -764,7 +773,7 @@ export default function UnifiedInbox() {
                                               </div>
                                             )}
 
-                                            {card.isSent && (card.editedReply || card.generatedReply) && (
+                                            {card.isSent && (card.editedReply || card.generatedReply) && !children.some(ch => ownUsername && ch.authorUsername === ownUsername && (ch.text || "").trim().toLowerCase() === (card.sentReplyText || card.editedReply || card.generatedReply || "").trim().toLowerCase()) && (
                                               <div className="ml-11 pl-4 border-l-2 border-emerald-500/30 mt-2">
                                                 <div className="flex gap-3">
                                                   <ThreadsAvatar
