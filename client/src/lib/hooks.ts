@@ -582,7 +582,7 @@ export function useDailyGoals(platform: string) {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    refetchInterval: 60_000,
+    refetchInterval: 10_000,
   });
 }
 

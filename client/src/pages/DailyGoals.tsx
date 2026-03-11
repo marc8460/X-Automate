@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CheckCircle2, Target, Zap, RefreshCw } from "lucide-react";
-import { useDailyGoals, useLogActivity, type DailyGoal } from "@/lib/hooks";
+import { useDailyGoals, useLogActivity, useEngagementSSE, type DailyGoal } from "@/lib/hooks";
 import { usePlatform } from "@/contexts/PlatformContext";
 import { useToast } from "@/hooks/use-toast";
 
@@ -158,13 +158,25 @@ export default function DailyGoals() {
     ? "x"
     : selectedPlatform) as Platform;
   const [logAction, setLogAction] = useState<string>("");
+  const [lastSeenDate, setLastSeenDate] = useState<string>(new Date().toLocaleDateString("en-CA"));
 
   const { data, isLoading, refetch, isFetching } = useDailyGoals(platform);
   const { mutate: logActivity, isPending: isLogging } = useLogActivity();
   const { toast } = useToast();
   const prevGoalsRef = useRef<DailyGoal[]>([]);
+  
+  useEngagementSSE();
 
   const goals = data?.goals ?? [];
+  
+  const todayLocalDate = new Date().toLocaleDateString("en-CA");
+  
+  useEffect(() => {
+    if (lastSeenDate !== todayLocalDate) {
+      setLastSeenDate(todayLocalDate);
+      refetch();
+    }
+  }, [todayLocalDate, lastSeenDate, refetch]);
 
   useEffect(() => {
     const prev = prevGoalsRef.current;
@@ -172,7 +184,7 @@ export default function DailyGoals() {
       goals.forEach((goal) => {
         const prevGoal = prev.find((g) => g.action === goal.action);
         if (prevGoal && prevGoal.current < prevGoal.target && goal.current >= goal.target) {
-          const celebrationKey = `goal-celebrated-${goal.action}-${new Date().toLocaleDateString("en-CA")}`;
+          const celebrationKey = `goal-celebrated-${goal.action}-${todayLocalDate}`;
           if (!localStorage.getItem(celebrationKey)) {
             localStorage.setItem(celebrationKey, "1");
             toast({
@@ -187,7 +199,7 @@ export default function DailyGoals() {
       });
     }
     prevGoalsRef.current = goals;
-  }, [goals]);
+  }, [goals, todayLocalDate, toast]);
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
