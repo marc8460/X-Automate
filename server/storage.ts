@@ -520,10 +520,26 @@ export class DatabaseStorage implements IStorage {
     return { creator };
   }
 
+  private syncLocks = new Map<string, Promise<void>>();
+
   async syncWatchedCreators(userId: string, creators: { username: string; avatarUrl?: string | null }[], platform: string): Promise<void> {
+    const lockKey = `${userId}:${platform}`;
+    const prev = this.syncLocks.get(lockKey) || Promise.resolve();
+    const current = prev.then(() => this._doSyncWatchedCreators(userId, creators, platform)).catch(() => {});
+    this.syncLocks.set(lockKey, current);
+    await current;
+  }
+
+  private async _doSyncWatchedCreators(userId: string, creators: { username: string; avatarUrl?: string | null }[], platform: string): Promise<void> {
+    const seen = new Set<string>();
     const normalized = creators
       .map(c => ({ username: c.username.replace(/^@/, '').trim().toLowerCase(), avatarUrl: c.avatarUrl || null }))
-      .filter(c => c.username.length > 0);
+      .filter(c => {
+        if (c.username.length === 0 || seen.has(c.username)) return false;
+        seen.add(c.username);
+        return true;
+      });
+
     const existing = await db.select().from(watchedCreators)
       .where(and(eq(watchedCreators.userId, userId), eq(watchedCreators.platform, platform)));
 
@@ -543,9 +559,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     for (const creator of normalized) {
-      const existing = existingMap.get(creator.username);
-      if (existing && creator.avatarUrl && !existing.avatarUrl) {
-        await db.update(watchedCreators).set({ avatarUrl: creator.avatarUrl }).where(eq(watchedCreators.id, existing.id));
+      const ex = existingMap.get(creator.username);
+      if (ex && creator.avatarUrl && !ex.avatarUrl) {
+        await db.update(watchedCreators).set({ avatarUrl: creator.avatarUrl }).where(eq(watchedCreators.id, ex.id));
       }
     }
   }
@@ -560,7 +576,7 @@ export class DatabaseStorage implements IStorage {
     const threshold = new Date(Date.now() - staleSecs * 1000);
     return db.select().from(watchedCreators).where(
       sql`${watchedCreators.lastCheckedAt} IS NULL OR ${watchedCreators.lastCheckedAt} < ${threshold}`
-    );
+    ).orderBy(sql`${watchedCreators.lastCheckedAt} ASC NULLS FIRST`);
   }
 
   async updateCreatorLastPost(id: number, postId: string): Promise<void> {

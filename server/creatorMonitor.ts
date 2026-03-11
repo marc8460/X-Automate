@@ -2,13 +2,16 @@ import { storage } from "./storage";
 import { sendPushToUser } from "./pushNotifications";
 import { log } from "./index";
 import { eq } from "drizzle-orm";
-import { getTwitterClient } from "./twitter";
+import { getTwitterClient, getTwitterClientForUser } from "./twitter";
+import type { TwitterApi } from "twitter-api-v2";
 
 const twitterUserIdCache = new Map<string, string>();
 
 const POLL_INTERVAL_MS = 45_000;
-const BATCH_SIZE = 10;
-const BATCH_DELAY_MS = 2000;
+const THREADS_BATCH_SIZE = 10;
+const THREADS_BATCH_DELAY_MS = 2000;
+const X_CHECK_INTERVAL_MS = 5 * 60_000;
+let lastXCheckTime = 0;
 
 async function fetchLatestThreadsPost(username: string): Promise<string | null> {
   try {
@@ -32,11 +35,8 @@ async function fetchLatestThreadsPost(username: string): Promise<string | null> 
   }
 }
 
-async function fetchLatestXPost(username: string): Promise<string | null> {
+async function fetchLatestXPost(username: string, client: TwitterApi): Promise<string | null> {
   try {
-    const client = getTwitterClient();
-    if (!client) return null;
-
     let twitterUserId = twitterUserIdCache.get(username);
     if (!twitterUserId) {
       const userResult = await client.v2.userByUsername(username);
@@ -64,77 +64,99 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function handleNewPost(creator: any, latestPostId: string) {
+  const previousPostId = creator.lastPostId;
+  await storage.updateCreatorLastPost(creator.id, latestPostId);
+
+  if (previousPostId && previousPostId !== latestPostId) {
+    let postUrl = "";
+    if (creator.platform === "threads") {
+      postUrl = `https://www.threads.net/@${creator.username}/post/${latestPostId}`;
+    } else if (creator.platform === "x") {
+      postUrl = `https://x.com/${creator.username}/status/${latestPostId}`;
+    }
+
+    log(`New post from @${creator.username}: ${postUrl}`, "creator-monitor");
+
+    const allSameCreator = await storage.getAllWatchedCreatorsByPlatform(creator.platform);
+    const usersWatching = new Set<string>();
+    for (const wc of allSameCreator) {
+      if (wc.username === creator.username) {
+        usersWatching.add(wc.userId);
+      }
+    }
+
+    for (const uid of usersWatching) {
+      await sendPushToUser(uid, {
+        title: `🔥 New post from @${creator.username}`,
+        body: "Posted just now — Reply early for maximum reach",
+        url: postUrl,
+      });
+
+      await storage.createCreatorAlert({
+        userId: uid,
+        creatorUsername: creator.username,
+        platform: creator.platform,
+        postId: latestPostId,
+        postUrl,
+      });
+    }
+  }
+}
+
 async function pollCreators() {
   try {
     const creators = await storage.getCreatorsToCheck(45);
     if (creators.length === 0) return;
 
-    log(`Checking ${creators.length} creators for new posts`, "creator-monitor");
+    const threadsCreators = creators.filter(c => c.platform === "threads");
+    const xCreators = creators.filter(c => c.platform === "x");
 
-    for (let i = 0; i < creators.length; i += BATCH_SIZE) {
-      const batch = creators.slice(i, i + BATCH_SIZE);
+    log(`Checking ${threadsCreators.length} Threads + ${xCreators.length} X creators`, "creator-monitor");
 
+    for (let i = 0; i < threadsCreators.length; i += THREADS_BATCH_SIZE) {
+      const batch = threadsCreators.slice(i, i + THREADS_BATCH_SIZE);
       await Promise.all(batch.map(async (creator) => {
         try {
-          let latestPostId: string | null = null;
-
-          if (creator.platform === "threads") {
-            latestPostId = await fetchLatestThreadsPost(creator.username);
-          } else if (creator.platform === "x") {
-            latestPostId = await fetchLatestXPost(creator.username);
-          }
-
+          const latestPostId = await fetchLatestThreadsPost(creator.username);
           if (!latestPostId) {
             await storage.updateCreatorLastPost(creator.id, creator.lastPostId || "");
             return;
           }
-
-          const previousPostId = creator.lastPostId;
-          await storage.updateCreatorLastPost(creator.id, latestPostId);
-
-          if (previousPostId && previousPostId !== latestPostId) {
-            let postUrl = "";
-            if (creator.platform === "threads") {
-              postUrl = `https://www.threads.net/@${creator.username}/post/${latestPostId}`;
-            } else if (creator.platform === "x") {
-              postUrl = `https://x.com/${creator.username}/status/${latestPostId}`;
-            }
-
-            log(`New post from @${creator.username}: ${postUrl}`, "creator-monitor");
-
-            const allCreatorsForUser = await storage.getWatchedCreators(creator.userId);
-            const usersWatching = new Set<string>();
-
-            const allSameCreator = await storage.getAllWatchedCreatorsByPlatform(creator.platform);
-            for (const wc of allSameCreator) {
-              if (wc.username === creator.username) {
-                usersWatching.add(wc.userId);
-              }
-            }
-
-            for (const uid of usersWatching) {
-              await sendPushToUser(uid, {
-                title: `🔥 New post from @${creator.username}`,
-                body: "Posted just now — Reply early for maximum reach",
-                url: postUrl,
-              });
-
-              await storage.createCreatorAlert({
-                userId: uid,
-                creatorUsername: creator.username,
-                platform: creator.platform,
-                postId: latestPostId,
-                postUrl,
-              });
-            }
-          }
+          await handleNewPost(creator, latestPostId);
         } catch (err: any) {
           log(`Error checking @${creator.username}: ${err.message}`, "creator-monitor");
         }
       }));
+      if (i + THREADS_BATCH_SIZE < threadsCreators.length) await sleep(THREADS_BATCH_DELAY_MS);
+    }
 
-      if (i + BATCH_SIZE < creators.length) {
-        await sleep(BATCH_DELAY_MS);
+    const now = Date.now();
+    if (xCreators.length > 0 && now - lastXCheckTime >= X_CHECK_INTERVAL_MS) {
+      lastXCheckTime = now;
+
+      const creator = xCreators[0];
+      try {
+        const userClient = await getTwitterClientForUser(creator.userId);
+        const client = userClient || getTwitterClient();
+        if (!client) {
+          await storage.updateCreatorLastPost(creator.id, creator.lastPostId || "");
+        } else {
+          const latestPostId = await fetchLatestXPost(creator.username, client);
+          if (!latestPostId) {
+            await storage.updateCreatorLastPost(creator.id, creator.lastPostId || "");
+          } else {
+            await handleNewPost(creator, latestPostId);
+          }
+          log(`X check: @${creator.username} done (${xCreators.length} in queue)`, "creator-monitor");
+        }
+      } catch (err: any) {
+        if (err.message?.includes("429")) {
+          lastXCheckTime = now + X_CHECK_INTERVAL_MS;
+          log(`X rate limited, backing off for 10 min`, "creator-monitor");
+        } else {
+          log(`Error checking @${creator.username}: ${err.message}`, "creator-monitor");
+        }
       }
     }
   } catch (err: any) {

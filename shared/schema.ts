@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, serial, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, serial, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -255,7 +255,9 @@ export const watchedCreators = pgTable("watched_creators", {
   lastPostId: text("last_post_id"),
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("watched_creators_user_platform_username").on(table.userId, table.username, table.platform),
+]);
 
 export const insertWatchedCreatorSchema = createInsertSchema(watchedCreators).omit({ id: true, createdAt: true });
 export type InsertWatchedCreator = z.infer<typeof insertWatchedCreatorSchema>;
