@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import {
 import { CheckCircle2, Target, Zap, RefreshCw } from "lucide-react";
 import { useDailyGoals, useLogActivity, type DailyGoal } from "@/lib/hooks";
 import { usePlatform } from "@/contexts/PlatformContext";
+import { useToast } from "@/hooks/use-toast";
 
 type Platform = "x" | "threads" | "instagram";
 
@@ -160,6 +161,33 @@ export default function DailyGoals() {
 
   const { data, isLoading, refetch, isFetching } = useDailyGoals(platform);
   const { mutate: logActivity, isPending: isLogging } = useLogActivity();
+  const { toast } = useToast();
+  const prevGoalsRef = useRef<DailyGoal[]>([]);
+
+  const goals = data?.goals ?? [];
+
+  useEffect(() => {
+    const prev = prevGoalsRef.current;
+    if (prev.length > 0 && goals.length > 0) {
+      goals.forEach((goal) => {
+        const prevGoal = prev.find((g) => g.action === goal.action);
+        if (prevGoal && prevGoal.current < prevGoal.target && goal.current >= goal.target) {
+          const celebrationKey = `goal-celebrated-${goal.action}-${new Date().toLocaleDateString("en-CA")}`;
+          if (!localStorage.getItem(celebrationKey)) {
+            localStorage.setItem(celebrationKey, "1");
+            toast({
+              title: `🎉 ${goal.label} goal complete!`,
+              description:
+                goal.action === "reply_posted"
+                  ? "Amazing work! You've hit your daily reply target. Keep crushing it! 🚀"
+                  : "Great job! Keep up the momentum.",
+            });
+          }
+        }
+      });
+    }
+    prevGoalsRef.current = goals;
+  }, [goals]);
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -167,7 +195,6 @@ export default function DailyGoals() {
     day: "numeric",
   });
 
-  const goals = data?.goals ?? [];
   const completedCount = goals.filter((g) => g.current >= g.target).length;
   const totalGoals = goals.length;
   const overallPct = totalGoals === 0 ? 0 : Math.round((completedCount / totalGoals) * 100);

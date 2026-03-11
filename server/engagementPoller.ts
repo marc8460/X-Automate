@@ -14,7 +14,7 @@ export function removeSseClient(res: Response) {
   sseClients.delete(res);
 }
 
-function broadcastUpdate(payload: object) {
+export function broadcastUpdate(payload: object) {
   const data = `data: ${JSON.stringify(payload)}\n\n`;
   const dead: Response[] = [];
   sseClients.forEach((client) => {

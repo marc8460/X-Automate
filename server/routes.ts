@@ -9,7 +9,7 @@ import { eq, sql, inArray } from "drizzle-orm";
 import { getTwitterClient, getTwitterClientForUser, testTwitterConnectionForUser, generateTwitterOAuthUrl, handleTwitterOAuthCallback } from "./twitter";
 import { testThreadsConnectionForUser, getThreadsAccessTokenForUser, createThreadsPost, replyToThreadsComment, generateThreadsOAuthUrl, storeThreadsOAuthState, handleThreadsOAuthCallback, getThreadsPosts, getThreadsPostInsights, getThreadsConversation, getThreadsPostMetrics, getThreadsProfile, getThreadsUserMetrics } from "./threads";
 import { storage } from "./storage";
-import { addSseClient, removeSseClient, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
+import { addSseClient, removeSseClient, broadcastUpdate, getPollerStatus, pausePoller, resumePoller } from "./engagementPoller";
 import { rankTweets } from "./ranking";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { db } from "./db";
@@ -2789,6 +2789,7 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       const parsed = insertDailyActivityEventSchema.safeParse({ ...req.body, userId });
       if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
       const event = await storage.logActivityEvent(parsed.data);
+      broadcastUpdate({ type: "daily-goals-update" });
       res.status(201).json(event);
     } catch (err: any) {
       console.error("[extension/activity] error:", err.message);

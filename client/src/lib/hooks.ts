@@ -582,7 +582,7 @@ export function useDailyGoals(platform: string) {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -713,6 +713,9 @@ export function useEngagementSSE() {
           qc.invalidateQueries({ queryKey: ["/api/engagement/live-comments"] });
           qc.invalidateQueries({ queryKey: ["/api/engagement/live-interactions"] });
           qc.invalidateQueries({ queryKey: ["/api/engagement/status"] });
+        }
+        if (data.type === "daily-goals-update") {
+          qc.invalidateQueries({ queryKey: ["/api/daily-goals"] });
         }
       } catch {
         // ignore parse errors
