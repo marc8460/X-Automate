@@ -203,7 +203,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function getAuraStatus() {
   const result = await chrome.storage.local.get(['auraBaseUrl', 'posts_today', 'last_post_date']);
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA');
   return {
     connected: !!result.auraBaseUrl,
     baseUrl: result.auraBaseUrl || null,
@@ -266,7 +266,7 @@ async function handleReply(text, tweetUrl, imageUrl) {
 }
 
 async function updateStats() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA');
   const result = await chrome.storage.local.get(['posts_today', 'last_post_date']);
 
   let count = 0;
@@ -323,7 +323,7 @@ async function findAuraTab() {
 }
 
 async function handleLogActivity(platform, action) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA');
   const payload = { platform, action, localDate: today };
 
   try {

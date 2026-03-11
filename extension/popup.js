@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const loadStats = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA');
       const result = await chrome.storage.local.get(['posts_today', 'last_post_date']);
 
       if (result.last_post_date === today) {
