@@ -2795,11 +2795,14 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
   app.post("/api/extension/activity", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
+      const { platform, action, localDate } = req.body;
+      console.log(`[extension/activity] userId=${userId} platform=${platform} action=${action} date=${localDate}`);
       const { insertDailyActivityEventSchema } = await import("@shared/schema");
       const parsed = insertDailyActivityEventSchema.safeParse({ ...req.body, userId });
       if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
       const event = await storage.logActivityEvent(parsed.data);
       broadcastUpdate({ type: "daily-goals-update" });
+      console.log(`[extension/activity] Logged event id=${event.id}`);
       res.status(201).json(event);
     } catch (err: any) {
       console.error("[extension/activity] error:", err.message);

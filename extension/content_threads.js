@@ -122,9 +122,11 @@ async function handleInsertReply(tweetData, replyText, autoPost, imageUrl) {
         chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'threads', activityAction: 'reply_posted' });
       } else {
         showToast('Reply inserted — click Post to send');
+        chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'threads', activityAction: 'reply_posted' });
       }
     } else {
       showToast('Reply inserted with typing delay — click Post to send');
+      chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'threads', activityAction: 'reply_posted' });
     }
   } catch (err) {
     console.error('[Aura] Insert reply error:', err);

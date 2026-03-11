@@ -1018,9 +1018,11 @@ async function handleInsertReply(tweetData, replyText, autoPost, imageUrl) {
         chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'x', activityAction: 'reply_posted' });
       } else {
         showToast("Reply inserted — Post button not ready, click it manually");
+        chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'x', activityAction: 'reply_posted' });
       }
     } else {
       showToast("Reply inserted" + (imageUrl ? " with photo" : "") + " — click Post when ready");
+      chrome.runtime.sendMessage({ action: 'aura:log-activity', platform: 'x', activityAction: 'reply_posted' });
     }
   } catch (err) {
     showToast("Error: " + err.message);

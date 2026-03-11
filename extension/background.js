@@ -175,6 +175,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse(result);
     });
     return true;
+  } else if (message.action === 'aura:flush-pending-activities') {
+    flushPendingActivities().then(() => sendResponse({ ok: true }));
+    return true;
   } else if (message.action === 'aura:image') {
     fetchImageBlob(message.imageUrl).then(blobData => {
       sendResponse({ blob: blobData });
@@ -229,6 +232,7 @@ async function handlePost(text, imageUrl) {
       setTimeout(() => {
         chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageBlob, filename: 'aura_image.jpg' });
         updateStats();
+        handleLogActivity('x', 'post_created');
       }, 1000);
     }
   });
@@ -255,6 +259,7 @@ async function handleReply(text, tweetUrl, imageUrl) {
       setTimeout(() => {
         chrome.tabs.sendMessage(tab.id, { action: "insert", text, imageBlob, filename: 'aura_image.jpg', replyToUrl: tweetUrl });
         updateStats();
+        handleLogActivity('x', 'reply_posted');
       }, 1000);
     }
   });
@@ -318,32 +323,82 @@ async function findAuraTab() {
 }
 
 async function handleLogActivity(platform, action) {
+  const today = new Date().toISOString().split('T')[0];
+  const payload = { platform, action, localDate: today };
+
   try {
-    const auraTab = await findAuraTab();
-    if (!auraTab) {
-      return { error: 'Aura dashboard not open.' };
+    const store = await chrome.storage.local.get(['auraBaseUrl']);
+    const baseUrl = store.auraBaseUrl;
+    if (!baseUrl) {
+      await queuePendingActivity(payload);
+      return { error: 'Aura dashboard URL not configured.' };
     }
 
-    const today = new Date().toISOString().split('T')[0];
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve({ error: 'Activity log timed out.' }), 10000);
-      chrome.tabs.sendMessage(auraTab.id, {
-        action: 'aura:api-proxy',
-        endpoint: '/api/extension/activity',
-        method: 'POST',
-        body: { platform, action, localDate: today }
-      }, (response) => {
-        clearTimeout(timeout);
-        if (chrome.runtime.lastError) {
-          resolve({ error: 'Could not reach Aura dashboard.' });
-          return;
-        }
-        resolve(response || { success: true });
-      });
+    const url = baseUrl.replace(/\/$/, '') + '/api/extension/activity';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
+
+    if (resp.ok) {
+      console.log(`[Aura] Activity logged: ${platform}/${action}`);
+      return await resp.json();
+    }
+
+    const text = await resp.text();
+    console.warn(`[Aura] Activity log API error ${resp.status}:`, text);
+    await queuePendingActivity(payload);
+    return { error: `API error: ${resp.status}` };
   } catch (error) {
+    console.warn('[Aura] Activity log failed, queued for retry:', error.message);
+    await queuePendingActivity(payload);
     return { error: error.message };
+  }
+}
+
+async function queuePendingActivity(payload) {
+  try {
+    const store = await chrome.storage.local.get(['aura_pending_activities']);
+    const pending = store.aura_pending_activities || [];
+    pending.push(payload);
+    if (pending.length > 200) pending.splice(0, pending.length - 200);
+    await chrome.storage.local.set({ aura_pending_activities: pending });
+  } catch (e) {
+    console.error('[Aura] Failed to queue activity:', e);
+  }
+}
+
+async function flushPendingActivities() {
+  try {
+    const store = await chrome.storage.local.get(['auraBaseUrl', 'aura_pending_activities']);
+    const baseUrl = store.auraBaseUrl;
+    const pending = store.aura_pending_activities || [];
+    if (!baseUrl || pending.length === 0) return;
+
+    const url = baseUrl.replace(/\/$/, '') + '/api/extension/activity';
+    const succeeded = [];
+
+    for (let i = 0; i < pending.length; i++) {
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pending[i])
+        });
+        if (resp.ok) succeeded.push(i);
+      } catch (e) {
+        break;
+      }
+    }
+
+    if (succeeded.length > 0) {
+      const remaining = pending.filter((_, i) => !succeeded.includes(i));
+      await chrome.storage.local.set({ aura_pending_activities: remaining });
+      console.log(`[Aura] Flushed ${succeeded.length} pending activities`);
+    }
+  } catch (e) {
+    console.error('[Aura] Flush pending activities error:', e);
   }
 }
 

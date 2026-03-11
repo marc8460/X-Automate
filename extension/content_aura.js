@@ -18,6 +18,7 @@
     if (isRealAuraDashboard()) {
       chrome.storage.local.set({ auraBaseUrl: window.location.origin }, () => {
         console.log('Aura Extension: Saved dashboard URL:', window.location.origin);
+        chrome.runtime.sendMessage({ action: 'aura:flush-pending-activities' });
       });
     } else {
       console.log('Aura Extension: Page does not appear to be Aura dashboard, skipping URL save.');
