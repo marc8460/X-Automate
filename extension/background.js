@@ -178,6 +178,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'aura:flush-pending-activities') {
     flushPendingActivities().then(() => sendResponse({ ok: true }));
     return true;
+  } else if (message.action === 'aura:creator-alert') {
+    handleCreatorAlert(message.creatorUsername, message.postId, message.postUrl).then(r => sendResponse(r));
+    return true;
   } else if (message.action === 'aura:image') {
     fetchImageBlob(message.imageUrl).then(blobData => {
       sendResponse({ blob: blobData });
@@ -320,6 +323,29 @@ async function findAuraTab() {
     } catch (e) {}
   }
   return null;
+}
+
+async function handleCreatorAlert(creatorUsername, postId, postUrl) {
+  try {
+    const { auraBaseUrl } = await chrome.storage.local.get(['auraBaseUrl']);
+    if (!auraBaseUrl) return { ok: false, error: 'No Aura URL configured' };
+    const resp = await fetch(`${auraBaseUrl}/api/extension/creator-alert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ creatorUsername, platform: 'x', postId, postUrl }),
+    });
+    const data = await resp.json();
+    if (data.duplicate) {
+      console.log(`[Aura] Creator alert duplicate skipped: @${creatorUsername} ${postId}`);
+    } else {
+      console.log(`[Aura] Creator alert sent: @${creatorUsername} ${postId}`);
+    }
+    return { ok: true, ...data };
+  } catch (err) {
+    console.error('[Aura] Creator alert error:', err.message);
+    return { ok: false, error: err.message };
+  }
 }
 
 async function handleLogActivity(platform, action) {

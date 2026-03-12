@@ -1242,6 +1242,108 @@ function injectImportButton() {
   document.body.appendChild(btn);
 }
 
+// ─── Notification Scanner for Creator Alerts ───
+
+const seenNotifPostIds = new Set();
+let notifScannerActive = false;
+
+function extractPostIdFromUrl(url) {
+  const m = url.match(/\/status\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+function scanXNotifications() {
+  if (notifScannerActive) return;
+  notifScannerActive = true;
+
+  const articles = document.querySelectorAll('[data-testid="cellInnerDiv"] article, [data-testid="notification"] article, div[data-testid="cellInnerDiv"]');
+  if (!articles.length) {
+    notifScannerActive = false;
+    return;
+  }
+
+  chrome.storage.local.get(['aura_watchlist_x'], (store) => {
+    const watchlist = (store.aura_watchlist_x || []).map(u => u.toLowerCase().replace('@', ''));
+    if (!watchlist.length) {
+      notifScannerActive = false;
+      return;
+    }
+
+    articles.forEach(cell => {
+      const links = cell.querySelectorAll('a[href*="/status/"]');
+      if (!links.length) return;
+
+      const text = cell.innerText || '';
+      const isNewPost = /posted|tweeted|poste/i.test(text);
+      if (!isNewPost) return;
+
+      const handleLinks = cell.querySelectorAll('a[href^="/"]');
+      let creatorUsername = null;
+      for (const hl of handleLinks) {
+        const href = hl.getAttribute('href');
+        if (href && /^\/[A-Za-z0-9_]+$/.test(href)) {
+          const candidate = href.slice(1).toLowerCase();
+          if (watchlist.includes(candidate)) {
+            creatorUsername = candidate;
+            break;
+          }
+        }
+      }
+      if (!creatorUsername) return;
+
+      for (const link of links) {
+        const href = link.getAttribute('href');
+        const postId = extractPostIdFromUrl(href);
+        if (!postId) continue;
+        const key = `${creatorUsername}:${postId}`;
+        if (seenNotifPostIds.has(key)) continue;
+        seenNotifPostIds.add(key);
+
+        const postUrl = `https://x.com${href}`;
+        console.log(`[Aura] Notification detected: @${creatorUsername} posted ${postUrl}`);
+        chrome.runtime.sendMessage({
+          action: 'aura:creator-alert',
+          creatorUsername,
+          postId,
+          postUrl,
+        });
+      }
+    });
+
+    notifScannerActive = false;
+  });
+}
+
+function startNotificationScanner() {
+  if (!location.pathname.startsWith('/notifications')) return;
+  console.log('[Aura] Notification scanner active on /notifications');
+
+  scanXNotifications();
+
+  const observer = new MutationObserver(() => {
+    scanXNotifications();
+  });
+  const target = document.querySelector('main') || document.body;
+  observer.observe(target, { childList: true, subtree: true });
+
+  setInterval(scanXNotifications, 3000);
+}
+
+if (location.pathname.startsWith('/notifications')) {
+  startNotificationScanner();
+}
+
+let lastPath = location.pathname;
+const pathObserver = new MutationObserver(() => {
+  if (location.pathname !== lastPath) {
+    lastPath = location.pathname;
+    if (location.pathname.startsWith('/notifications')) {
+      startNotificationScanner();
+    }
+  }
+});
+pathObserver.observe(document.body, { childList: true, subtree: true });
+
 // ─── Init ───
 
 createFloatingWidget();

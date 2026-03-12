@@ -2810,6 +2810,39 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     }
   });
 
+  app.post("/api/extension/creator-alert", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { creatorUsername, platform, postId, postUrl } = req.body;
+      if (!creatorUsername || !platform || !postId || !postUrl) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      const existing = await storage.getActiveAlerts(userId);
+      const alreadyExists = existing.some(a => a.postId === postId && a.platform === platform);
+      if (alreadyExists) {
+        return res.json({ success: true, duplicate: true });
+      }
+      await storage.createCreatorAlert({
+        userId,
+        creatorUsername,
+        platform,
+        postId,
+        postUrl,
+      });
+      await sendPushToUser(userId, {
+        title: `🔥 New post from @${creatorUsername}`,
+        body: "Posted just now — Reply early for maximum reach",
+        url: postUrl,
+      });
+      broadcastUpdate({ type: "update" });
+      console.log(`[extension/creator-alert] Alert created for @${creatorUsername} post=${postId}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[extension/creator-alert] error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/daily-goals", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
