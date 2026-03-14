@@ -1343,6 +1343,16 @@ initTweetScanner();
 
 // ─── Init ───
 
+window.auraTestNotification = function() {
+  console.log('[Aura Test] Sending test notification');
+  chrome.runtime.sendMessage({
+    action: 'aura:creator-alert',
+    creatorUsername: 'testcreator',
+    postId: '1234567890',
+    postUrl: 'https://x.com/testcreator/status/1234567890',
+  });
+};
+
 createFloatingWidget();
 injectImportButton();
 console.log('Aura Content Script loaded on X.com');
