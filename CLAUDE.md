@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working Rules
+
+**File edits only — no shell commands.**
+
+- Only modify source files using the Edit or Write tools.
+- Never run shell commands (Bash tool), including `npm`, `node`, `fuser`, `pkill`, or any other CLI commands.
+- Never start, stop, or restart the development server or any background process.
+- Never run database commands (`db:push`, `psql`, etc.).
+- Never run builds, type checks, or linters.
+- If a task requires running a command, describe what the user should run instead of running it yourself.
+
 ## Commands
 
 ```bash

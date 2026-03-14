@@ -59,7 +59,10 @@ export function useDeleteTweet() {
 }
 
 export function useMediaItems() {
-  return useQuery<MediaItem[]>({ queryKey: ["/api/media"] });
+  return useQuery<MediaItem[]>({
+    queryKey: ["/api/media"],
+    staleTime: 30_000,
+  });
 }
 
 export function useCreateMediaItem() {

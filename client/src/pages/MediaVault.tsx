@@ -641,7 +641,7 @@ export default function MediaVault() {
               key={item.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
+              transition={{ delay: Math.min(i * 0.03, 0.15) }}
               className="group relative"
               data-testid={`card-media-${item.id}`}
               onClick={() => selectMode && toggleSelect(item.id)}
@@ -655,6 +655,8 @@ export default function MediaVault() {
                   <img
                     src={item.url}
                     alt="Vault content"
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   {selectMode && (

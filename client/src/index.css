@@ -32,27 +32,27 @@
   --font-display: 'Outfit', sans-serif;
 }
 
-/* Base Light Mode - Not primary but needed for fallback */
+/* Base Light Mode - Primary theme */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 240 10% 3.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 240 10% 3.9%;
+  --background: 220 20% 97%;        /* Lys blågrå baggrund */
+  --foreground: 240 10% 10%;        /* Meget mørk tekst */
+  --card: 0 0% 100%;                /* Hvide kort */
+  --card-foreground: 240 10% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 3.9%;
-  --primary: 288 84% 54%; /* Vibrant purple */
-  --primary-foreground: 0 0% 98%;
-  --secondary: 240 4.8% 95.9%;
-  --secondary-foreground: 240 5.9% 10%;
-  --muted: 240 4.8% 95.9%;
-  --muted-foreground: 240 3.8% 46.1%;
-  --accent: 320 80% 60%; /* Pink */
-  --accent-foreground: 240 5.9% 10%;
-  --destructive: 0 84.2% 60.2%;
+  --popover-foreground: 240 10% 10%;
+  --primary: 288 70% 50%;           /* Lilla – mørkere for kontrast på hvid */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14% 93%;
+  --secondary-foreground: 240 10% 20%;
+  --muted: 220 14% 93%;
+  --muted-foreground: 240 5% 45%;
+  --accent: 320 70% 55%;            /* Pink – mørkere for læsbarhed */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 55%;
   --destructive-foreground: 0 0% 98%;
-  --border: 240 5.9% 90%;
-  --input: 240 5.9% 90%;
-  --ring: 288 84% 54%;
+  --border: 220 13% 88%;
+  --input: 220 13% 91%;
+  --ring: 288 70% 50%;
   --radius: 0.75rem;
 }
 
@@ -107,7 +107,7 @@
 
 /* Glass panel effect */
 .glass-panel {
-  @apply bg-card/60 backdrop-blur-md border border-white/5 shadow-xl;
+  @apply bg-white/80 backdrop-blur-md border border-black/5 shadow-sm;
 }
 
 /* Glow effects */

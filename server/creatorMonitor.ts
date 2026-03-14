@@ -135,29 +135,34 @@ async function pollCreators() {
     if (xCreators.length > 0 && now - lastXCheckTime >= X_CHECK_INTERVAL_MS) {
       lastXCheckTime = now;
 
-      const creator = xCreators[0];
-      try {
-        const userClient = await getTwitterClientForUser(creator.userId);
-        const client = userClient || getTwitterClient();
-        if (!client) {
-          await storage.updateCreatorLastPost(creator.id, creator.lastPostId || "");
-        } else {
+      for (const creator of xCreators) {
+        try {
+          const userClient = await getTwitterClientForUser(creator.userId);
+          const client = userClient || getTwitterClient();
+          if (!client) {
+            await storage.updateCreatorLastPost(creator.id, creator.lastPostId || "");
+            continue;
+          }
           const latestPostId = await fetchLatestXPost(creator.username, client);
           if (!latestPostId) {
             await storage.updateCreatorLastPost(creator.id, creator.lastPostId || "");
           } else {
             await handleNewPost(creator, latestPostId);
           }
-          log(`X check: @${creator.username} done (${xCreators.length} in queue)`, "creator-monitor");
+          log(`X check: @${creator.username} done`, "creator-monitor");
+        } catch (err: any) {
+          if (err.message?.includes("429")) {
+            lastXCheckTime = now + X_CHECK_INTERVAL_MS;
+            log(`X rate limited, backing off for 10 min`, "creator-monitor");
+            break;
+          } else {
+            log(`Error checking @${creator.username}: ${err.message}`, "creator-monitor");
+            await storage.updateCreatorLastPost(creator.id, creator.lastPostId || "");
+          }
         }
-      } catch (err: any) {
-        if (err.message?.includes("429")) {
-          lastXCheckTime = now + X_CHECK_INTERVAL_MS;
-          log(`X rate limited, backing off for 10 min`, "creator-monitor");
-        } else {
-          log(`Error checking @${creator.username}: ${err.message}`, "creator-monitor");
-        }
+        await sleep(2000);
       }
+      log(`X batch done: checked ${xCreators.length} creators`, "creator-monitor");
     }
   } catch (err: any) {
     log(`Creator monitor cycle error: ${err.message}`, "creator-monitor");

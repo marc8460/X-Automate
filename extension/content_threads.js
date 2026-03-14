@@ -142,7 +142,7 @@ function showToast(message) {
   toast.textContent = message;
   toast.style.cssText = `
     position: fixed; bottom: 80px; right: 20px;
-    background: #7c3aed; color: white;
+    background: #9333ea; color: white;
     padding: 12px 24px; border-radius: 9999px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-weight: bold; z-index: 2147483647;
@@ -181,7 +181,7 @@ auraStyles.textContent = `
     width: 52px;
     height: 52px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    background: linear-gradient(135deg, #9333ea, #a855f7);
     border: none;
     cursor: pointer;
     z-index: 2147483646;
@@ -207,11 +207,11 @@ auraStyles.textContent = `
     bottom: 80px;
     right: 20px;
     width: 280px;
-    background: #101010;
-    border: 1px solid #333;
+    background: #ffffff;
+    border: 1px solid #e2e5ed;
     border-radius: 16px;
     z-index: 2147483646;
-    color: white;
+    color: #0f172a;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     overflow: hidden;
@@ -219,7 +219,7 @@ auraStyles.textContent = `
   }
   .aura-widget-header {
     padding: 14px 16px;
-    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    background: linear-gradient(135deg, #9333ea, #a855f7);
     display: flex;
     align-items: center;
     gap: 10px;
@@ -234,11 +234,11 @@ auraStyles.textContent = `
     justify-content: space-between;
     align-items: center;
     padding: 10px 0;
-    border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+    border-bottom: 1px solid rgba(226, 229, 237, 0.8);
     font-size: 13px;
   }
   .aura-widget-row:last-child { border-bottom: none; }
-  .aura-widget-label { color: #999; }
+  .aura-widget-label { color: #64748b; }
   .aura-widget-value { font-weight: bold; }
   .aura-status-dot {
     width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
@@ -250,7 +250,7 @@ auraStyles.textContent = `
     width: 100%;
     padding: 10px;
     margin-top: 12px;
-    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    background: linear-gradient(135deg, #9333ea, #a855f7);
     color: white;
     border: none;
     border-radius: 9999px;
@@ -269,21 +269,21 @@ auraStyles.textContent = `
   .aura-toggle input { opacity: 0; width: 0; height: 0; }
   .aura-toggle-slider {
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: #333; border-radius: 22px; transition: background 0.2s;
+    background: #e2e5ed; border-radius: 22px; transition: background 0.2s;
   }
   .aura-toggle-slider::before {
     content: ''; position: absolute; height: 16px; width: 16px;
     left: 3px; bottom: 3px; background: white; border-radius: 50%;
     transition: transform 0.2s;
   }
-  .aura-toggle input:checked + .aura-toggle-slider { background: #7c3aed; }
+  .aura-toggle input:checked + .aura-toggle-slider { background: #9333ea; }
   .aura-toggle input:checked + .aura-toggle-slider::before { transform: translateX(18px); }
 
   .aura-analyze-btn {
     position: absolute;
     right: 12px;
     top: 12px;
-    background: #7c3aed;
+    background: #9333ea;
     color: white;
     border: none;
     border-radius: 9999px;
@@ -303,7 +303,7 @@ auraStyles.textContent = `
     opacity: 1;
     pointer-events: auto;
   }
-  .aura-analyze-btn:hover { background: #6d28d9; }
+  .aura-analyze-btn:hover { background: #7e22ce; }
 
   .aura-badge {
     display: block;
@@ -336,20 +336,20 @@ auraStyles.textContent = `
     transform: translate(-50%, -50%);
     width: 480px;
     max-height: 85vh;
-    background: #101010;
-    border: 1px solid #333;
+    background: #ffffff;
+    border: 1px solid #e2e5ed;
     border-radius: 16px;
     z-index: 2147483647;
     display: flex;
     flex-direction: column;
-    color: white;
+    color: #0f172a;
     box-shadow: 0 0 20px rgba(0,0,0,0.5);
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
   }
   .aura-panel-header {
     padding: 16px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid #e2e5ed;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -360,7 +360,7 @@ auraStyles.textContent = `
     flex: 1;
   }
   .aura-tweet-preview {
-    background: #1a1a1a;
+    background: #f8fafc;
     padding: 12px;
     border-radius: 12px;
     margin-bottom: 16px;
@@ -372,8 +372,8 @@ auraStyles.textContent = `
     object-fit: contain;
     border-radius: 12px;
     margin-top: 10px;
-    border: 1px solid #333;
-    background: #0a0a0a;
+    border: 1px solid #e2e5ed;
+    background: #f0f0f0;
   }
   .aura-metrics-grid {
     display: grid;
@@ -382,13 +382,13 @@ auraStyles.textContent = `
     margin-bottom: 16px;
   }
   .aura-metric-item {
-    background: #1a1a1a;
+    background: #f8fafc;
     padding: 8px 4px;
     border-radius: 8px;
     text-align: center;
   }
   .aura-metric-value { font-weight: bold; font-size: 14px; }
-  .aura-metric-label { font-size: 9px; color: #999; text-transform: uppercase; margin-top: 2px; }
+  .aura-metric-label { font-size: 9px; color: #64748b; text-transform: uppercase; margin-top: 2px; }
 
   .aura-score-breakdown {
     display: grid;
@@ -397,14 +397,14 @@ auraStyles.textContent = `
     margin-bottom: 16px;
   }
   .aura-score-item {
-    background: #1a1a1a;
+    background: #f8fafc;
     padding: 8px;
     border-radius: 8px;
     text-align: center;
   }
   .aura-score-bar {
     height: 4px;
-    background: #333;
+    background: #e2e5ed;
     border-radius: 2px;
     margin-top: 4px;
     overflow: hidden;
@@ -417,10 +417,10 @@ auraStyles.textContent = `
 
   .aura-input {
     width: 100%;
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: #f8fafc;
+    border: 1px solid #e2e5ed;
     border-radius: 8px;
-    color: white;
+    color: #0f172a;
     padding: 8px;
     margin-bottom: 12px;
     font-size: 14px;
@@ -433,8 +433,8 @@ auraStyles.textContent = `
     gap: 12px;
   }
   .aura-reply-card {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: #f8fafc;
+    border: 1px solid #e2e5ed;
     border-radius: 12px;
     padding: 12px;
   }
@@ -454,11 +454,11 @@ auraStyles.textContent = `
     transition: opacity 0.2s;
   }
   .aura-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .aura-btn-primary { background: #7c3aed; color: white; }
-  .aura-btn-secondary { background: transparent; border: 1px solid #333; color: white; }
+  .aura-btn-primary { background: #9333ea; color: white; }
+  .aura-btn-secondary { background: transparent; border: 1px solid #e2e5ed; color: #0f172a; }
   .aura-btn-post { background: #22c55e; color: white; }
   .aura-btn-post:hover { background: #16a34a; }
-  .aura-btn-attach { background: transparent; border: 1px solid #7c3aed; color: #a78bfa; font-size: 12px; padding: 4px 12px; }
+  .aura-btn-attach { background: transparent; border: 1px solid #9333ea; color: #a78bfa; font-size: 12px; padding: 4px 12px; }
   .aura-btn-attach:hover { background: rgba(124, 58, 237, 0.15); }
 
   .aura-attach-section {
@@ -483,8 +483,8 @@ auraStyles.textContent = `
     max-height: 200px;
     overflow-y: auto;
     padding: 6px;
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: #f8fafc;
+    border: 1px solid #e2e5ed;
     border-radius: 8px;
   }
   .aura-media-thumb {
@@ -528,8 +528,8 @@ auraStyles.textContent = `
 
   .aura-loading-spinner {
     width: 20px; height: 20px;
-    border: 2px solid #333;
-    border-top-color: #7c3aed;
+    border: 2px solid #e2e5ed;
+    border-top-color: #9333ea;
     border-radius: 50%;
     animation: aura-spin 0.8s linear infinite;
     display: inline-block;
@@ -625,7 +625,7 @@ function createFloatingWidget() {
                 </label>
               </span>
             </div>
-            ${s.connected && s.baseUrl ? `<a class="aura-widget-btn" href="${s.baseUrl}" target="_blank">Open Aura Dashboard</a>` : `<div style="color: #999; font-size: 12px; margin-top: 12px; text-align: center;">Open your Aura dashboard once to connect</div>`}
+            ${s.connected && s.baseUrl ? `<a class="aura-widget-btn" href="${s.baseUrl}" target="_blank">Open Aura Dashboard</a>` : `<div style="color: #64748b; font-size: 12px; margin-top: 12px; text-align: center;">Open your Aura dashboard once to connect</div>`}
             ${trackCreatorRow}
           </div>
         `;
@@ -1089,7 +1089,7 @@ function openAnalysisPanel(tweetData) {
         <span style="font-weight: bold; font-size: 16px;">Threads Viral Analysis</span>
         <span style="background: ${getScoreColor(tweetData.opportunityScore)}22; color: ${getScoreColor(tweetData.opportunityScore)}; padding: 2px 8px; border-radius: 9999px; font-size: 13px; font-weight: 700;">${scoreEmoji} ${tweetData.opportunityScore}</span>
       </div>
-      <button id="aura-close-panel" style="background: none; border: none; color: #999; cursor: pointer; font-size: 20px;">&times;</button>
+      <button id="aura-close-panel" style="background: none; border: none; color: #64748b; cursor: pointer; font-size: 20px;">&times;</button>
     </div>
     <div class="aura-panel-content">
       <div class="aura-tweet-preview">
@@ -1120,17 +1120,17 @@ function openAnalysisPanel(tweetData) {
 
       <div class="aura-score-breakdown">
         <div class="aura-score-item">
-          <div style="font-size: 10px; color: #999;">ENGAGEMENT</div>
+          <div style="font-size: 10px; color: #64748b;">ENGAGEMENT</div>
           <div style="font-weight: bold; color: ${getScoreColor(sb.engagement || 0)}">${sb.engagement || 0}</div>
           <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.engagement || 0}%; background: ${getScoreColor(sb.engagement || 0)}"></div></div>
         </div>
         <div class="aura-score-item">
-          <div style="font-size: 10px; color: #999;">VELOCITY</div>
+          <div style="font-size: 10px; color: #64748b;">VELOCITY</div>
           <div style="font-weight: bold; color: ${getScoreColor(sb.velocity || 0)}">${sb.velocity || 0}</div>
           <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.velocity || 0}%; background: ${getScoreColor(sb.velocity || 0)}"></div></div>
         </div>
         <div class="aura-score-item">
-          <div style="font-size: 10px; color: #999;">CONVERSATION</div>
+          <div style="font-size: 10px; color: #64748b;">CONVERSATION</div>
           <div style="font-weight: bold; color: ${getScoreColor(sb.conversation || 0)}">${sb.conversation || 0}</div>
           <div class="aura-score-bar"><div class="aura-score-fill" style="width: ${sb.conversation || 0}%; background: ${getScoreColor(sb.conversation || 0)}"></div></div>
         </div>
@@ -1138,7 +1138,7 @@ function openAnalysisPanel(tweetData) {
       <div style="text-align: center; font-size: 10px; color: #666; margin-bottom: 12px;">${modeLabel}</div>
 
       <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; font-weight: bold; color: #999; margin-bottom: 6px;">CUSTOM INSTRUCTIONS (OPTIONAL)</label>
+        <label style="display: block; font-size: 12px; font-weight: bold; color: #64748b; margin-bottom: 6px;">CUSTOM INSTRUCTIONS (OPTIONAL)</label>
         <textarea id="aura-custom-instructions" class="aura-input" placeholder="e.g. Be funny, disagree slightly, or mention AI..." rows="2"></textarea>
       </div>
 
@@ -1174,7 +1174,7 @@ function openAnalysisPanel(tweetData) {
   generateBtn.addEventListener('click', async () => {
     generateBtn.disabled = true;
     generateBtn.innerHTML = '<span class="aura-loading-spinner"></span> Analyzing' + (tweetData.imageUrls.length > 0 ? ' image + text...' : '...');
-    repliesContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">✨ Generating viral replies...</div>';
+    repliesContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">✨ Generating viral replies...</div>';
     visionResultEl.style.display = 'none';
 
     const payload = {
@@ -1195,7 +1195,7 @@ function openAnalysisPanel(tweetData) {
         visionResultEl.innerHTML = `
           <div style="background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 10px; padding: 10px;">
             <div style="font-size: 12px; font-weight: bold; color: #a78bfa; margin-bottom: 4px;">👁 AI Vision Analysis</div>
-            <div style="font-size: 13px; color: #d1d5db; line-height: 1.4;">${escapeHtml(response.imageDescription)}</div>
+            <div style="font-size: 13px; color: #374151; line-height: 1.4;">${escapeHtml(response.imageDescription)}</div>
           </div>
         `;
       }
@@ -1230,7 +1230,7 @@ function openAnalysisPanel(tweetData) {
               grid.style.display = 'none';
               return;
             }
-            grid.innerHTML = '<div style="text-align: center; padding: 12px; color: #999; font-size: 12px;">Loading media vault...</div>';
+            grid.innerHTML = '<div style="text-align: center; padding: 12px; color: #64748b; font-size: 12px;">Loading media vault...</div>';
             grid.style.display = 'grid';
 
             chrome.runtime.sendMessage({ action: 'aura:fetch-media-vault' }, (res) => {
@@ -1246,7 +1246,7 @@ function openAnalysisPanel(tweetData) {
                     const preview = card.querySelector(`#aura-attach-preview-${idx}`);
                     preview.style.display = 'flex';
                     preview.innerHTML = `
-                      <img src="${item.url}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #7c3aed;" />
+                      <img src="${item.url}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #9333ea;" />
                       <span style="font-size: 12px; color: #a78bfa;">${escapeHtml(item.mood || 'Photo')} attached</span>
                       <button class="aura-btn aura-btn-secondary aura-remove-img" style="padding: 2px 6px; font-size: 11px; margin-left: auto;">✕</button>
                     `;
@@ -1259,7 +1259,7 @@ function openAnalysisPanel(tweetData) {
                   grid.appendChild(thumb);
                 });
               } else {
-                grid.innerHTML = `<div style="text-align: center; padding: 12px; color: #999; font-size: 12px;">${res?.error || 'No images in your media vault.'}</div>`;
+                grid.innerHTML = `<div style="text-align: center; padding: 12px; color: #64748b; font-size: 12px;">${res?.error || 'No images in your media vault.'}</div>`;
               }
             });
           });
