@@ -1242,137 +1242,104 @@ function injectImportButton() {
   document.body.appendChild(btn);
 }
 
-// ─── Notification Scanner for Creator Alerts ───
+// ─── Tweet Scanner for Creator Alerts ───
+// Scans ALL pages on X.com (notifications, home, profiles) for tweets
+// from watched creators. Uses only a[href*="/status/"] links — no
+// dependency on X.com-specific data-testid attributes.
 
-const seenNotifPostIds = new Set();
-let notifScannerActive = false;
-let notifScannerStarted = false;
-let notifDebugLogged = false;
+const seenTweetKeys = new Set();
+let scannerRunning = false;
+let scannerInitialized = false;
+let watchlistCache = [];
+let watchlistCacheTime = 0;
 
-function scanXNotifications() {
-  if (notifScannerActive) return;
-  notifScannerActive = true;
-
-  const cells = document.querySelectorAll('div[data-testid="cellInnerDiv"]');
-  if (!cells.length) {
-    if (!notifDebugLogged) {
-      console.log('[Aura NotifScan] No cellInnerDiv found on page');
-      notifDebugLogged = true;
+function refreshWatchlistCache() {
+  return new Promise(resolve => {
+    const now = Date.now();
+    if (watchlistCache.length && now - watchlistCacheTime < 30000) {
+      return resolve(watchlistCache);
     }
-    notifScannerActive = false;
-    return;
-  }
+    chrome.storage.local.get(['aura_watchlist_x'], store => {
+      watchlistCache = (store.aura_watchlist_x || []).map(u => u.toLowerCase().replace(/^@/, ''));
+      watchlistCacheTime = now;
+      resolve(watchlistCache);
+    });
+  });
+}
 
-  chrome.storage.local.get(['aura_watchlist_x'], (store) => {
-    const watchlist = (store.aura_watchlist_x || []).map(u => u.toLowerCase().replace(/^@/, ''));
+async function scanForTweets() {
+  if (scannerRunning) return;
+  scannerRunning = true;
+
+  try {
+    const watchlist = await refreshWatchlistCache();
     if (!watchlist.length) {
-      if (!notifDebugLogged) {
-        console.log('[Aura NotifScan] Watchlist empty, nothing to scan');
-        notifDebugLogged = true;
-      }
-      notifScannerActive = false;
+      scannerRunning = false;
       return;
     }
 
-    if (!notifDebugLogged) {
-      console.log(`[Aura NotifScan] Scanning ${cells.length} cells, watchlist: ${watchlist.length} creators`);
+    const tweetLinks = document.querySelectorAll('a[href*="/status/"]');
+    if (!tweetLinks.length) {
+      scannerRunning = false;
+      return;
     }
 
     let foundCount = 0;
 
-    cells.forEach(cell => {
-      const allLinks = cell.querySelectorAll('a[href]');
-      if (!allLinks.length) return;
+    for (const link of tweetLinks) {
+      const href = link.href || link.getAttribute('href') || '';
+      const match = href.match(/x\.com\/([A-Za-z0-9_]+)\/status\/(\d+)/);
+      if (!match) continue;
 
-      let statusLinks = [];
-      let profileUsernames = [];
+      const username = match[1].toLowerCase();
+      const tweetId = match[2];
 
-      for (const link of allLinks) {
-        const href = link.getAttribute('href') || '';
-        const statusMatch = href.match(/^\/([A-Za-z0-9_]+)\/status\/(\d+)/);
-        if (statusMatch) {
-          statusLinks.push({
-            username: statusMatch[1].toLowerCase(),
-            postId: statusMatch[2],
-            fullHref: href,
-          });
-        }
-        const profileMatch = href.match(/^\/([A-Za-z0-9_]+)$/);
-        if (profileMatch && !['home', 'explore', 'search', 'notifications', 'messages', 'settings', 'i', 'compose'].includes(profileMatch[1].toLowerCase())) {
-          profileUsernames.push(profileMatch[1].toLowerCase());
-        }
-      }
+      if (!watchlist.includes(username)) continue;
 
-      if (!statusLinks.length) return;
+      const key = `${username}:${tweetId}`;
+      if (seenTweetKeys.has(key)) continue;
+      seenTweetKeys.add(key);
 
-      for (const sl of statusLinks) {
-        const isWatched = watchlist.includes(sl.username);
-        const alsoInProfile = profileUsernames.includes(sl.username);
+      const postUrl = `https://x.com/${username}/status/${tweetId}`;
+      console.log(`[Aura NotifScan] Found tweet from @${username} — ${postUrl}`);
+      console.log(`[Aura NotifScan] Watchlist match — sending alert for @${username}`);
+      foundCount++;
 
-        if (!isWatched && !alsoInProfile) continue;
-
-        const creatorUsername = isWatched ? sl.username : sl.username;
-        if (!watchlist.includes(creatorUsername)) continue;
-
-        const key = `${creatorUsername}:${sl.postId}`;
-        if (seenNotifPostIds.has(key)) continue;
-        seenNotifPostIds.add(key);
-
-        const postUrl = `https://x.com${sl.fullHref}`;
-        console.log(`[Aura NotifScan] Creator post detected: @${creatorUsername} → ${postUrl}`);
-        foundCount++;
-
-        chrome.runtime.sendMessage({
-          action: 'aura:creator-alert',
-          creatorUsername,
-          postId: sl.postId,
-          postUrl,
-        });
-      }
-    });
-
-    if (!notifDebugLogged) {
-      console.log(`[Aura NotifScan] Scan complete — ${foundCount} new alerts sent`);
-      notifDebugLogged = true;
+      chrome.runtime.sendMessage({
+        action: 'aura:creator-alert',
+        creatorUsername: username,
+        postId: tweetId,
+        postUrl,
+      });
     }
 
-    notifScannerActive = false;
-  });
+    if (foundCount > 0) {
+      console.log(`[Aura NotifScan] Scan complete — ${foundCount} new alert(s) sent`);
+    }
+  } catch (err) {
+    console.error('[Aura NotifScan] Scan error:', err.message);
+  }
+
+  scannerRunning = false;
 }
 
-function startNotificationScanner() {
-  if (notifScannerStarted) return;
-  if (!location.pathname.startsWith('/notifications')) return;
-  notifScannerStarted = true;
-  notifDebugLogged = false;
-  console.log('[Aura NotifScan] Scanner activated on /notifications');
+function initTweetScanner() {
+  if (scannerInitialized) return;
+  scannerInitialized = true;
 
-  setTimeout(() => scanXNotifications(), 1500);
+  console.log(`[Aura NotifScan] Scanner initialized on ${location.pathname}`);
+
+  setTimeout(() => scanForTweets(), 1500);
 
   const observer = new MutationObserver(() => {
-    scanXNotifications();
+    scanForTweets();
   });
-  const target = document.querySelector('main') || document.body;
-  observer.observe(target, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true });
 
-  setInterval(scanXNotifications, 4000);
+  setInterval(scanForTweets, 5000);
 }
 
-if (location.pathname.startsWith('/notifications')) {
-  startNotificationScanner();
-}
-
-let lastNotifPath = location.pathname;
-const notifPathObserver = new MutationObserver(() => {
-  if (location.pathname !== lastNotifPath) {
-    lastNotifPath = location.pathname;
-    if (location.pathname.startsWith('/notifications')) {
-      notifScannerStarted = false;
-      startNotificationScanner();
-    }
-  }
-});
-notifPathObserver.observe(document.body, { childList: true, subtree: true });
+initTweetScanner();
 
 // ─── Init ───
 
