@@ -2,14 +2,12 @@
   "expo": {
     "name": "Aura Keyboard",
     "slug": "aura-keyboard",
-    "entryPoint": "./src/App.tsx",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "aura-keyboard",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "splash": {
+      "image": "./assets/splash.png",
       "backgroundColor": "#0a0a0f"
     },
     "ios": {
