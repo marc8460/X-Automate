@@ -40,6 +40,9 @@ import {
   FolderPlus,
   MoreHorizontal,
   Pencil,
+  Sparkles,
+  Copy,
+  RefreshCw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -56,6 +59,7 @@ import {
 import type { MediaFolder } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 // ─── FolderChip ───────────────────────────────────────────────────────────────
 function FolderChip({
@@ -137,6 +141,10 @@ export default function MediaVault() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
+  // Caption suggestion state
+  const [generatingCaptionId, setGeneratingCaptionId] = useState<number | null>(null);
+  const [captionResults, setCaptionResults] = useState<Record<number, string>>({});
+
   // Data hooks
   const { data: mediaItems, isLoading } = useMediaItems();
   const uploadMutation = useUploadMedia();
@@ -161,6 +169,38 @@ export default function MediaVault() {
     setSelectMode(false);
     setSelectedIds(new Set());
   };
+
+  const suggestCaption = async (item: any) => {
+    setGeneratingCaptionId(item.id);
+    try {
+      const res = await apiRequest("POST", `/api/media/${item.id}/suggest-caption`, {
+        mood: item.mood,
+        outfit: item.outfit,
+        imageUrl: item.url,
+      });
+      const data = await res.json();
+      if (data.caption) {
+        setCaptionResults((prev) => ({ ...prev, [item.id]: data.caption }));
+      }
+    } catch {
+      toast({ title: "Caption generation failed", variant: "destructive" });
+    } finally {
+      setGeneratingCaptionId(null);
+    }
+  };
+
+  // Recycling suggestions: items used more than 30 days ago (or never used but uploaded 30+ days ago)
+  const recycleItems = useMemo(() => {
+    if (!mediaItems) return [];
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    return (mediaItems as any[]).filter((item) => {
+      if (item.lastUsed && item.lastUsed !== "Never") {
+        const lastUsedDate = new Date(item.lastUsed).getTime();
+        return !isNaN(lastUsedDate) && lastUsedDate < thirtyDaysAgo;
+      }
+      return false;
+    }).slice(0, 4);
+  }, [mediaItems]);
 
   // Filtered items based on active folder
   const displayedItems = useMemo(() => {
@@ -493,6 +533,62 @@ export default function MediaVault() {
         </div>
       </Card>
 
+      {/* Content Recycling */}
+      {recycleItems.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="p-5 glass-panel border-amber-400/10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <RefreshCw size={15} className="text-amber-400" />
+                <p className="text-sm font-semibold text-foreground">Content Recycling</p>
+                <span className="text-xs text-muted-foreground">— these images haven't been used recently</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {recycleItems.map((item: any) => (
+                <div key={item.id} className="relative group">
+                  <div className="aspect-square rounded-lg overflow-hidden bg-secondary/40">
+                    <img
+                      src={item.url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1 truncate">{item.lastUsed}</p>
+                  {captionResults[item.id] ? (
+                    <div className="mt-1 p-2 bg-primary/5 rounded-md border border-primary/10">
+                      <p className="text-xs text-foreground/80 leading-snug">{captionResults[item.id]}</p>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(captionResults[item.id]); toast({ title: "Caption copied" }); }}
+                        className="flex items-center gap-1 text-[10px] text-primary mt-1.5"
+                      >
+                        <Copy size={10} /> Copy
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full mt-1.5 h-7 text-xs border-amber-400/20 text-amber-400 hover:border-amber-400/50"
+                      onClick={() => suggestCaption(item)}
+                      disabled={generatingCaptionId === item.id}
+                    >
+                      {generatingCaptionId === item.id ? (
+                        <Loader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <Sparkles size={10} className="mr-1" />
+                      )}
+                      Recycle
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </motion.div>
+      )}
+
       {/* Folder Rail */}
       <Card className="p-4 glass-panel border-border/50">
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
@@ -727,20 +823,33 @@ export default function MediaVault() {
                     </Button>
                   </div>
 
-                  <div className="absolute bottom-3 left-3 right-3 translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
+                  <div className="absolute bottom-3 left-3 right-3 translate-y-4 group-hover:translate-y-0 transition-transform duration-300 space-y-1.5">
                     <Button
-                      className="w-full bg-primary text-white shadow-lg shadow-primary/20"
+                      className="w-full bg-primary text-white shadow-lg shadow-primary/20 h-8 text-xs"
                       onClick={() => {
                         const params = new URLSearchParams({
                           imageUrl: item.url,
                           mood: item.mood,
                           outfit: item.outfit,
                         });
-                        navigate(`/content?${params.toString()}`);
+                        navigate(`/studio?${params.toString()}`);
                       }}
                       data-testid={`button-media-use-${item.id}`}
                     >
                       Use in Post
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full h-7 text-xs bg-black/60 border-white/20 text-white hover:bg-black/80"
+                      onClick={(e) => { e.stopPropagation(); suggestCaption(item); }}
+                      disabled={generatingCaptionId === item.id}
+                    >
+                      {generatingCaptionId === item.id ? (
+                        <Loader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <Sparkles size={10} className="mr-1" />
+                      )}
+                      Suggest Caption
                     </Button>
                   </div>
 
@@ -768,6 +877,17 @@ export default function MediaVault() {
                       <span className="text-xs text-muted-foreground truncate">
                         {folders.find((f) => f.id === item.folderId)?.name ?? "Folder"}
                       </span>
+                    </div>
+                  )}
+                  {captionResults[item.id] && (
+                    <div className="mt-1 p-2 bg-primary/5 rounded-md border border-primary/10">
+                      <p className="text-xs text-foreground/80 leading-snug line-clamp-3">{captionResults[item.id]}</p>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(captionResults[item.id]); toast({ title: "Caption copied" }); }}
+                        className="flex items-center gap-1 text-[10px] text-primary mt-1.5 hover:text-primary/80"
+                      >
+                        <Copy size={9} /> Copy caption
+                      </button>
                     </div>
                   )}
                 </div>

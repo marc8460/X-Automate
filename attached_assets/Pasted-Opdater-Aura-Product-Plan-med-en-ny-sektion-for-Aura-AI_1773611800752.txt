@@ -1,0 +1,111 @@
+Opdater Aura Product Plan med en ny sektion for **Aura AI Keyboard (Mobile Layer)**. Denne del skal fungere som mobil execution-værktøj, når brugeren ikke har adgang til browser extension.
+
+Vigtigt:
+- Prompten er på dansk, men ALT UI i produktet skal være på engelsk.
+- Keyboardet skal være tæt integreret med Aura webapp (API).
+
+Tilføj følgende funktioner til planen:
+
+1. **Threads DM Reply Generation**
+AI keyboard skal kunne generere svar i Threads DMs.
+
+Flow:
+- Brugeren åbner en chat i Threads app
+- Brugeren skifter til Aura keyboard
+- Keyboardet analyserer tidligere beskeder i chatten (synlig tekst på skærmen)
+- AI bruger konteksten + brugerens persona (fra Aura webapp) til at generere et reply
+- Brugeren kan indsætte svaret direkte i chatten
+
+Persona-data hentes fra Aura webapp:
+- tone
+- emoji style
+- flirt level
+- signature phrases
+
+2. **Viral Comment Generation (Mobile)**
+Keyboardet skal kunne generere virale kommentarer til:
+- Threads posts
+- Instagram posts
+
+Flow:
+- Brugeren åbner comment field
+- Brugeren aktiverer Aura keyboard
+- AI analyserer konteksten i posten
+
+AI skal forsøge at udlede kontekst fra:
+- billedet i posten
+- caption
+- eventuelle synlige kommentarer
+
+AI genererer derefter flere kommentar-forslag med en **viral score**.
+
+3. **Context Detection**
+AI keyboard skal forsøge at forstå kontekst fra:
+- tekst på skærmen
+- caption
+- synligt billede
+
+Hvis billedet ikke kan analyseres direkte, kan brugeren bruge en funktion:
+
+"Analyze Post"
+
+som sender screenshot til Aura backend.
+
+4. **Integration med Aura Webapp**
+Keyboardet skal kommunikere med webappen via API.
+
+Funktioner:
+- hente brugerens persona
+- hente AI modeller
+- hente billeder fra Media Vault
+- sende screenshot/post data til analyse
+
+5. **Attach Image from Media Vault**
+Når man skriver en kommentar eller DM, skal man kunne åbne en picker i keyboardet:
+
+"Insert image from Aura Vault"
+
+Keyboardet henter billeder via webapp API.
+
+Flow:
+Keyboard → fetch /api/vault/images → vis grid → insert selected image.
+
+6. **Mobile Comment Mode**
+Keyboardet skal have en knap:
+
+"Generate Viral Comment"
+
+AI genererer 3-5 kommentarer med viral score.
+
+Eksempel output:
+Comment 1 — Viral Score 82
+Comment 2 — Viral Score 76
+Comment 3 — Viral Score 69
+
+Brugeren kan trykke på en kommentar for at indsætte den.
+
+7. **Mobile DM Mode**
+Keyboardet skal have en knap:
+
+"Generate Reply"
+
+AI analyserer chat-kontekst og genererer et reply.
+
+8. **Keyboard UI**
+Keyboardet skal have tre modes:
+
+Reply
+Comment
+Image
+
+Reply → DM svar  
+Comment → viral comments  
+Image → hent billede fra vault
+
+9. **Fallback Mode**
+Hvis keyboardet ikke kan hente kontekst automatisk, skal brugeren kunne:
+- indsætte tekst
+- tage screenshot
+- sende til AI analyse
+
+Opdater planen med denne Mobile AI Keyboard arkitektur.

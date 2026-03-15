@@ -1881,6 +1881,156 @@ Return ONLY a JSON array of 5 tweet strings. No explanation, no markdown, just t
     }
   });
 
+  // --- Media Caption Suggestion ---
+  app.post("/api/media/:id/suggest-caption", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { mood = "", outfit = "", imageUrl = "" } = req.body;
+
+      const settingsData = await storage.getSettings(userId);
+      const getSetting = (key: string, fallback: string) => {
+        const s = settingsData.find((s: any) => s.key === key);
+        return s ? s.value : fallback;
+      };
+      const tone = getSetting("persona_tone", "seductive");
+      const seductiveness = getSetting("seductiveness", "70");
+      const signaturePhrases = getSetting("persona_signature_phrases", "");
+      const forbiddenPhrases = getSetting("persona_forbidden_phrases", "");
+
+      let imageDesc = "";
+      if (imageUrl && imageUrl.startsWith("/uploads/")) {
+        try {
+          const imageData = await fs.promises.readFile(path.join(process.cwd(), imageUrl));
+          const base64Image = imageData.toString("base64");
+          const ext = path.extname(imageUrl).toLowerCase();
+          const mimeMap: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
+          const mimeType = mimeMap[ext] || "image/jpeg";
+          const visionResult = await groq.chat.completions.create({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } },
+                { type: "text", text: "Describe this photo briefly: outfit, setting, mood. 1-2 sentences." },
+              ],
+            }],
+            temperature: 0.3,
+            max_tokens: 150,
+          });
+          imageDesc = visionResult.choices[0]?.message?.content || "";
+        } catch { /* fallback to tags */ }
+      }
+
+      const personaGuide = `Tone: ${tone} | Seductiveness: ${seductiveness}/100${signaturePhrases ? ` | Use occasionally: ${signaturePhrases}` : ""}${forbiddenPhrases ? ` | Never use: ${forbiddenPhrases}` : ""}`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `You are a social media caption writer for a female creator. Write a single punchy caption for an Instagram/Threads post. Keep it under 150 characters. ${personaGuide}. Return only the caption text, no quotes.`,
+          },
+          {
+            role: "user",
+            content: `Image details: ${imageDesc || [mood, outfit].filter(Boolean).join(", ") || "a photo"}. Write one caption.`,
+          },
+        ],
+        temperature: 0.85,
+        max_tokens: 100,
+      });
+
+      const caption = completion.choices[0]?.message?.content?.trim() ?? "";
+      res.json({ caption });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Caption generation failed" });
+    }
+  });
+
+  // --- Story Ideas Generator (Content Studio) ---
+  app.post("/api/studio/story-ideas", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { template, slideCount = 3, linkUrl = "", context = "", imageTag = "" } = req.body;
+
+      const settingsData = await storage.getSettings(userId);
+      const getSetting = (key: string, fallback: string) => {
+        const s = settingsData.find((s: any) => s.key === key);
+        return s ? s.value : fallback;
+      };
+      const tone = getSetting("persona_tone", "seductive");
+      const seductiveness = getSetting("seductiveness", "70");
+      const signaturePhrases = getSetting("persona_signature_phrases", "");
+      const forbiddenPhrases = getSetting("persona_forbidden_phrases", "");
+
+      const templateDescriptions: Record<string, string> = {
+        "tease-reveal-cta": "3 slides: Slide 1 teases with curiosity/mystery, Slide 2 reveals the hook, Slide 3 drives action",
+        "single-cta": "1 slide: Direct, punchy copy with a strong call-to-action overlay",
+        "countdown": `${slideCount} slides: Each slide counts down to a climax, building excitement`,
+        "custom": `${slideCount} slides: Flowing narrative sequence that builds to a CTA`,
+      };
+
+      const templateGuide = templateDescriptions[template] || templateDescriptions["custom"];
+
+      const personaGuide = `
+Tone: ${tone} (seductiveness level: ${seductiveness}/100)
+${signaturePhrases ? `Signature phrases to occasionally use: ${signaturePhrases}` : ""}
+${forbiddenPhrases ? `NEVER use: ${forbiddenPhrases}` : ""}
+`.trim();
+
+      const systemPrompt = `You are a social media story copywriter for a female creator. Write compelling Instagram story slide copy that drives engagement and clicks.
+
+PERSONA:
+${personaGuide}
+
+RULES:
+- Each slide must be short (max 3 lines on screen)
+- Use power words, FOMO, curiosity, and direct address ("you", "your")
+- Include a strong CTA on the final slide
+- CTAs should feel native, not corporate: "See it here", "Tap here", "More of me", "Link in bio", etc.
+- NEVER be generic. Each slide should feel personal and specific.
+
+OUTPUT FORMAT (strict JSON):
+{
+  "slides": [
+    { "headline": "short punchy headline or empty string", "body": "1-2 lines of copy", "cta": "CTA text only on last slide, empty string on others" }
+  ]
+}`;
+
+      const userPrompt = `Create a story sequence with this template: ${templateGuide}
+
+Context/topic: ${context || "general content promotion"}
+${imageTag ? `Image mood/style: ${imageTag}` : ""}
+${linkUrl ? `Link destination: ${linkUrl}` : ""}
+Slide count: ${slideCount}
+
+Generate exactly ${slideCount} slides. Return only valid JSON.`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: 800,
+      });
+
+      const raw = completion.choices[0]?.message?.content ?? "{}";
+      let parsed: { slides: any[] };
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { slides: [] };
+      } catch {
+        parsed = { slides: [] };
+      }
+
+      res.json({ slides: parsed.slides ?? [] });
+    } catch (err: any) {
+      console.error("[story-ideas] error:", err);
+      res.status(500).json({ message: err.message || "Story generation failed" });
+    }
+  });
+
   // --- Trending Topics (Real Google Trends RSS + AI fallback) ---
   const trendsRssCache = new Map<string, { topics: any[]; fetchedAt: number }>();
 

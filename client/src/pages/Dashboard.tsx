@@ -1,12 +1,14 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpRight, ArrowDownRight, Users, UserPlus, Send, CalendarDays, TrendingUp, Eye, Heart, MessageSquare } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Users, UserPlus, Send, CalendarDays, TrendingUp, Eye, Heart, MessageSquare, Globe, Plug, Smartphone, CheckCircle2, AlertCircle, Clock, ChevronRight } from "lucide-react";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
-import { useActivityLogs, useDashboardStats } from "@/lib/hooks";
+import { useActivityLogs, useDashboardStats, useConnectedAccounts } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { usePlatform } from "@/contexts/PlatformContext";
+import { isExtensionConnected } from "@/lib/extensionBridge";
+import { Link } from "wouter";
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -63,6 +65,13 @@ export default function Dashboard() {
   const platform = (selectedPlatform === "all" || !["x", "threads"].includes(selectedPlatform) ? "x" : selectedPlatform) as OverviewPlatform;
   const { data: stats, isLoading: statsLoading } = useDashboardStats(platform);
   const { data: logs, isLoading: logsLoading } = useActivityLogs();
+  const { data: connectedAccounts } = useConnectedAccounts();
+
+  const xConnected = Array.isArray(connectedAccounts) && connectedAccounts.some((a: any) => a.platform === "x");
+  const threadsConnected = Array.isArray(connectedAccounts) && connectedAccounts.some((a: any) => a.platform === "threads");
+  const extensionConnected = isExtensionConnected();
+  const setupSteps = [xConnected, threadsConnected, extensionConnected, false];
+  const setupComplete = setupSteps.filter(Boolean).length;
 
   return (
     <div className="space-y-8 pb-12">
@@ -124,6 +133,95 @@ export default function Dashboard() {
           ) : null}
         />
       </div>
+
+      {/* Aura Tools + Setup Status row */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.45 }}
+        className="grid grid-cols-1 lg:grid-cols-2 gap-4"
+      >
+        {/* Aura Tools Widget */}
+        <Card className="glass-panel p-5">
+          <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-4">Your Aura Toolkit</p>
+          <div className="space-y-3">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
+              <Globe size={16} className="text-primary mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Webapp <span className="text-[10px] font-normal text-primary/60 ml-1">you're here</span></p>
+                <p className="text-xs text-muted-foreground mt-0.5">Planning · Analytics · AI creation · Instagram DMs</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/30 border border-border/40">
+              <Plug size={16} className={cn("mt-0.5 shrink-0", extensionConnected ? "text-amber-400" : "text-muted-foreground/50")} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground">Browser Extension</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Desktop comments · X publishing</p>
+              </div>
+              {extensionConnected ? (
+                <span className="text-[9px] font-semibold text-amber-400 border border-amber-400/20 rounded px-1.5 py-0.5 shrink-0">Active</span>
+              ) : (
+                <a href="https://chrome.google.com/webstore" target="_blank" rel="noreferrer" className="text-[9px] font-semibold text-primary/70 border border-primary/20 rounded px-1.5 py-0.5 shrink-0 hover:text-primary transition-colors whitespace-nowrap">
+                  Install →
+                </a>
+              )}
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/20 border border-border/30 opacity-60">
+              <Smartphone size={16} className="text-muted-foreground/50 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground/60">Mobile Tool</p>
+                <p className="text-xs text-muted-foreground mt-0.5">On-the-go replies · Comment generation</p>
+              </div>
+              <span className="text-[9px] font-medium text-muted-foreground/40 border border-border/30 rounded px-1.5 py-0.5 shrink-0">Soon</span>
+            </div>
+          </div>
+        </Card>
+
+        {/* Setup Status Widget */}
+        <Card className="glass-panel p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest">Aura Setup</p>
+            <span className={cn(
+              "text-xs font-semibold px-2 py-0.5 rounded-full",
+              setupComplete === 4 ? "bg-emerald-500/15 text-emerald-400" : "bg-primary/10 text-primary"
+            )}>
+              {setupComplete}/4 complete
+            </span>
+          </div>
+          <div className="space-y-2.5">
+            {[
+              { label: "X Connected", done: xConnected, href: "/settings" },
+              { label: "Threads Connected", done: threadsConnected, href: "/settings" },
+              { label: "Browser Extension", done: extensionConnected, href: "/setup", actionLabel: "Install now" },
+              { label: "AI Keyboard", done: false, soon: true },
+            ].map((step) => (
+              <div key={step.label} className="flex items-center gap-3">
+                {step.done ? (
+                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                ) : step.soon ? (
+                  <Clock size={15} className="text-muted-foreground/30 shrink-0" />
+                ) : (
+                  <AlertCircle size={15} className="text-amber-400/70 shrink-0" />
+                )}
+                <span className={cn(
+                  "text-sm flex-1",
+                  step.done ? "text-foreground/70" : step.soon ? "text-muted-foreground/40" : "text-foreground"
+                )}>
+                  {step.label}
+                </span>
+                {!step.done && !step.soon && step.href && (
+                  <Link href={step.href} className="text-[10px] font-medium text-primary/70 hover:text-primary transition-colors flex items-center gap-0.5">
+                    {step.actionLabel || "Set up"} <ChevronRight size={10} />
+                  </Link>
+                )}
+                {step.soon && (
+                  <span className="text-[9px] text-muted-foreground/30">Soon</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      </motion.div>
 
       {platform === "threads" && (
         <motion.div 

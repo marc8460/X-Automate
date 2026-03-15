@@ -4,9 +4,10 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Shield, Bot, Settings2, Save, Loader2, CheckCircle2, AlertCircle,
-  Wifi, WifiOff, Link2, ExternalLink, Unplug,
+  Wifi, WifiOff, Link2, ExternalLink, Unplug, Sparkles, Plus, X as XIcon,
 } from "lucide-react";
 import { useSettings, useUpdateSetting, useConnectedAccounts } from "@/lib/hooks";
 import { useState, useEffect } from "react";
@@ -505,6 +506,155 @@ export default function SettingsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Persona Engine */}
+      <Card className="p-6 glass-panel border-primary/10 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-primary/40 to-accent/40" />
+        <h2 className="text-xl font-display font-semibold mb-1 flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          Persona Engine
+        </h2>
+        <p className="text-sm text-muted-foreground mb-6">Define your AI voice. These settings apply across captions, comments, DM replies, and story ideas.</p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left: tone + emoji style */}
+          <div className="space-y-6">
+            <div>
+              <Label className="text-sm font-semibold text-foreground mb-3 block">Tone</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["playful", "seductive", "direct", "professional"] as const).map((tone) => (
+                  <button
+                    key={tone}
+                    onClick={() => updateLocalSetting("persona_tone", tone)}
+                    className={`px-4 py-2.5 rounded-lg border text-sm font-medium capitalize transition-all ${
+                      (localSettings.persona_tone || "seductive") === tone
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border/40 bg-secondary/20 text-muted-foreground hover:border-border hover:text-foreground"
+                    }`}
+                  >
+                    {tone}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-sm font-semibold text-foreground mb-3 block">Emoji Style</Label>
+              <div className="flex gap-2">
+                {(["none", "minimal", "expressive"] as const).map((style) => (
+                  <button
+                    key={style}
+                    onClick={() => updateLocalSetting("persona_emoji_style", style)}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-all ${
+                      (localSettings.persona_emoji_style || "minimal") === style
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border/40 bg-secondary/20 text-muted-foreground hover:border-border hover:text-foreground"
+                    }`}
+                  >
+                    {style === "none" && "🚫 None"}
+                    {style === "minimal" && "✨ Minimal"}
+                    {style === "expressive" && "🔥 Expressive"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: signature + forbidden phrases */}
+          <div className="space-y-6">
+            <PhraseListEditor
+              label="Signature Phrases"
+              description="AI will occasionally use these phrases in your content."
+              placeholder="e.g. as always, babe"
+              storageKey="persona_signature_phrases"
+              localSettings={localSettings}
+              updateLocalSetting={updateLocalSetting}
+            />
+            <PhraseListEditor
+              label="Forbidden Phrases"
+              description="AI will never use these words or phrases."
+              placeholder="e.g. competitor name"
+              storageKey="persona_forbidden_phrases"
+              localSettings={localSettings}
+              updateLocalSetting={updateLocalSetting}
+              forbidden
+            />
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PhraseListEditor({
+  label,
+  description,
+  placeholder,
+  storageKey,
+  localSettings,
+  updateLocalSetting,
+  forbidden = false,
+}: {
+  label: string;
+  description: string;
+  placeholder: string;
+  storageKey: string;
+  localSettings: Record<string, string>;
+  updateLocalSetting: (key: string, value: string) => void;
+  forbidden?: boolean;
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const phrases = (localSettings[storageKey] || "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const addPhrase = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed || phrases.includes(trimmed)) return;
+    updateLocalSetting(storageKey, [...phrases, trimmed].join(", "));
+    setInputValue("");
+  };
+
+  const removePhrase = (phrase: string) => {
+    updateLocalSetting(storageKey, phrases.filter((p) => p !== phrase).join(", "));
+  };
+
+  return (
+    <div>
+      <Label className="text-sm font-semibold text-foreground mb-1 block">{label}</Label>
+      <p className="text-xs text-muted-foreground mb-3">{description}</p>
+      <div className="flex gap-2 mb-3">
+        <Input
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder={placeholder}
+          className="text-sm h-9"
+          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPhrase())}
+        />
+        <Button size="icon" variant="outline" className="h-9 w-9 shrink-0" onClick={addPhrase}>
+          <Plus size={14} />
+        </Button>
+      </div>
+      {phrases.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {phrases.map((phrase) => (
+            <span
+              key={phrase}
+              className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border ${
+                forbidden
+                  ? "bg-red-500/10 text-red-400 border-red-400/20"
+                  : "bg-primary/10 text-primary/80 border-primary/20"
+              }`}
+            >
+              {phrase}
+              <button onClick={() => removePhrase(phrase)} className="opacity-60 hover:opacity-100 transition-opacity">
+                <XIcon size={10} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,15 +1,20 @@
 import { Link, useLocation } from "wouter";
 import {
-  Home, PenSquare, Inbox, Flame, BarChart2, Settings,
-  Image, Users, Zap, Hash, Bot, Key, ChevronRight, Target, Eye,
+  Home, BarChart2, Settings, Image, Bot, Target, Eye,
+  Calendar, MessageSquare, Mail, TrendingUp, Lightbulb,
+  Plug, Zap, Sparkles, Layers, Wand2, ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type CapBadge = "api" | "ext";
 
 type NavItem = {
   href: string;
   label: string;
   icon: React.FC<{ size?: number; className?: string }>;
   soon?: boolean;
+  exact?: boolean;
+  capBadge?: CapBadge;
 };
 
 type NavSection = {
@@ -19,47 +24,54 @@ type NavSection = {
 
 const NAV: NavSection[] = [
   {
-    label: "System Core",
+    label: "",
     items: [
-      { href: "/", label: "Overview", icon: Home },
-      { href: "/vault", label: "Media Vault", icon: Image },
+      { href: "/", label: "Home", icon: Home, exact: true },
     ],
   },
   {
     label: "Content",
     items: [
-      { href: "/composer", label: "Composer", icon: PenSquare },
-      { href: "/viral", label: "Viral Engine", icon: Flame },
+      { href: "/studio", label: "Content Studio", icon: Wand2 },
+      { href: "/studio/calendar", label: "Calendar", icon: Calendar, soon: true },
+      { href: "/studio/stories", label: "Story Ideas", icon: Layers, soon: true },
     ],
   },
   {
-    label: "Engagement",
+    label: "Library",
     items: [
-      { href: "/inbox", label: "Unified Inbox", icon: Inbox },
-      { href: "/creators", label: "Creator Monitor", icon: Eye },
+      { href: "/vault", label: "Media Vault", icon: Image },
+    ],
+  },
+  {
+    label: "Inbox",
+    items: [
+      { href: "/inbox/threads", label: "Threads", icon: MessageSquare },
+      { href: "/inbox/instagram", label: "Instagram DMs", icon: Mail, soon: true, capBadge: "api" },
+    ],
+  },
+  {
+    label: "Discover",
+    items: [
+      { href: "/discover/trends", label: "Trends", icon: TrendingUp },
+      { href: "/discover/opportunities", label: "Opportunities", icon: Lightbulb, soon: true },
+      { href: "/discover/comments", label: "Comment Engine", icon: Zap, capBadge: "ext" },
     ],
   },
   {
     label: "Growth",
     items: [
-      { href: "/goals", label: "Daily Goals", icon: Target },
-      { href: "/boost", label: "Boost Pods", icon: Zap, soon: true },
-      { href: "/keywords", label: "Keyword Scanner", icon: Hash, soon: true },
-    ],
-  },
-  {
-    label: "Analytics",
-    items: [
       { href: "/analytics", label: "Performance", icon: BarChart2 },
-      { href: "/audience", label: "Audience Insights", icon: Users, soon: true },
+      { href: "/goals/daily-plan", label: "Daily Plan", icon: ListChecks },
+      { href: "/goals", label: "Daily Goals", icon: Target, exact: true },
+      { href: "/creators", label: "Creator Watch", icon: Eye },
     ],
   },
   {
-    label: "Settings",
+    label: "Setup",
     items: [
-      { href: "/settings", label: "Connected Accounts", icon: Bot },
-      { href: "/settings", label: "Automation", icon: Settings },
-      { href: "/settings", label: "API", icon: Key },
+      { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/setup", label: "Install", icon: Plug, soon: true },
     ],
   },
 ];
@@ -67,9 +79,9 @@ const NAV: NavSection[] = [
 export function Sidebar() {
   const [location] = useLocation();
 
-  const isActive = (href: string, soon?: boolean) => {
+  const isActive = (href: string, soon?: boolean, exact?: boolean) => {
     if (soon) return false;
-    if (href === "/") return location === "/";
+    if (exact || href === "/") return location === href;
     return location.startsWith(href);
   };
 
@@ -86,15 +98,17 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <div className="flex-1 py-5 px-3 overflow-y-auto space-y-6">
+      <div className="flex-1 py-5 px-3 overflow-y-auto space-y-5">
         {NAV.map((section) => (
-          <div key={section.label}>
-            <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest px-3 mb-2">
-              {section.label}
-            </p>
+          <div key={section.label || "_home"}>
+            {section.label && (
+              <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest px-3 mb-2">
+                {section.label}
+              </p>
+            )}
             <div className="space-y-0.5">
               {section.items.map((item) => {
-                const active = isActive(item.href, item.soon);
+                const active = isActive(item.href, item.soon, item.exact);
                 const Icon = item.icon;
                 return (
                   <Link
@@ -128,6 +142,16 @@ export function Sidebar() {
                     {item.soon && (
                       <span className="text-[9px] font-medium uppercase tracking-widest text-muted-foreground/30">
                         Soon
+                      </span>
+                    )}
+                    {item.capBadge === "api" && !item.soon && (
+                      <span className="text-[9px] font-semibold uppercase tracking-widest text-primary/60 border border-primary/20 rounded px-1 py-0.5 leading-none">
+                        API
+                      </span>
+                    )}
+                    {item.capBadge === "ext" && !item.soon && (
+                      <span className="text-[9px] font-semibold uppercase tracking-widest text-amber-400/70 border border-amber-400/20 rounded px-1 py-0.5 leading-none">
+                        EXT
                       </span>
                     )}
                   </Link>
