@@ -1,0 +1,101 @@
+› Switching to --go
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+█ ▄▄▄▄▄ █▀█ █▄█▀▀ ▄▀▄██ ▄▄▄▄▄ █
+█ █   █ █▀▀▀█ ▀▀ █▀  ▀█ █   █ █
+█ █▄▄▄█ █▀ █▀▀▄█▀ █▀▄██ █▄▄▄█ █
+█▄▄▄▄▄▄▄█▄▀ ▀▄█ █ █ ▀ █▄▄▄▄▄▄▄█
+█ ▄▄ ▄█▄ ▄▄▀▄▀ ▄█▀ ▄▀▄▄▀▄▀▄█▄▀█
+█ ▀ █▄ ▄▄██▄█▀▄▄ ▀█ ▀█▄█▄▀██▀██
+██  █ ▀▄▄▀ ▄█▄▄▄█▀▄▄▀▄ ▀▄▀▄ █▀█
+█▀▄█▀ ▀▄▀ █  ▄▄ ▄ ▄▄▀█▀ ▀██▄▀██
+█ ▀██▀█▄▄  █▄▀▀███  ▀▄▄▀█▀▀ █▀█
+█ █▄█▀▀▄▀ █▀█▀ ▄▄ ▄█▀▀▄██▀▄▄▀██
+█▄█▄▄█▄▄█ ▄▄█▄█▄█▀▀█▄ ▄▄▄ ▀   █
+█ ▄▄▄▄▄ █▄█▀ ▄█▀ █▄█▄ █▄█ ▄▄▀██
+█ █   █ █ ██▄▀▀▀▄ ▄▀▀▄ ▄ ▄▄▄  █
+█ █▄▄▄█ █ ▄██▀ ▄ ███▀▀▀▄▀▄▄█ ██
+█▄▄▄▄▄▄▄█▄███▄█▄█▄▄███▄▄▄▄▄▄███
+
+› Choose an app to open your project at http://172.31.121.226:8083/_expo/loading
+› Metro waiting on exp://172.31.121.226:8083
+› Scan the QR code above with Expo Go (Android) or the Camera app (iOS)
+
+› Web is waiting on http://localhost:8083
+
+› Using Expo Go
+› Press s │ switch to development build
+
+› Press a │ open Android
+› Press w │ open web
+
+› Press j │ open debugger
+› Press r │ reload app
+› Press m │ toggle menu
+› shift+m │ more tools
+› Press o │ open project code in your editor
+
+› Press ? │ show all commands
+
+› Stopped server
+~/workspace/aura-keyboard$ npm install --legacy-peer-deps
+npm start
+
+removed 19 packages, and audited 857 packages in 2s
+
+79 packages are looking for funding
+  run `npm fund` for details
+
+4 high severity vulnerabilities
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> aura-keyboard@1.0.0 start
+> expo start
+
+Starting project at /home/runner/workspace/aura-keyboard
+Starting Metro Bundler
+The following packages should be updated for best compatibility with the installed expo version:
+  expo-asset@10.0.10 - expected version: ~11.0.5
+  expo-constants@16.0.2 - expected version: ~17.0.8
+  react-native@0.76.6 - expected version: 0.76.9
+  react-native-safe-area-context@4.14.0 - expected version: 4.12.0
+  @expo/vector-icons@14.1.0 - expected version: ~14.0.4
+Your project may not work correctly until you install the expected versions of the packages.
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+█ ▄▄▄▄▄ █▀▄█▀ ▀█  █ ▄▄▄▄▄ █
+█ █   █ █▄   ▄██▄██ █   █ █
+█ █▄▄▄█ █ ▀█▀█▄▀ ▀█ █▄▄▄█ █
+█▄▄▄▄▄▄▄█ ▀▄█ █▄▀ █▄▄▄▄▄▄▄█
+█▄▄█▄▀▀▄▄██ ▀█ ▀██▀  ▄▀▄▄▀█
+██▀▄█▄█▄▄ ▄▄██▀▀██▄▀ ▀▀█▄▄█
+██ ▀▄█ ▄▀▄▀▀▀   █▀█ ▄█ ██▀█
+█▄▀█▄▀█▄█ ▀ █  █▀█▄ ▄▄▀██▄█
+█▄▄▄█▄▄▄█▀██▄▄█▄█ ▄▄▄ █ ▄ █
+█ ▄▄▄▄▄ █▄ █▀██▄  █▄█  ▀▄▄█
+█ █   █ █▀▀▀▄█ ▀▀  ▄▄ █▀▄██
+█ █▄▄▄█ █▀▄ █▄    ▄█▄  ▄█▄█
+█▄▄▄▄▄▄▄█▄▄█▄█▄▄█▄▄▄█▄▄█▄▄█
+
+› Metro waiting on exp://172.31.121.226:8081
+› Scan the QR code above with Expo Go (Android) or the Camera app (iOS)
+
+› Web is waiting on http://localhost:8081
+
+› Using Expo Go
+› Press s │ switch to development build
+
+› Press a │ open Android
+› Press w │ open web
+
+› Press j │ open debugger
+› Press r │ reload app
+› Press m │ toggle menu
+› shift+m │ more tools
+› Press o │ open project code in your editor
+
+› Press ? │ show all commands
+
+Logs for your project will appear below. Press Ctrl+C to exit.
