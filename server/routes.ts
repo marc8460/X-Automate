@@ -3260,7 +3260,7 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       tone: getSetting("persona_tone", "seductive"),
       signaturePhrases: getSetting("persona_signature_phrases", ""),
       forbiddenPhrases: getSetting("persona_forbidden_phrases", ""),
-      emojiStyle: getSetting("emojiStyle", "moderate"),
+      emojiStyle: getSetting("persona_emoji_style", "minimal"),
     });
   });
 
