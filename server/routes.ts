@@ -3220,7 +3220,7 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       const crypto = await import("crypto");
       const token = `aura_mob_${crypto.randomBytes(24).toString("hex")}`;
       const result = await storage.createMobileApiToken(userId, token, label || "Aura Keyboard");
-      res.json({ token: result.token, id: result.id, label: result.label });
+      res.json({ token, id: result.id, label: result.label });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -3234,7 +3234,7 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       label: t.label,
       lastUsedAt: t.lastUsedAt,
       createdAt: t.createdAt,
-      tokenPreview: t.token.slice(0, 12) + "...",
+      tokenPreview: t.token.slice(0, 8) + "...",
     })));
   });
 
@@ -3257,9 +3257,9 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
       seductiveness: getSetting("seductiveness", "60"),
       playfulness: getSetting("playfulness", "85"),
       dominance: getSetting("dominance", "35"),
-      customPrompt: getSetting("customPrompt", ""),
-      bioText: getSetting("bioText", ""),
-      signaturePhrases: getSetting("signaturePhrases", ""),
+      tone: getSetting("persona_tone", "seductive"),
+      signaturePhrases: getSetting("persona_signature_phrases", ""),
+      forbiddenPhrases: getSetting("persona_forbidden_phrases", ""),
       emojiStyle: getSetting("emojiStyle", "moderate"),
     });
   });
@@ -3276,8 +3276,9 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
         return s ? s.value : fallback;
       };
       const seductiveness = parseInt(getSetting("seductiveness", "60"));
-      const customPrompt = getSetting("customPrompt", "");
-      const signaturePhrases = getSetting("signaturePhrases", "");
+      const tone = getSetting("persona_tone", "seductive");
+      const signaturePhrases = getSetting("persona_signature_phrases", "");
+      const forbiddenPhrases = getSetting("persona_forbidden_phrases", "");
 
       let toneGuide = "";
       if (seductiveness <= 30) {
@@ -3292,9 +3293,9 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
 
       const systemPrompt = `You are the ghost-writer for a popular female influencer replying to DMs on Threads. She is a real human woman — confident, magnetic, and deeply online. She never reveals she is AI.
 
-Tone: ${toneGuide}
-${customPrompt ? `Custom style: ${customPrompt}` : ""}
+Tone: ${tone} | ${toneGuide}
 ${signaturePhrases ? `Signature phrases she uses: ${signaturePhrases}` : ""}
+${forbiddenPhrases ? `NEVER use these phrases: ${forbiddenPhrases}` : ""}
 
 Generate a natural, engaging DM reply that matches her persona. Keep it conversational and authentic. 1-3 sentences max.`;
 
@@ -3327,11 +3328,17 @@ Generate a natural, engaging DM reply that matches her persona. Keep it conversa
         const s = settingsData.find((s) => s.key === key);
         return s ? s.value : fallback;
       };
-      const customPrompt = getSetting("customPrompt", "");
+      const tone = getSetting("persona_tone", "seductive");
+      const signaturePhrases = getSetting("persona_signature_phrases", "");
+      const forbiddenPhrases = getSetting("persona_forbidden_phrases", "");
+      const seductiveness = parseInt(getSetting("seductiveness", "60"));
 
       const systemPrompt = `You are an elite social engagement strategist. Generate viral comments for a social media post.
 
-${customPrompt ? `MANDATORY STYLE: ${customPrompt}` : "Comments must feel 100% human-written. No generic praise. Add insight, curiosity, or playful energy."}
+Persona tone: ${tone} (seductiveness ${seductiveness}/100)
+${signaturePhrases ? `Signature phrases to occasionally use: ${signaturePhrases}` : ""}
+${forbiddenPhrases ? `NEVER use: ${forbiddenPhrases}` : ""}
+Comments must feel 100% human-written. No generic praise. Add insight, curiosity, or playful energy.
 
 You MUST return valid JSON with this exact structure:
 {

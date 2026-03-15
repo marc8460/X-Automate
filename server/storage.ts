@@ -1,4 +1,5 @@
 import { eq, gte, desc, and, sql, lte, inArray, like } from "drizzle-orm";
+import { createHash } from "crypto";
 import { db } from "./db";
 import {
   tweets, type Tweet, type InsertTweet,
@@ -633,9 +634,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createMobileApiToken(userId: string, token: string, label?: string): Promise<MobileApiToken> {
+    const tokenHash = createHash("sha256").update(token).digest("hex");
     const [result] = await db.insert(mobileApiTokens).values({
       userId,
-      token,
+      token: tokenHash,
       label: label || "Aura Keyboard",
     }).returning();
     return result;
@@ -648,8 +650,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async validateMobileApiToken(token: string): Promise<MobileApiToken | undefined> {
+    const tokenHash = createHash("sha256").update(token).digest("hex");
     const [result] = await db.select().from(mobileApiTokens)
-      .where(eq(mobileApiTokens.token, token));
+      .where(eq(mobileApiTokens.token, tokenHash));
     return result;
   }
 
