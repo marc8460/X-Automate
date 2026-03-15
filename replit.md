@@ -33,7 +33,7 @@ Multi-user SaaS AI influencer automation dashboard. Users sign in via Replit Aut
 - **Hooks**: `useLiveCommentThreads(platform)` and `useLiveFollowerInteractions(platform)` accept optional platform filter
 
 ## Database Schema (shared/schema.ts)
-Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, follower_snapshots (userId, followerCount, followingCount, tweetCount, recordedAt), settings, watched_creators (userId, username, platform, lastPostId, lastCheckedAt), push_subscriptions (userId, endpoint, p256dh, auth)
+Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, follower_snapshots (userId, followerCount, followingCount, tweetCount, recordedAt), settings, watched_creators (userId, username, platform, lastPostId, lastCheckedAt), push_subscriptions (userId, endpoint, p256dh, auth), mobile_api_tokens (userId, token, label, createdAt, lastUsedAt)
 
 ## Project Structure
 ```
@@ -65,6 +65,12 @@ extension/        - Chrome extension (Manifest V3) — supports X.com AND Thread
   popup.html/js   - Extension popup UI with status and stats
   icons/          - Extension icons (16/48/128px)
 uploads/          - User-uploaded media files (served statically)
+aura-keyboard/    - React Native/Expo mobile companion app
+  src/App.tsx     - Main app entry: auth check, mode routing, settings
+  src/screens/    - ReplyScreen, CommentScreen, ImageScreen, SettingsScreen
+  src/components/ - Header, ModeTabBar
+  src/lib/api.ts  - SecureStore token management + all API calls
+  src/lib/theme.ts- Dark theme colors and spacing constants
 ```
 
 ## Twitter/X Integration
@@ -120,6 +126,22 @@ uploads/          - User-uploaded media files (served statically)
 - GET: /api/engagement/status
 - POST: /api/engagement/pause, /api/engagement/resume
 - POST: /api/engagement/generate-reply, /api/engagement/send-reply
+
+## Mobile API (Aura AI Keyboard)
+- **Auth**: Bearer token in `Authorization` header. Tokens stored in `mobile_api_tokens` table. Token format: `aura_mob_<48 hex chars>`. Middleware `isMobileAuthenticated` validates + touches `lastUsedAt`.
+- **Token management**: Users generate tokens in Settings → Mobile API Tokens card. Tokens can be labeled (e.g. "iPhone 15") and revoked.
+- **Endpoints**:
+  - POST `/api/mobile/auth/generate-token` — webapp-authenticated, creates new mobile token
+  - GET `/api/mobile/auth/tokens` — webapp-authenticated, lists user's tokens (preview only, not full token)
+  - DELETE `/api/mobile/auth/tokens/:id` — webapp-authenticated, revokes a token
+  - GET `/api/mobile/persona` — mobile-authenticated, returns persona settings
+  - POST `/api/mobile/generate-reply` — mobile-authenticated, generates DM reply with persona + context
+  - POST `/api/mobile/generate-comments` — mobile-authenticated, generates viral comments with scores
+  - GET `/api/mobile/media` — mobile-authenticated, fetches media vault images
+  - POST `/api/mobile/analyze-screenshot` — mobile-authenticated, uploads screenshot for vision analysis
+- **Mobile app stack**: Expo ~52, React Native 0.76, expo-secure-store for token persistence, expo-clipboard for copy, expo-image-picker for screenshots
+- **Three modes**: Reply (DM reply generation), Comment (viral comment generation with scores), Image (media vault grid picker)
+- **Dark theme**: bg `#0a0a0f`, primary `#a855f7`, secondary `#ec4899`
 
 ## Environment Secrets
 - GROQ_API_KEY — for AI content generation via Groq

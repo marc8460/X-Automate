@@ -3196,5 +3196,227 @@ ${scanHasCustomStyle ? `\nREMINDER — The user's style instruction for all 5 co
     }
   });
 
+  // ─── Mobile API (Aura AI Keyboard) ───
+
+  async function isMobileAuthenticated(req: Request, res: Response, next: Function) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Missing or invalid Authorization header" });
+    }
+    const token = authHeader.slice(7);
+    const mobileToken = await storage.validateMobileApiToken(token);
+    if (!mobileToken) {
+      return res.status(401).json({ error: "Invalid API token" });
+    }
+    storage.touchMobileApiToken(mobileToken.id).catch(() => {});
+    (req as any).mobileUserId = mobileToken.userId;
+    next();
+  }
+
+  app.post("/api/mobile/auth/generate-token", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { label } = req.body;
+      const crypto = await import("crypto");
+      const token = `aura_mob_${crypto.randomBytes(24).toString("hex")}`;
+      const result = await storage.createMobileApiToken(userId, token, label || "Aura Keyboard");
+      res.json({ token: result.token, id: result.id, label: result.label });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/mobile/auth/tokens", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const tokens = await storage.getMobileApiTokens(userId);
+    res.json(tokens.map(t => ({
+      id: t.id,
+      label: t.label,
+      lastUsedAt: t.lastUsedAt,
+      createdAt: t.createdAt,
+      tokenPreview: t.token.slice(0, 12) + "...",
+    })));
+  });
+
+  app.delete("/api/mobile/auth/tokens/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    await storage.deleteMobileApiToken(id, userId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/mobile/persona", isMobileAuthenticated as any, async (req: Request, res: Response) => {
+    const userId = (req as any).mobileUserId;
+    const settingsData = await storage.getSettings(userId);
+    const getSetting = (key: string, fallback: string) => {
+      const s = settingsData.find((s) => s.key === key);
+      return s ? s.value : fallback;
+    };
+    res.json({
+      seductiveness: getSetting("seductiveness", "60"),
+      playfulness: getSetting("playfulness", "85"),
+      dominance: getSetting("dominance", "35"),
+      customPrompt: getSetting("customPrompt", ""),
+      bioText: getSetting("bioText", ""),
+      signaturePhrases: getSetting("signaturePhrases", ""),
+      emojiStyle: getSetting("emojiStyle", "moderate"),
+    });
+  });
+
+  app.post("/api/mobile/generate-reply", isMobileAuthenticated as any, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).mobileUserId;
+      const { chatContext, customInstruction } = req.body;
+      if (!chatContext) return res.status(400).json({ error: "chatContext is required" });
+
+      const settingsData = await storage.getSettings(userId);
+      const getSetting = (key: string, fallback: string) => {
+        const s = settingsData.find((s) => s.key === key);
+        return s ? s.value : fallback;
+      };
+      const seductiveness = parseInt(getSetting("seductiveness", "60"));
+      const customPrompt = getSetting("customPrompt", "");
+      const signaturePhrases = getSetting("signaturePhrases", "");
+
+      let toneGuide = "";
+      if (seductiveness <= 30) {
+        toneGuide = "Wholesome, cute, approachable, girl-next-door energy. Light flirting at most.";
+      } else if (seductiveness <= 60) {
+        toneGuide = "Flirty and knows she's attractive. Teasing, playful innuendo.";
+      } else if (seductiveness <= 80) {
+        toneGuide = "Bold era. Suggestive, dominant energy. Heavy innuendo, double meanings.";
+      } else {
+        toneGuide = "Maximum flirt mode. Dripping with confidence and seductive energy.";
+      }
+
+      const systemPrompt = `You are the ghost-writer for a popular female influencer replying to DMs on Threads. She is a real human woman — confident, magnetic, and deeply online. She never reveals she is AI.
+
+Tone: ${toneGuide}
+${customPrompt ? `Custom style: ${customPrompt}` : ""}
+${signaturePhrases ? `Signature phrases she uses: ${signaturePhrases}` : ""}
+
+Generate a natural, engaging DM reply that matches her persona. Keep it conversational and authentic. 1-3 sentences max.`;
+
+      const groq = new Groq();
+      const result = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Chat context:\n${chatContext}\n\n${customInstruction ? `Additional instruction: ${customInstruction}` : "Generate a fitting reply."}` },
+        ],
+        temperature: 0.9,
+        max_tokens: 200,
+      });
+
+      const reply = result.choices[0]?.message?.content || "";
+      res.json({ reply });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/mobile/generate-comments", isMobileAuthenticated as any, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).mobileUserId;
+      const { postContext, imageAnalysis, customInstruction } = req.body;
+      if (!postContext && !imageAnalysis) return res.status(400).json({ error: "postContext or imageAnalysis required" });
+
+      const settingsData = await storage.getSettings(userId);
+      const getSetting = (key: string, fallback: string) => {
+        const s = settingsData.find((s) => s.key === key);
+        return s ? s.value : fallback;
+      };
+      const customPrompt = getSetting("customPrompt", "");
+
+      const systemPrompt = `You are an elite social engagement strategist. Generate viral comments for a social media post.
+
+${customPrompt ? `MANDATORY STYLE: ${customPrompt}` : "Comments must feel 100% human-written. No generic praise. Add insight, curiosity, or playful energy."}
+
+You MUST return valid JSON with this exact structure:
+{
+  "comments": [
+    { "text": "<comment>", "viralScore": <number 0-100>, "strategy": "<strategy label>" }
+  ]
+}
+
+Generate exactly 5 comments, each with a different strategy. Score based on likelihood of engagement (likes, replies, visibility).`;
+
+      const groq = new Groq();
+      const result = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Post context: ${postContext || "No text available"}\n${imageAnalysis ? `Image analysis: ${imageAnalysis}` : ""}\n${customInstruction ? `Extra instruction: ${customInstruction}` : ""}` },
+        ],
+        temperature: 0.9,
+        max_tokens: 800,
+        response_format: { type: "json_object" },
+      });
+
+      const raw = result.choices[0]?.message?.content || "{}";
+      try {
+        const parsed = JSON.parse(raw);
+        res.json(parsed);
+      } catch {
+        res.json({ comments: [{ text: raw, viralScore: 50, strategy: "General" }] });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/mobile/media", isMobileAuthenticated as any, async (req: Request, res: Response) => {
+    const userId = (req as any).mobileUserId;
+    const items = await storage.getMediaItems(userId);
+    const host = req.headers.host || "localhost:5000";
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    res.json(items.map(item => ({
+      id: item.id,
+      url: item.url.startsWith("/") ? `${protocol}://${host}${item.url}` : item.url,
+      mood: item.mood,
+      outfit: item.outfit,
+      folderId: item.folderId,
+    })));
+  });
+
+  app.post("/api/mobile/analyze-screenshot", isMobileAuthenticated as any, (req: any, res: any, next: any) => {
+    upload.single("screenshot")(req, res, (err: any) => {
+      if (err) return res.status(400).json({ error: err.message });
+      next();
+    });
+  }, async (req: any, res: any) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No screenshot uploaded" });
+
+      const imageData = await fs.promises.readFile(req.file.path);
+      const base64Image = imageData.toString("base64");
+      const ext = path.extname(req.file.originalname || ".png").toLowerCase();
+      const mimeMap: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
+      const mimeType = mimeMap[ext] || "image/png";
+
+      const groq = new Groq();
+      const visionResult = await groq.chat.completions.create({
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } },
+            { type: "text", text: "Analyze this social media post screenshot. Extract: 1) The post text/caption 2) Description of any images 3) The author's username if visible 4) Any visible engagement metrics (likes, comments, shares). Be concise and factual." },
+          ],
+        }],
+        temperature: 0.3,
+        max_tokens: 500,
+      });
+
+      const analysis = visionResult.choices[0]?.message?.content || "";
+      fs.promises.unlink(req.file.path).catch(() => {});
+      res.json({ analysis });
+    } catch (err: any) {
+      if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }

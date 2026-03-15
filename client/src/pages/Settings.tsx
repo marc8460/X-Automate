@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Shield, Bot, Settings2, Save, Loader2, CheckCircle2, AlertCircle,
-  Wifi, WifiOff, Link2, ExternalLink, Unplug, Sparkles, Plus, X as XIcon,
+  Wifi, WifiOff, Link2, ExternalLink, Unplug, Sparkles, Plus, X as XIcon, Smartphone,
 } from "lucide-react";
 import { useSettings, useUpdateSetting, useConnectedAccounts } from "@/lib/hooks";
 import { useState, useEffect } from "react";
@@ -582,7 +582,123 @@ export default function SettingsPage() {
           </div>
         </div>
       </Card>
+
+      <MobileApiTokenCard />
     </div>
+  );
+}
+
+function MobileApiTokenCard() {
+  const [tokens, setTokens] = useState<Array<{ id: number; label: string; tokenPreview: string; createdAt: string; lastUsedAt: string | null }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const loadTokens = async () => {
+    try {
+      const resp = await fetch("/api/mobile/auth/tokens", { credentials: "include" });
+      if (resp.ok) setTokens(await resp.json());
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { loadTokens(); }, []);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const resp = await fetch("/api/mobile/auth/generate-token", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: newLabel || "Mobile Device" }),
+      });
+      if (!resp.ok) throw new Error("Failed to generate token");
+      const data = await resp.json();
+      setNewToken(data.token);
+      setNewLabel("");
+      loadTokens();
+      toast({ title: "Token Generated", description: "Copy it now — it won't be shown again." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+    setGenerating(false);
+  };
+
+  const handleRevoke = async (id: number) => {
+    try {
+      const resp = await fetch(`/api/mobile/auth/tokens/${id}`, { method: "DELETE", credentials: "include" });
+      if (!resp.ok) throw new Error("Failed to revoke token");
+      setTokens((prev) => prev.filter((t) => t.id !== id));
+      toast({ title: "Token Revoked" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <Card className="p-6 glass-panel border-border/50">
+      <h2 className="text-xl font-display font-semibold mb-1 flex items-center gap-2">
+        <Smartphone className="w-5 h-5 text-primary" />
+        Mobile API Tokens
+      </h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Generate tokens to connect the Aura AI Keyboard mobile app.
+      </p>
+
+      <div className="flex gap-2 mb-4">
+        <Input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          placeholder="Device label (e.g. iPhone 15)"
+          className="text-sm h-9"
+          data-testid="input-mobile-token-label"
+        />
+        <Button
+          onClick={handleGenerate}
+          disabled={generating}
+          size="sm"
+          className="shrink-0"
+          data-testid="button-generate-mobile-token"
+        >
+          {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Generate Token"}
+        </Button>
+      </div>
+
+      {newToken && (
+        <div className="mb-4 p-3 rounded-lg bg-primary/10 border border-primary/30">
+          <p className="text-xs text-primary font-semibold mb-1">NEW TOKEN — Copy now, it won't be shown again:</p>
+          <code className="text-xs text-foreground break-all select-all" data-testid="text-new-mobile-token">{newToken}</code>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-4">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : tokens.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-4">No active tokens</p>
+      ) : (
+        <div className="space-y-2">
+          {tokens.map((t) => (
+            <div key={t.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50" data-testid={`row-mobile-token-${t.id}`}>
+              <div>
+                <p className="text-sm font-medium">{t.label}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t.tokenPreview} · Created {new Date(t.createdAt).toLocaleDateString()}
+                  {t.lastUsedAt && ` · Last used ${new Date(t.lastUsedAt).toLocaleDateString()}`}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleRevoke(t.id)} data-testid={`button-revoke-token-${t.id}`}>
+                <XIcon size={14} />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

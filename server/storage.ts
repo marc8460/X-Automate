@@ -21,6 +21,7 @@ import {
   watchedCreators, type WatchedCreator, type InsertWatchedCreator,
   pushSubscriptions, type PushSubscription, type InsertPushSubscription,
   creatorAlerts, type CreatorAlert, type InsertCreatorAlert,
+  mobileApiTokens, type MobileApiToken, type InsertMobileApiToken,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -119,6 +120,12 @@ export interface IStorage {
   getActiveAlerts(userId: string): Promise<CreatorAlert[]>;
   dismissAlert(id: number, userId: string): Promise<void>;
   dismissAllAlerts(userId: string): Promise<void>;
+
+  createMobileApiToken(userId: string, token: string, label?: string): Promise<MobileApiToken>;
+  getMobileApiTokens(userId: string): Promise<MobileApiToken[]>;
+  validateMobileApiToken(token: string): Promise<MobileApiToken | undefined>;
+  deleteMobileApiToken(id: number, userId: string): Promise<void>;
+  touchMobileApiToken(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -623,6 +630,38 @@ export class DatabaseStorage implements IStorage {
     await db.update(creatorAlerts)
       .set({ dismissed: true })
       .where(and(eq(creatorAlerts.userId, userId), eq(creatorAlerts.dismissed, false)));
+  }
+
+  async createMobileApiToken(userId: string, token: string, label?: string): Promise<MobileApiToken> {
+    const [result] = await db.insert(mobileApiTokens).values({
+      userId,
+      token,
+      label: label || "Aura Keyboard",
+    }).returning();
+    return result;
+  }
+
+  async getMobileApiTokens(userId: string): Promise<MobileApiToken[]> {
+    return db.select().from(mobileApiTokens)
+      .where(eq(mobileApiTokens.userId, userId))
+      .orderBy(desc(mobileApiTokens.createdAt));
+  }
+
+  async validateMobileApiToken(token: string): Promise<MobileApiToken | undefined> {
+    const [result] = await db.select().from(mobileApiTokens)
+      .where(eq(mobileApiTokens.token, token));
+    return result;
+  }
+
+  async deleteMobileApiToken(id: number, userId: string): Promise<void> {
+    await db.delete(mobileApiTokens)
+      .where(and(eq(mobileApiTokens.id, id), eq(mobileApiTokens.userId, userId)));
+  }
+
+  async touchMobileApiToken(id: number): Promise<void> {
+    await db.update(mobileApiTokens)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(mobileApiTokens.id, id));
   }
 }
 

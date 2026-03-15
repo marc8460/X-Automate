@@ -297,3 +297,16 @@ export const avatarCacheTable = pgTable("avatar_cache", {
   avatarUrl: text("avatar_url"),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const mobileApiTokens = pgTable("mobile_api_tokens", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  token: text("token").notNull().unique(),
+  label: text("label").notNull().default("Aura Keyboard"),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertMobileApiTokenSchema = createInsertSchema(mobileApiTokens).omit({ id: true, createdAt: true, lastUsedAt: true });
+export type InsertMobileApiToken = z.infer<typeof insertMobileApiTokenSchema>;
+export type MobileApiToken = typeof mobileApiTokens.$inferSelect;
