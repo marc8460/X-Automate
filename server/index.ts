@@ -5,6 +5,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startEngagementPoller } from "./engagementPoller";
 import { startCreatorMonitor } from "./creatorMonitor";
+import { startContentScheduler } from "./contentScheduler";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 
 const app = express();
@@ -103,6 +104,7 @@ app.use((req, res, next) => {
 
   startEngagementPoller();
   startCreatorMonitor();
+  startContentScheduler();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

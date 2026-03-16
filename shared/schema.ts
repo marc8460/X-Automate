@@ -310,3 +310,28 @@ export const mobileApiTokens = pgTable("mobile_api_tokens", {
 export const insertMobileApiTokenSchema = createInsertSchema(mobileApiTokens).omit({ id: true, createdAt: true, lastUsedAt: true });
 export type InsertMobileApiToken = z.infer<typeof insertMobileApiTokenSchema>;
 export type MobileApiToken = typeof mobileApiTokens.$inferSelect;
+
+export const contentItems = pgTable("content_items", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  platform: text("platform").notNull(),
+  format: text("format").notNull(),
+  ratio: text("ratio").notNull(),
+  status: text("status").notNull().default("needs_review"),
+  hook: text("hook").notNull().default(""),
+  caption: text("caption").notNull().default(""),
+  cta: text("cta").notNull().default(""),
+  mediaItemId: integer("media_item_id"),
+  imageUrl: text("image_url"),
+  scheduledAt: text("scheduled_at"),
+  confidence: integer("confidence").notNull().default(0),
+  strategy: text("strategy"),
+  failReason: text("fail_reason"),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  postedAt: timestamp("posted_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true, generatedAt: true, postedAt: true, updatedAt: true });
+export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
+export type ContentItem = typeof contentItems.$inferSelect;

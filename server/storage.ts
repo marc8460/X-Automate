@@ -23,6 +23,7 @@ import {
   pushSubscriptions, type PushSubscription, type InsertPushSubscription,
   creatorAlerts, type CreatorAlert, type InsertCreatorAlert,
   mobileApiTokens, type MobileApiToken, type InsertMobileApiToken,
+  contentItems, type ContentItem, type InsertContentItem,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -127,6 +128,14 @@ export interface IStorage {
   validateMobileApiToken(token: string): Promise<MobileApiToken | undefined>;
   deleteMobileApiToken(id: number, userId: string): Promise<void>;
   touchMobileApiToken(id: number): Promise<void>;
+
+  createContentItem(item: InsertContentItem): Promise<ContentItem>;
+  getContentItems(userId: string, filters?: { status?: string; platform?: string; startDate?: string; endDate?: string }): Promise<ContentItem[]>;
+  getContentItemById(id: number, userId: string): Promise<ContentItem | undefined>;
+  updateContentItem(id: number, data: Partial<InsertContentItem>, userId: string): Promise<ContentItem | undefined>;
+  deleteContentItem(id: number, userId: string): Promise<void>;
+  batchUpdateContentStatus(ids: number[], status: string, userId: string, extra?: Partial<InsertContentItem>): Promise<ContentItem[]>;
+  claimScheduledContentDue(): Promise<ContentItem[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -665,6 +674,54 @@ export class DatabaseStorage implements IStorage {
     await db.update(mobileApiTokens)
       .set({ lastUsedAt: new Date() })
       .where(eq(mobileApiTokens.id, id));
+  }
+
+  async createContentItem(item: InsertContentItem): Promise<ContentItem> {
+    const [result] = await db.insert(contentItems).values(item).returning();
+    return result;
+  }
+
+  async getContentItems(userId: string, filters?: { status?: string; platform?: string; startDate?: string; endDate?: string }): Promise<ContentItem[]> {
+    const conditions = [eq(contentItems.userId, userId)];
+    if (filters?.status) conditions.push(eq(contentItems.status, filters.status));
+    if (filters?.platform) conditions.push(eq(contentItems.platform, filters.platform));
+    if (filters?.startDate) conditions.push(gte(contentItems.scheduledAt, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(contentItems.scheduledAt, filters.endDate));
+    return db.select().from(contentItems).where(and(...conditions)).orderBy(desc(contentItems.generatedAt));
+  }
+
+  async getContentItemById(id: number, userId: string): Promise<ContentItem | undefined> {
+    const [result] = await db.select().from(contentItems)
+      .where(and(eq(contentItems.id, id), eq(contentItems.userId, userId)));
+    return result;
+  }
+
+  async updateContentItem(id: number, data: Partial<InsertContentItem>, userId: string): Promise<ContentItem | undefined> {
+    const [result] = await db.update(contentItems)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(contentItems.id, id), eq(contentItems.userId, userId)))
+      .returning();
+    return result;
+  }
+
+  async deleteContentItem(id: number, userId: string): Promise<void> {
+    await db.delete(contentItems).where(and(eq(contentItems.id, id), eq(contentItems.userId, userId)));
+  }
+
+  async batchUpdateContentStatus(ids: number[], status: string, userId: string, extra?: Partial<InsertContentItem>): Promise<ContentItem[]> {
+    if (ids.length === 0) return [];
+    return db.update(contentItems)
+      .set({ status, ...extra, updatedAt: new Date() })
+      .where(and(inArray(contentItems.id, ids), eq(contentItems.userId, userId)))
+      .returning();
+  }
+
+  async claimScheduledContentDue(): Promise<ContentItem[]> {
+    const now = new Date().toISOString();
+    return db.update(contentItems)
+      .set({ status: "posting", updatedAt: new Date() })
+      .where(and(eq(contentItems.status, "scheduled"), lte(contentItems.scheduledAt, now)))
+      .returning();
   }
 }
 

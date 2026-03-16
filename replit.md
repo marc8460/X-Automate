@@ -33,7 +33,7 @@ Multi-user SaaS AI influencer automation dashboard. Users sign in via Replit Aut
 - **Hooks**: `useLiveCommentThreads(platform)` and `useLiveFollowerInteractions(platform)` accept optional platform filter
 
 ## Database Schema (shared/schema.ts)
-Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, follower_snapshots (userId, followerCount, followingCount, tweetCount, recordedAt), settings, watched_creators (userId, username, platform, lastPostId, lastCheckedAt), push_subscriptions (userId, endpoint, p256dh, auth), mobile_api_tokens (userId, token, label, createdAt, lastUsedAt)
+Tables: tweets, media_items, engagements, follower_interactions, live_follower_interactions (with platform column), comment_threads (with platform column), trends, activity_logs, analytics_data, peak_times, follower_snapshots (userId, followerCount, followingCount, tweetCount, recordedAt), settings, watched_creators (userId, username, platform, lastPostId, lastCheckedAt), push_subscriptions (userId, endpoint, p256dh, auth), mobile_api_tokens (userId, token, label, createdAt, lastUsedAt), content_items (userId, platform, format, ratio, status, hook, caption, cta, mediaItemId, imageUrl, scheduledAt, confidence, strategy, failReason, generatedAt, postedAt, updatedAt)
 
 ## Project Structure
 ```
@@ -50,6 +50,7 @@ server/
   threads.ts      - Threads API client (getThreadsClient, testThreadsConnection, fetchUserProfile, fetchUserPosts, fetchPostReplies, getThreadsPostInsights, getThreadsConversation, getThreadsPostMetrics)
   engagementPoller.ts - Polls X mentions + Threads replies, delta-tracks likes/retweets/followers, saves follower snapshots
   creatorMonitor.ts - Server-side creator monitoring worker, polls watched creators every 45s, sends push notifications on new posts
+  contentScheduler.ts - Background scheduler, polls every 30s for due content_items and auto-posts to X/Threads
   pushNotifications.ts - Web Push notification sender using VAPID keys
   storage.ts      - DatabaseStorage with IStorage interface (platform-filtered queries)
   db.ts           - Drizzle + pg pool
@@ -126,6 +127,16 @@ aura-keyboard/    - React Native/Expo mobile companion app
 - GET: /api/engagement/status
 - POST: /api/engagement/pause, /api/engagement/resume
 - POST: /api/engagement/generate-reply, /api/engagement/send-reply
+
+## Content Studio API
+- **Data model**: `content_items` table with status flow: needs_review → approved → scheduled → posting → posted | failed | rejected
+- **AI batch generation**: POST `/api/content-studio/generate` — generates N content pieces using persona settings, optional media pairing
+- **CRUD**: GET/POST `/api/content-studio/items`, GET/PATCH/DELETE `/api/content-studio/items/:id`
+- **Batch actions**: POST `/api/content-studio/batch-status` — approve/reject/schedule multiple items at once
+- **Post now**: POST `/api/content-studio/items/:id/post-now` — immediately publishes a content item to X/Threads (supports cross-posting for "both" platform)
+- **Calendar**: GET `/api/content-studio/calendar?startDate=&endDate=` — returns scheduled/posted items for date range
+- **Reschedule**: POST `/api/content-studio/items/:id/reschedule` — moves a content item to a new scheduled time
+- **Background scheduler**: `server/contentScheduler.ts` polls every 30s for due scheduled items and auto-posts them
 
 ## Mobile API (Aura AI Keyboard)
 - **Auth**: Bearer token in `Authorization` header. Tokens stored in `mobile_api_tokens` table. Token format: `aura_mob_<48 hex chars>`. Middleware `isMobileAuthenticated` validates + touches `lastUsedAt`.

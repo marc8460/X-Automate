@@ -24,6 +24,8 @@ import {
   insertAnalyticsDataSchema,
   insertPeakTimeSchema,
   avatarCacheTable,
+  insertContentItemSchema,
+  contentItems,
 } from "@shared/schema";
 import { getVapidPublicKey, sendPushToUser } from "./pushNotifications";
 
@@ -3423,6 +3425,275 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // --- Content Studio: CRUD + Batch Generate + Scheduler ---
+
+  app.get("/api/content-studio/items", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { status, platform, startDate, endDate } = req.query as Record<string, string | undefined>;
+    const items = await storage.getContentItems(userId, { status, platform, startDate, endDate });
+    res.json(items);
+  });
+
+  app.get("/api/content-studio/items/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const item = await storage.getContentItemById(parseInt(req.params.id), userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    res.json(item);
+  });
+
+  app.post("/api/content-studio/items", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const parsed = insertContentItemSchema.safeParse({ ...req.body, userId });
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const item = await storage.createContentItem(parsed.data);
+    res.json(item);
+  });
+
+  app.patch("/api/content-studio/items/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const allowedFields = ["hook", "caption", "cta", "status", "platform", "format", "ratio", "scheduledAt", "imageUrl", "mediaItemId", "confidence", "strategy"];
+    const updates: any = {};
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (updates.imageUrl && typeof updates.imageUrl === "string" && !updates.imageUrl.startsWith("/uploads/") && !updates.imageUrl.startsWith("https://")) {
+      return res.status(400).json({ message: "Invalid imageUrl" });
+    }
+    if (updates.status && !["needs_review", "approved", "scheduled", "rejected"].includes(updates.status)) {
+      return res.status(400).json({ message: "Invalid status transition" });
+    }
+    const item = await storage.updateContentItem(parseInt(req.params.id), updates, userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    res.json(item);
+  });
+
+  app.delete("/api/content-studio/items/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    await storage.deleteContentItem(parseInt(req.params.id), userId);
+    res.status(204).send();
+  });
+
+  app.post("/api/content-studio/batch-status", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { ids, status, scheduledAt } = req.body;
+    if (!Array.isArray(ids) || !status) return res.status(400).json({ message: "ids (array) and status are required" });
+    const validStatuses = ["needs_review", "approved", "scheduled", "rejected"];
+    if (!validStatuses.includes(status)) return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+    const extra: any = {};
+    if (scheduledAt) extra.scheduledAt = scheduledAt;
+    const items = await storage.batchUpdateContentStatus(ids, status, userId, extra);
+    res.json(items);
+  });
+
+  app.post("/api/content-studio/generate", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { platform = "x", format = "tweet", ratio = "1:1", count = 3, topic = "", mediaItemIds = [] } = req.body;
+
+    try {
+      const settingsData = await storage.getSettings(userId);
+      const getSetting = (key: string, fallback: string) => {
+        const s = settingsData.find((s: any) => s.key === key);
+        return s ? s.value : fallback;
+      };
+      const tone = getSetting("persona_tone", "seductive");
+      const seductiveness = getSetting("seductiveness", "70");
+      const signaturePhrases = getSetting("persona_signature_phrases", "");
+      const forbiddenPhrases = getSetting("persona_forbidden_phrases", "");
+
+      const mediaImages: { id: number; url: string; mood: string; outfit: string }[] = [];
+      if (mediaItemIds.length > 0) {
+        const allMedia = await storage.getMediaItems(userId);
+        for (const mid of mediaItemIds) {
+          const m = allMedia.find((x: any) => x.id === mid);
+          if (m) mediaImages.push({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit });
+        }
+      }
+
+      const platformGuide: Record<string, string> = {
+        x: "Twitter/X: Max 280 chars for tweets, punchy hooks, no hashtag spam",
+        threads: "Threads: 500 char limit, conversational, storytelling works well",
+        both: "Cross-platform: Write for both X (280 chars) and Threads (500 chars)",
+      };
+
+      const personaGuide = `Tone: ${tone} | Seductiveness: ${seductiveness}/100${signaturePhrases ? ` | Use occasionally: ${signaturePhrases}` : ""}${forbiddenPhrases ? ` | Never use: ${forbiddenPhrases}` : ""}`;
+
+      const systemPrompt = `You are a social media content strategist and copywriter for a female creator.
+Generate exactly ${count} content pieces.
+
+PERSONA: ${personaGuide}
+PLATFORM: ${platformGuide[platform] || platformGuide.x}
+FORMAT: ${format}
+${topic ? `TOPIC/THEME: ${topic}` : ""}
+${mediaImages.length > 0 ? `MEDIA CONTEXT: ${mediaImages.map(m => `Image ${m.id}: mood=${m.mood}, outfit=${m.outfit}`).join("; ")}` : ""}
+
+For each piece, return a JSON array of objects with these fields:
+- "hook": The opening line / first sentence (the scroll-stopper)
+- "caption": The full post text including the hook
+- "cta": Call-to-action line (if applicable, empty string if not)
+- "confidence": Your confidence score 0-100 that this will perform well
+- "strategy": One sentence explaining why this content should work
+${mediaImages.length > 0 ? `- "mediaItemId": The image ID this piece should pair with (from: ${mediaImages.map(m => m.id).join(", ")})` : ""}
+
+Return ONLY a valid JSON array. No markdown, no explanation.`;
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Generate ${count} ${format} content pieces${topic ? ` about: ${topic}` : ""}.` },
+        ],
+        temperature: 0.9,
+        max_tokens: 2000,
+      });
+
+      const raw = completion.choices[0]?.message?.content?.trim() ?? "[]";
+      let pieces: any[];
+      try {
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        pieces = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+      } catch {
+        return res.status(500).json({ message: "AI returned invalid JSON", raw });
+      }
+
+      const created = [];
+      for (const piece of pieces) {
+        const mediaId = piece.mediaItemId ? parseInt(piece.mediaItemId) : null;
+        const matchedMedia = mediaId ? mediaImages.find(m => m.id === mediaId) : null;
+        const item = await storage.createContentItem({
+          userId,
+          platform,
+          format,
+          ratio,
+          status: "needs_review",
+          hook: piece.hook || "",
+          caption: piece.caption || "",
+          cta: piece.cta || "",
+          confidence: piece.confidence || 50,
+          strategy: piece.strategy || null,
+          mediaItemId: matchedMedia ? matchedMedia.id : null,
+          imageUrl: matchedMedia ? matchedMedia.url : null,
+          scheduledAt: null,
+          failReason: null,
+        });
+        created.push(item);
+      }
+
+      res.json({ items: created, count: created.length });
+    } catch (err: any) {
+      console.error("[content-studio/generate] Error:", err.message);
+      res.status(500).json({ message: err.message || "Content generation failed" });
+    }
+  });
+
+  app.post("/api/content-studio/items/:id/post-now", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const item = await storage.getContentItemById(parseInt(req.params.id), userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    if (!["approved", "scheduled", "needs_review"].includes(item.status)) {
+      return res.status(400).json({ message: `Cannot post item with status "${item.status}"` });
+    }
+
+    await storage.updateContentItem(item.id, { status: "posting" } as any, userId);
+    const postText = item.caption || item.hook;
+    const targetPlatform = item.platform === "both" ? "x" : item.platform;
+
+    try {
+      if (targetPlatform === "threads") {
+        const token = await getThreadsAccessTokenForUser(userId);
+        let threadsImageUrl = item.imageUrl || undefined;
+        if (threadsImageUrl && !threadsImageUrl.startsWith("http")) {
+          const baseUrl = `${req.protocol}://${req.get("host")}`;
+          threadsImageUrl = `${baseUrl}${threadsImageUrl}`;
+        }
+        await createThreadsPost(postText, threadsImageUrl, token);
+      } else {
+        const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
+        if (!twitterClient) {
+          await storage.updateContentItem(item.id, { status: "failed", failReason: "X account not connected" } as any, userId);
+          return res.status(400).json({ message: "X account not connected" });
+        }
+        let mediaId: string | undefined;
+        if (item.imageUrl && (item.imageUrl.startsWith("/uploads/") || item.imageUrl.startsWith("https://"))) {
+          try {
+            let imageBuffer: Buffer;
+            if (item.imageUrl.startsWith("/uploads/")) {
+              const safePath = path.join(process.cwd(), "uploads", path.basename(item.imageUrl));
+              imageBuffer = await fs.promises.readFile(safePath);
+            } else {
+              const response = await fetch(item.imageUrl);
+              imageBuffer = Buffer.from(await response.arrayBuffer());
+            }
+            const mimeType = item.imageUrl.endsWith(".png") ? "image/png" : "image/jpeg";
+            mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType });
+          } catch (mediaErr: any) {
+            console.error("[content-studio/post-now] Media upload failed:", mediaErr.message);
+          }
+        }
+        const tweetPayload: any = { text: postText };
+        if (mediaId) tweetPayload.media = { media_ids: [mediaId] };
+        await twitterClient.v2.tweet(tweetPayload);
+      }
+
+      await storage.updateContentItem(item.id, { status: "posted" } as any, userId);
+      await db.update(contentItems).set({ postedAt: new Date() }).where(eq(contentItems.id, item.id));
+      await storage.createActivityLog({
+        userId,
+        action: `${targetPlatform === "threads" ? "Threads" : "X"} Post Published (Studio)`,
+        detail: postText.slice(0, 60) + (postText.length > 60 ? "…" : ""),
+        time: new Date().toISOString(),
+        status: "success",
+      });
+      const today = new Date().toLocaleDateString("en-CA");
+      await storage.logActivityEvent({ userId, platform: targetPlatform, action: "post_created", localDate: today });
+      broadcastUpdate({ type: "daily-goals-update" });
+
+      if (item.platform === "both") {
+        try {
+          const otherPlatform = targetPlatform === "x" ? "threads" : "x";
+          if (otherPlatform === "threads") {
+            const token = await getThreadsAccessTokenForUser(userId);
+            await createThreadsPost(postText, item.imageUrl || undefined, token);
+          } else {
+            const tc = await getTwitterClientForUser(userId) || getTwitterClient();
+            if (tc) await tc.v2.tweet({ text: postText });
+          }
+          await storage.logActivityEvent({ userId, platform: otherPlatform, action: "post_created", localDate: today });
+        } catch (crossErr: any) {
+          console.error(`[content-studio/post-now] Cross-post to other platform failed:`, crossErr.message);
+        }
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      await storage.updateContentItem(item.id, { status: "failed", failReason: err.message } as any, userId);
+      console.error("[content-studio/post-now] Post error:", err.message);
+      res.status(500).json({ message: err.message || "Failed to post" });
+    }
+  });
+
+  app.get("/api/content-studio/calendar", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { startDate, endDate } = req.query as Record<string, string>;
+    if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+    const items = await storage.getContentItems(userId, { startDate, endDate });
+    const calendarItems = items
+      .filter(i => i.scheduledAt || i.postedAt)
+      .map(i => ({
+        ...i,
+        calendarDate: i.scheduledAt || (i.postedAt ? new Date(i.postedAt).toISOString() : null),
+      }));
+    res.json(calendarItems);
+  });
+
+  app.post("/api/content-studio/items/:id/reschedule", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { scheduledAt } = req.body;
+    if (!scheduledAt) return res.status(400).json({ message: "scheduledAt is required" });
+    const item = await storage.updateContentItem(parseInt(req.params.id), { scheduledAt, status: "scheduled" } as any, userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    res.json(item);
   });
 
   return httpServer;
