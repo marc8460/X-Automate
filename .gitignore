@@ -5,3 +5,8 @@ server/public
 vite.config.ts.*
 *.tar.gz
 claude-user/
+aura-keyboard/node_modules
+aura-keyboard/.expo
+.expo
+.local
+attached_assets
