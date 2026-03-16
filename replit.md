@@ -129,14 +129,21 @@ aura-keyboard/    - React Native/Expo mobile companion app
 - POST: /api/engagement/generate-reply, /api/engagement/send-reply
 
 ## Content Studio API
-- **Data model**: `content_items` table with status flow: needs_review → approved → scheduled → posting → posted | failed | rejected
-- **AI batch generation**: POST `/api/content-studio/generate` — generates N content pieces using persona settings, optional media pairing
+- **Data model**: `content_items` table with full status flow: idea → generated → needs_review → approved → scheduled → posting → posted | failed | rejected
+- **Transition rules**: Enforced allowed transitions per status (e.g. needs_review can only go to approved/rejected; posted is terminal)
 - **CRUD**: GET/POST `/api/content-studio/items`, GET/PATCH/DELETE `/api/content-studio/items/:id`
-- **Batch actions**: POST `/api/content-studio/batch-status` — approve/reject/schedule multiple items at once
-- **Post now**: POST `/api/content-studio/items/:id/post-now` — immediately publishes a content item to X/Threads (supports cross-posting for "both" platform)
-- **Calendar**: GET `/api/content-studio/calendar?startDate=&endDate=` — returns scheduled/posted items for date range
-- **Reschedule**: POST `/api/content-studio/items/:id/reschedule` — moves a content item to a new scheduled time
-- **Background scheduler**: `server/contentScheduler.ts` polls every 30s for due scheduled items and auto-posts them
+- **Transition endpoints**:
+  - POST `/api/content-studio/items/:id/approve` — transitions to approved
+  - POST `/api/content-studio/items/:id/reject` — transitions to rejected
+  - POST `/api/content-studio/items/:id/schedule` — transitions to scheduled (requires scheduledAt ISO datetime)
+  - POST `/api/content-studio/items/:id/reschedule` — updates scheduledAt for already-scheduled items
+  - POST `/api/content-studio/items/:id/send-back-to-draft` — transitions back to needs_review
+  - POST `/api/content-studio/items/:id/post-now` — immediately publishes to X/Threads (supports cross-posting)
+- **Batch actions**: POST `/api/content-studio/batch-action` — {ids, action, scheduledAt?} where action is approve/reject/schedule/send-back-to-draft
+- **AI batch generation**: POST `/api/content-studio/generate-batch` — generates N (default 10) content pieces using persona settings, auto-selects vault assets by ratio (4:5 / 9:16)
+- **Calendar**: GET `/api/content-studio/calendar?startDate=&endDate=&platform=` — returns items grouped by date with platform filtering
+- **Background scheduler**: `server/contentScheduler.ts` atomically claims due items (UPDATE...WHERE status='scheduled' RETURNING) and auto-posts them every 30s
+- **Security**: SSRF protection on imageUrl (private IP/host blocklist), safe path resolution for uploads, no `as any` casts in critical flows
 
 ## Mobile API (Aura AI Keyboard)
 - **Auth**: Bearer token in `Authorization` header. Tokens stored in `mobile_api_tokens` table. Token format: `aura_mob_<48 hex chars>`. Middleware `isMobileAuthenticated` validates + touches `lastUsedAt`.

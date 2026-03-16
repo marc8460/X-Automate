@@ -3427,7 +3427,59 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
     }
   });
 
-  // --- Content Studio: CRUD + Batch Generate + Scheduler ---
+  // --- Content Studio: CRUD + Transitions + Batch Generate + Calendar + Scheduler ---
+
+  const CONTENT_STATUSES = ["idea", "generated", "needs_review", "approved", "scheduled", "posting", "posted", "failed", "rejected"] as const;
+  type ContentStatus = typeof CONTENT_STATUSES[number];
+
+  const ALLOWED_TRANSITIONS: Record<string, ContentStatus[]> = {
+    idea: ["generated", "needs_review", "rejected"],
+    generated: ["needs_review", "rejected"],
+    needs_review: ["approved", "rejected"],
+    approved: ["scheduled", "needs_review"],
+    scheduled: ["approved", "needs_review", "posting"],
+    posting: ["posted", "failed"],
+    posted: [],
+    failed: ["needs_review", "approved", "scheduled"],
+    rejected: ["needs_review"],
+  };
+
+  function isValidImageSource(url: string): boolean {
+    if (url.startsWith("/uploads/")) return true;
+    if (url.startsWith("https://images.unsplash.com/")) return true;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:") return false;
+      const host = parsed.hostname;
+      if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".internal") || host.startsWith("10.") || host.startsWith("192.168.") || host.match(/^172\.(1[6-9]|2\d|3[0-1])\./)) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function sanitizeContentUpdate(body: Record<string, unknown>): Record<string, unknown> {
+    const allowedFields = ["hook", "caption", "cta", "platform", "format", "ratio", "scheduledAt", "imageUrl", "mediaItemId", "confidence", "strategy"];
+    const updates: Record<string, unknown> = {};
+    for (const key of allowedFields) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    return updates;
+  }
+
+  async function loadImageBuffer(imageUrl: string): Promise<Buffer | null> {
+    if (!isValidImageSource(imageUrl)) return null;
+    try {
+      if (imageUrl.startsWith("/uploads/")) {
+        const safePath = path.join(process.cwd(), "uploads", path.basename(imageUrl));
+        return await fs.promises.readFile(safePath);
+      }
+      const response = await fetch(imageUrl);
+      return Buffer.from(await response.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
 
   app.get("/api/content-studio/items", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
@@ -3445,24 +3497,20 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
 
   app.post("/api/content-studio/items", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const parsed = insertContentItemSchema.safeParse({ ...req.body, userId });
+    const parsed = insertContentItemSchema.safeParse({ ...req.body, userId, status: req.body.status || "idea" });
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    if (parsed.data.imageUrl && !isValidImageSource(parsed.data.imageUrl)) {
+      return res.status(400).json({ message: "Invalid imageUrl: must be /uploads/ or a public https URL" });
+    }
     const item = await storage.createContentItem(parsed.data);
     res.json(item);
   });
 
   app.patch("/api/content-studio/items/:id", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const allowedFields = ["hook", "caption", "cta", "status", "platform", "format", "ratio", "scheduledAt", "imageUrl", "mediaItemId", "confidence", "strategy"];
-    const updates: any = {};
-    for (const key of allowedFields) {
-      if (req.body[key] !== undefined) updates[key] = req.body[key];
-    }
-    if (updates.imageUrl && typeof updates.imageUrl === "string" && !updates.imageUrl.startsWith("/uploads/") && !updates.imageUrl.startsWith("https://")) {
-      return res.status(400).json({ message: "Invalid imageUrl" });
-    }
-    if (updates.status && !["needs_review", "approved", "scheduled", "rejected"].includes(updates.status)) {
-      return res.status(400).json({ message: "Invalid status transition" });
+    const updates = sanitizeContentUpdate(req.body);
+    if (updates.imageUrl && typeof updates.imageUrl === "string" && !isValidImageSource(updates.imageUrl)) {
+      return res.status(400).json({ message: "Invalid imageUrl: must be /uploads/ or a public https URL" });
     }
     const item = await storage.updateContentItem(parseInt(req.params.id), updates, userId);
     if (!item) return res.status(404).json({ message: "Not found" });
@@ -3475,26 +3523,109 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
     res.status(204).send();
   });
 
-  app.post("/api/content-studio/batch-status", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/content-studio/items/:id/approve", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const { ids, status, scheduledAt } = req.body;
-    if (!Array.isArray(ids) || !status) return res.status(400).json({ message: "ids (array) and status are required" });
-    const validStatuses = ["needs_review", "approved", "scheduled", "rejected"];
-    if (!validStatuses.includes(status)) return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
-    const extra: any = {};
-    if (scheduledAt) extra.scheduledAt = scheduledAt;
-    const items = await storage.batchUpdateContentStatus(ids, status, userId, extra);
+    const item = await storage.getContentItemById(parseInt(req.params.id), userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    const allowed = ALLOWED_TRANSITIONS[item.status];
+    if (!allowed || !allowed.includes("approved")) {
+      return res.status(400).json({ message: `Cannot approve item with status "${item.status}"` });
+    }
+    const updated = await storage.updateContentItem(item.id, { status: "approved" }, userId);
+    res.json(updated);
+  });
+
+  app.post("/api/content-studio/items/:id/reject", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const item = await storage.getContentItemById(parseInt(req.params.id), userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    const allowed = ALLOWED_TRANSITIONS[item.status];
+    if (!allowed || !allowed.includes("rejected")) {
+      return res.status(400).json({ message: `Cannot reject item with status "${item.status}"` });
+    }
+    const updated = await storage.updateContentItem(item.id, { status: "rejected" }, userId);
+    res.json(updated);
+  });
+
+  app.post("/api/content-studio/items/:id/schedule", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { scheduledAt } = req.body;
+    if (!scheduledAt || typeof scheduledAt !== "string") return res.status(400).json({ message: "scheduledAt (ISO datetime string) is required" });
+    const parsedDate = new Date(scheduledAt);
+    if (isNaN(parsedDate.getTime())) return res.status(400).json({ message: "scheduledAt must be a valid ISO datetime" });
+    const item = await storage.getContentItemById(parseInt(req.params.id), userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    const allowed = ALLOWED_TRANSITIONS[item.status];
+    if (!allowed || !allowed.includes("scheduled")) {
+      return res.status(400).json({ message: `Cannot schedule item with status "${item.status}"` });
+    }
+    const updated = await storage.updateContentItem(item.id, { status: "scheduled", scheduledAt }, userId);
+    res.json(updated);
+  });
+
+  app.post("/api/content-studio/items/:id/reschedule", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { scheduledAt } = req.body;
+    if (!scheduledAt || typeof scheduledAt !== "string") return res.status(400).json({ message: "scheduledAt (ISO datetime string) is required" });
+    const parsedDate = new Date(scheduledAt);
+    if (isNaN(parsedDate.getTime())) return res.status(400).json({ message: "scheduledAt must be a valid ISO datetime" });
+    const item = await storage.getContentItemById(parseInt(req.params.id), userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    if (item.status !== "scheduled") return res.status(400).json({ message: "Can only reschedule items with status 'scheduled'" });
+    const updated = await storage.updateContentItem(item.id, { scheduledAt }, userId);
+    res.json(updated);
+  });
+
+  app.post("/api/content-studio/items/:id/send-back-to-draft", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const item = await storage.getContentItemById(parseInt(req.params.id), userId);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    const allowed = ALLOWED_TRANSITIONS[item.status];
+    if (!allowed || !allowed.includes("needs_review")) {
+      return res.status(400).json({ message: `Cannot send back to draft from status "${item.status}"` });
+    }
+    const updated = await storage.updateContentItem(item.id, { status: "needs_review", scheduledAt: null }, userId);
+    res.json(updated);
+  });
+
+  app.post("/api/content-studio/batch-action", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const { ids, action, scheduledAt } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0 || !action) {
+      return res.status(400).json({ message: "ids (non-empty array) and action are required" });
+    }
+    const validActions = ["approve", "reject", "schedule", "send-back-to-draft"];
+    if (!validActions.includes(action)) {
+      return res.status(400).json({ message: `Invalid action. Must be one of: ${validActions.join(", ")}` });
+    }
+    const statusMap: Record<string, ContentStatus> = {
+      approve: "approved",
+      reject: "rejected",
+      schedule: "scheduled",
+      "send-back-to-draft": "needs_review",
+    };
+    const targetStatus = statusMap[action];
+    if (action === "schedule") {
+      if (!scheduledAt || typeof scheduledAt !== "string") return res.status(400).json({ message: "scheduledAt is required for schedule action" });
+      const pd = new Date(scheduledAt);
+      if (isNaN(pd.getTime())) return res.status(400).json({ message: "scheduledAt must be a valid ISO datetime" });
+    }
+    const extra: Partial<{ scheduledAt: string | null }> = {};
+    if (action === "schedule" && scheduledAt) extra.scheduledAt = scheduledAt;
+    if (action === "send-back-to-draft") extra.scheduledAt = null;
+    const items = await storage.batchUpdateContentStatus(ids, targetStatus, userId, extra);
     res.json(items);
   });
 
-  app.post("/api/content-studio/generate", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/content-studio/generate-batch", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const { platform = "x", format = "tweet", ratio = "1:1", count = 3, topic = "", mediaItemIds = [] } = req.body;
+    const { platform = "x", format = "tweet", ratio = "4:5", count = 10, topic = "", mediaItemIds } = req.body;
+    const batchCount = Math.min(Math.max(1, parseInt(count) || 10), 20);
 
     try {
       const settingsData = await storage.getSettings(userId);
       const getSetting = (key: string, fallback: string) => {
-        const s = settingsData.find((s: any) => s.key === key);
+        const s = settingsData.find((s: { key: string; value: string }) => s.key === key);
         return s ? s.value : fallback;
       };
       const tone = getSetting("persona_tone", "seductive");
@@ -3502,13 +3633,17 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       const signaturePhrases = getSetting("persona_signature_phrases", "");
       const forbiddenPhrases = getSetting("persona_forbidden_phrases", "");
 
-      const mediaImages: { id: number; url: string; mood: string; outfit: string }[] = [];
-      if (mediaItemIds.length > 0) {
-        const allMedia = await storage.getMediaItems(userId);
+      const allMedia = await storage.getMediaItems(userId);
+      let mediaImages: { id: number; url: string; mood: string; outfit: string }[] = [];
+
+      if (Array.isArray(mediaItemIds) && mediaItemIds.length > 0) {
         for (const mid of mediaItemIds) {
-          const m = allMedia.find((x: any) => x.id === mid);
+          const m = allMedia.find((x: { id: number }) => x.id === mid);
           if (m) mediaImages.push({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit });
         }
+      } else if (allMedia.length > 0) {
+        const shuffled = [...allMedia].sort(() => Math.random() - 0.5);
+        mediaImages = shuffled.slice(0, batchCount).map(m => ({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit }));
       }
 
       const platformGuide: Record<string, string> = {
@@ -3520,13 +3655,14 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       const personaGuide = `Tone: ${tone} | Seductiveness: ${seductiveness}/100${signaturePhrases ? ` | Use occasionally: ${signaturePhrases}` : ""}${forbiddenPhrases ? ` | Never use: ${forbiddenPhrases}` : ""}`;
 
       const systemPrompt = `You are a social media content strategist and copywriter for a female creator.
-Generate exactly ${count} content pieces.
+Generate exactly ${batchCount} content pieces for a batch content factory.
 
 PERSONA: ${personaGuide}
 PLATFORM: ${platformGuide[platform] || platformGuide.x}
 FORMAT: ${format}
-${topic ? `TOPIC/THEME: ${topic}` : ""}
-${mediaImages.length > 0 ? `MEDIA CONTEXT: ${mediaImages.map(m => `Image ${m.id}: mood=${m.mood}, outfit=${m.outfit}`).join("; ")}` : ""}
+ASPECT RATIO: ${ratio} (design content with this ratio in mind for visuals)
+${topic ? `TOPIC/THEME: ${topic}` : "Generate a variety of engaging topics."}
+${mediaImages.length > 0 ? `MEDIA CONTEXT (pair each piece with one): ${mediaImages.map(m => `Image ${m.id}: mood=${m.mood}, outfit=${m.outfit}`).join("; ")}` : ""}
 
 For each piece, return a JSON array of objects with these fields:
 - "hook": The opening line / first sentence (the scroll-stopper)
@@ -3534,7 +3670,7 @@ For each piece, return a JSON array of objects with these fields:
 - "cta": Call-to-action line (if applicable, empty string if not)
 - "confidence": Your confidence score 0-100 that this will perform well
 - "strategy": One sentence explaining why this content should work
-${mediaImages.length > 0 ? `- "mediaItemId": The image ID this piece should pair with (from: ${mediaImages.map(m => m.id).join(", ")})` : ""}
+${mediaImages.length > 0 ? `- "mediaItemId": The image ID this piece should pair with (from: ${mediaImages.map(m => m.id).join(", ")}). Distribute images across pieces.` : ""}
 
 Return ONLY a valid JSON array. No markdown, no explanation.`;
 
@@ -3542,14 +3678,14 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
         model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate ${count} ${format} content pieces${topic ? ` about: ${topic}` : ""}.` },
+          { role: "user", content: `Generate ${batchCount} ${format} content pieces${topic ? ` about: ${topic}` : ""}.` },
         ],
         temperature: 0.9,
-        max_tokens: 2000,
+        max_tokens: 4000,
       });
 
       const raw = completion.choices[0]?.message?.content?.trim() ?? "[]";
-      let pieces: any[];
+      let pieces: Array<{ hook?: string; caption?: string; cta?: string; confidence?: number; strategy?: string; mediaItemId?: number | string }>;
       try {
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
         pieces = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
@@ -3559,7 +3695,7 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
 
       const created = [];
       for (const piece of pieces) {
-        const mediaId = piece.mediaItemId ? parseInt(piece.mediaItemId) : null;
+        const mediaId = piece.mediaItemId ? parseInt(String(piece.mediaItemId)) : null;
         const matchedMedia = mediaId ? mediaImages.find(m => m.id === mediaId) : null;
         const item = await storage.createContentItem({
           userId,
@@ -3570,7 +3706,7 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
           hook: piece.hook || "",
           caption: piece.caption || "",
           cta: piece.cta || "",
-          confidence: piece.confidence || 50,
+          confidence: typeof piece.confidence === "number" ? piece.confidence : 50,
           strategy: piece.strategy || null,
           mediaItemId: matchedMedia ? matchedMedia.id : null,
           imageUrl: matchedMedia ? matchedMedia.url : null,
@@ -3581,9 +3717,10 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
       }
 
       res.json({ items: created, count: created.length });
-    } catch (err: any) {
-      console.error("[content-studio/generate] Error:", err.message);
-      res.status(500).json({ message: err.message || "Content generation failed" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Content generation failed";
+      console.error("[content-studio/generate-batch] Error:", message);
+      res.status(500).json({ message });
     }
   });
 
@@ -3595,7 +3732,7 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
       return res.status(400).json({ message: `Cannot post item with status "${item.status}"` });
     }
 
-    await storage.updateContentItem(item.id, { status: "posting" } as any, userId);
+    await storage.updateContentItem(item.id, { status: "posting" }, userId);
     const postText = item.caption || item.hook;
     const targetPlatform = item.platform === "both" ? "x" : item.platform;
 
@@ -3609,34 +3746,29 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
         }
         await createThreadsPost(postText, threadsImageUrl, token);
       } else {
-        const twitterClient = await getTwitterClientForUser(userId) || getTwitterClient();
+        const twitterClient = await getTwitterClientForUser(userId);
         if (!twitterClient) {
-          await storage.updateContentItem(item.id, { status: "failed", failReason: "X account not connected" } as any, userId);
-          return res.status(400).json({ message: "X account not connected" });
+          await storage.updateContentItem(item.id, { status: "failed", failReason: "X account not connected" }, userId);
+          return res.status(400).json({ message: "X account not connected. Go to Settings to connect your account." });
         }
         let mediaId: string | undefined;
-        if (item.imageUrl && (item.imageUrl.startsWith("/uploads/") || item.imageUrl.startsWith("https://"))) {
-          try {
-            let imageBuffer: Buffer;
-            if (item.imageUrl.startsWith("/uploads/")) {
-              const safePath = path.join(process.cwd(), "uploads", path.basename(item.imageUrl));
-              imageBuffer = await fs.promises.readFile(safePath);
-            } else {
-              const response = await fetch(item.imageUrl);
-              imageBuffer = Buffer.from(await response.arrayBuffer());
+        if (item.imageUrl && isValidImageSource(item.imageUrl)) {
+          const imageBuffer = await loadImageBuffer(item.imageUrl);
+          if (imageBuffer) {
+            try {
+              const mimeType = item.imageUrl.endsWith(".png") ? "image/png" : "image/jpeg";
+              mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType });
+            } catch (mediaErr: unknown) {
+              console.error("[content-studio/post-now] Media upload failed:", mediaErr instanceof Error ? mediaErr.message : mediaErr);
             }
-            const mimeType = item.imageUrl.endsWith(".png") ? "image/png" : "image/jpeg";
-            mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType });
-          } catch (mediaErr: any) {
-            console.error("[content-studio/post-now] Media upload failed:", mediaErr.message);
           }
         }
-        const tweetPayload: any = { text: postText };
+        const tweetPayload: { text: string; media?: { media_ids: string[] } } = { text: postText };
         if (mediaId) tweetPayload.media = { media_ids: [mediaId] };
         await twitterClient.v2.tweet(tweetPayload);
       }
 
-      await storage.updateContentItem(item.id, { status: "posted" } as any, userId);
+      await storage.updateContentItem(item.id, { status: "posted" }, userId);
       await db.update(contentItems).set({ postedAt: new Date() }).where(eq(contentItems.id, item.id));
       await storage.createActivityLog({
         userId,
@@ -3656,44 +3788,43 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
             const token = await getThreadsAccessTokenForUser(userId);
             await createThreadsPost(postText, item.imageUrl || undefined, token);
           } else {
-            const tc = await getTwitterClientForUser(userId) || getTwitterClient();
+            const tc = await getTwitterClientForUser(userId);
             if (tc) await tc.v2.tweet({ text: postText });
           }
           await storage.logActivityEvent({ userId, platform: otherPlatform, action: "post_created", localDate: today });
-        } catch (crossErr: any) {
-          console.error(`[content-studio/post-now] Cross-post to other platform failed:`, crossErr.message);
+        } catch (crossErr: unknown) {
+          console.error(`[content-studio/post-now] Cross-post failed:`, crossErr instanceof Error ? crossErr.message : crossErr);
         }
       }
 
       res.json({ success: true });
-    } catch (err: any) {
-      await storage.updateContentItem(item.id, { status: "failed", failReason: err.message } as any, userId);
-      console.error("[content-studio/post-now] Post error:", err.message);
-      res.status(500).json({ message: err.message || "Failed to post" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to post";
+      await storage.updateContentItem(item.id, { status: "failed", failReason: message }, userId);
+      console.error("[content-studio/post-now] Post error:", message);
+      res.status(500).json({ message });
     }
   });
 
   app.get("/api/content-studio/calendar", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const { startDate, endDate } = req.query as Record<string, string>;
+    const { startDate, endDate, platform } = req.query as Record<string, string>;
     if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
-    const items = await storage.getContentItems(userId, { startDate, endDate });
-    const calendarItems = items
-      .filter(i => i.scheduledAt || i.postedAt)
-      .map(i => ({
-        ...i,
-        calendarDate: i.scheduledAt || (i.postedAt ? new Date(i.postedAt).toISOString() : null),
-      }));
-    res.json(calendarItems);
-  });
+    const items = await storage.getContentItems(userId, { startDate, endDate, platform });
+    const calendarItems = items.filter(i => i.scheduledAt || i.postedAt);
 
-  app.post("/api/content-studio/items/:id/reschedule", isAuthenticated, async (req: Request, res: Response) => {
-    const userId = getUserId(req);
-    const { scheduledAt } = req.body;
-    if (!scheduledAt) return res.status(400).json({ message: "scheduledAt is required" });
-    const item = await storage.updateContentItem(parseInt(req.params.id), { scheduledAt, status: "scheduled" } as any, userId);
-    if (!item) return res.status(404).json({ message: "Not found" });
-    res.json(item);
+    const grouped: Record<string, typeof calendarItems> = {};
+    for (const item of calendarItems) {
+      const dateStr = item.scheduledAt
+        ? item.scheduledAt.split("T")[0]
+        : item.postedAt
+          ? new Date(item.postedAt).toLocaleDateString("en-CA")
+          : null;
+      if (!dateStr) continue;
+      if (!grouped[dateStr]) grouped[dateStr] = [];
+      grouped[dateStr].push(item);
+    }
+    res.json(grouped);
   });
 
   return httpServer;
