@@ -45,7 +45,12 @@ async function postContentItem(item: ContentItem): Promise<void> {
   try {
     if (targetPlatform === "threads") {
       const token = await getThreadsAccessTokenForUser(userId);
-      await createThreadsPost(postText, item.imageUrl || undefined, token);
+      let threadsImageUrl = item.imageUrl || undefined;
+      if (threadsImageUrl && threadsImageUrl.startsWith("/uploads/")) {
+        const host = process.env.REPLIT_DEV_DOMAIN || process.env.REPL_SLUG + "." + process.env.REPL_OWNER + ".repl.co";
+        threadsImageUrl = `https://${host}${threadsImageUrl}`;
+      }
+      await createThreadsPost(postText, threadsImageUrl, token);
     } else {
       const twitterClient = await getTwitterClientForUser(userId);
       if (!twitterClient) {
@@ -87,7 +92,12 @@ async function postContentItem(item: ContentItem): Promise<void> {
         const otherPlatform = targetPlatform === "x" ? "threads" : "x";
         if (otherPlatform === "threads") {
           const token = await getThreadsAccessTokenForUser(userId);
-          await createThreadsPost(postText, item.imageUrl || undefined, token);
+          let crossImageUrl = item.imageUrl || undefined;
+          if (crossImageUrl && crossImageUrl.startsWith("/uploads/")) {
+            const host = process.env.REPLIT_DEV_DOMAIN || process.env.REPL_SLUG + "." + process.env.REPL_OWNER + ".repl.co";
+            crossImageUrl = `https://${host}${crossImageUrl}`;
+          }
+          await createThreadsPost(postText, crossImageUrl, token);
         } else {
           const tc = await getTwitterClientForUser(userId);
           if (tc) await tc.v2.tweet({ text: postText });
