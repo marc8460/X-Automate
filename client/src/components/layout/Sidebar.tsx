@@ -33,7 +33,7 @@ const NAV: NavSection[] = [
     label: "Content",
     items: [
       { href: "/studio", label: "Content Studio", icon: Wand2 },
-      { href: "/studio/calendar", label: "Calendar", icon: Calendar, soon: true },
+      { href: "/studio/calendar", label: "Calendar", icon: Calendar },
       { href: "/studio/stories", label: "Story Ideas", icon: Layers, soon: true },
     ],
   },

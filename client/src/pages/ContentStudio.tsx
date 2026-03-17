@@ -1151,9 +1151,13 @@ function CalendarTab() {
         <Calendar size={32} className="text-primary/40" />
       </div>
       <h3 className="text-xl font-bold font-display mb-2">Content Calendar</h3>
-      <p className="text-muted-foreground text-sm max-w-sm">
-        Plan and visualize your posting schedule across all platforms. Coming in the next phase.
+      <p className="text-muted-foreground text-sm max-w-sm mb-4">
+        Plan and visualize your posting schedule across all platforms.
       </p>
+      <a href="/studio/calendar" className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors" data-testid="link-open-calendar">
+        <Calendar size={14} />
+        Open Calendar
+      </a>
     </div>
   );
 }

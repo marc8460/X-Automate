@@ -11,6 +11,7 @@ import { AccountProvider } from "@/contexts/AccountContext";
 import Dashboard from "@/pages/Dashboard";
 import Composer from "@/pages/Composer";
 import ContentStudio from "@/pages/ContentStudio";
+import CalendarView from "@/pages/CalendarView";
 import MediaVault from "@/pages/MediaVault";
 import UnifiedInbox from "@/pages/UnifiedInbox";
 import ViralEngine from "@/pages/ViralEngine";
@@ -51,7 +52,7 @@ function AuthenticatedRouter() {
 
         {/* Content Studio */}
         <Route path="/studio" component={ContentStudio} />
-        <Route path="/studio/calendar" component={ContentStudio} />
+        <Route path="/studio/calendar" component={CalendarView} />
         <Route path="/studio/stories" component={ContentStudio} />
 
         {/* Library */}

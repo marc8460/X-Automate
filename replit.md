@@ -155,7 +155,24 @@ aura-keyboard/    - React Native/Expo mobile companion app
 - **Sorting**: By newest, confidence score, scheduled date, platform
 - **Scheduling flow**: Approve → Schedule opens DateTimeWheelModal → picks date/time → saves to backend
 - **Post Now**: Immediate posting via /post-now endpoint
-- **Other tabs**: Manual Composer (existing Composer component), Story Ideas (AI story sequences), Calendar (placeholder)
+- **Other tabs**: Manual Composer (existing Composer component), Story Ideas (AI story sequences), Calendar (links to standalone Calendar page)
+
+## Calendar View (`/studio/calendar`)
+- **Standalone page**: `client/src/pages/CalendarView.tsx`, accessible via sidebar and Content Studio tab link
+- **Week view** (primary): 7-day column grid with hourly time slots (6 AM–11 PM), day headers with date/day name, "Today" highlight
+- **Month view**: Standard month grid with day cells showing up to 3 content cards per day
+- **Navigation**: Previous/Next week buttons, "Today" button, Week/Month toggle
+- **Content cards**: Compact cards in time slots with platform color coding (purple=Instagram, blue=Threads, black=X, pink=TikTok), thumbnail, status indicator dot, truncated hook/caption
+- **Status colors**: Draft (gray), Approved (yellow), Scheduled (blue), Posting (orange pulse), Posted (green), Failed (red)
+- **Platform filters**: All/X/Threads/Instagram/TikTok filter tabs above the grid
+- **Summary bar**: Live counts of scheduled/posted/failed items for current week
+- **Detail panel**: Clicking a card opens a slide-over panel with full content preview (image at correct ratio, hook, caption, CTA, confidence score), status, and action buttons
+- **Quick actions**: Post Now, Reschedule (opens DateTimeWheelModal), Edit in Studio, Send Back to Draft, Delete
+- **Drag-and-drop**: Cards draggable between time slots/days to reschedule; uses native HTML5 drag events
+- **Unscheduled sidebar**: Collapsible right sidebar showing approved but unscheduled items; items draggable onto calendar grid; per-item Schedule button
+- **Empty slots**: "+" button on hover to pull from approved drafts
+- **Auto-refresh**: 15-second polling for both calendar data and unscheduled items
+- **Backend endpoint**: GET `/api/content-studio/calendar?startDate=&endDate=&platform=` returns items grouped by date
 
 ## Mobile API (Aura AI Keyboard)
 - **Auth**: Bearer token in `Authorization` header. Tokens stored in `mobile_api_tokens` table. Token format: `aura_mob_<48 hex chars>`. Middleware `isMobileAuthenticated` validates + touches `lastUsedAt`.
