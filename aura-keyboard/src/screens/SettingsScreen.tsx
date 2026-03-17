@@ -17,7 +17,7 @@ export function SettingsScreen({ onBack, onConnectionChange }: SettingsScreenPro
   const [apiToken, setApiToken] = useState("");
   const [testing, setTesting] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [persona, setPersona] = useState<any>(null);
+  const [persona, setPersona] = useState<{ seductiveness?: string; playfulness?: string; dominance?: string; emojiStyle?: string } | null>(null);
 
   useEffect(() => {
     (async () => {

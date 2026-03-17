@@ -5,6 +5,7 @@ import {
   Link, Sparkles, RefreshCw, Zap, X, CheckCircle2, XCircle,
   Pencil, Clock, Filter, ChevronDown, SlidersHorizontal,
   ArrowUpDown, Send, MoreHorizontal, AlertTriangle, Eye,
+  Trash2, Flame,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -169,22 +170,48 @@ const GEN_PLATFORMS: { id: ContentPlatform; label: string }[] = [
   { id: "tiktok", label: "TikTok" },
 ];
 
+const NAUGHTINESS_LABELS: { max: number; label: string; color: string }[] = [
+  { max: 30, label: "Wholesome", color: "text-emerald-400" },
+  { max: 60, label: "Flirty", color: "text-amber-400" },
+  { max: 80, label: "Bold", color: "text-orange-400" },
+  { max: 100, label: "Max Spice", color: "text-red-400" },
+];
+
+function getNaughtinessLabel(value: number) {
+  return NAUGHTINESS_LABELS.find((l) => value <= l.max) || NAUGHTINESS_LABELS[3];
+}
+
 function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<ContentPlatform>>(new Set(["x", "threads"]));
   const [count, setCount] = useState(10);
   const [topic, setTopic] = useState("");
   const [style, setStyle] = useState("");
   const [ratio, setRatio] = useState("4:5");
+  const [naughtiness, setNaughtiness] = useState(60);
+  const [isStoryMode, setIsStoryMode] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
 
   const togglePlatform = (p: ContentPlatform) => {
+    if (isStoryMode) return;
     setSelectedPlatforms((prev) => {
       const next = new Set(prev);
       if (next.has(p)) { if (next.size > 1) next.delete(p); }
       else next.add(p);
       return next;
     });
+  };
+
+  const activateStoryMode = () => {
+    setIsStoryMode(true);
+    setSelectedPlatforms(new Set(["instagram"]));
+    setRatio("9:16");
+  };
+
+  const deactivateStoryMode = () => {
+    setIsStoryMode(false);
+    setSelectedPlatforms(new Set(["x", "threads"]));
+    setRatio("4:5");
   };
 
   const handleGenerate = async () => {
@@ -196,9 +223,11 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         topic: topic || undefined,
         style: style || undefined,
         ratio,
+        format: isStoryMode ? "story" : "tweet",
+        naughtiness,
       });
       const data: { items?: ContentItem[] } = await res.json();
-      toast({ title: `${data.items?.length || count} items generated`, description: "Review and approve them below." });
+      toast({ title: `${data.items?.length || count} items generated`, description: isStoryMode ? "Instagram Stories ready for review." : "Review and approve them below." });
       onGenerated();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Try again";
@@ -208,19 +237,42 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
     }
   };
 
+  const nLabel = getNaughtinessLabel(naughtiness);
+
   return (
     <Card className="glass-panel p-5">
       <div className="flex items-center gap-2 mb-4">
         <div className="p-2 rounded-lg bg-primary/10">
           <Sparkles size={16} className="text-primary" />
         </div>
-        <div>
+        <div className="flex-1">
           <h3 className="font-semibold text-sm" data-testid="text-gen-title">AI Content Generator</h3>
           <p className="text-xs text-muted-foreground">Generate batch content for review</p>
         </div>
+        <button
+          data-testid="button-story-mode"
+          onClick={isStoryMode ? deactivateStoryMode : activateStoryMode}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
+            isStoryMode
+              ? "border-purple-500/40 bg-purple-500/10 text-purple-400"
+              : "border-border/40 text-muted-foreground hover:text-foreground hover:border-purple-500/30"
+          )}
+        >
+          <ImageIcon size={12} />
+          {isStoryMode ? "Story Mode ON" : "Instagram Story"}
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      {isStoryMode && (
+        <div className="mb-4 p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
+          <p className="text-[11px] text-purple-300">
+            <strong>Story Mode:</strong> Generates Instagram Stories with 9:16 images and CTA captions (link in bio, swipe up, etc.)
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <div>
           <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Platforms</label>
           <div className="flex flex-wrap gap-1">
@@ -233,8 +285,10 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
                   "px-2 py-1.5 text-xs font-medium rounded-md border transition-all",
                   selectedPlatforms.has(p.id)
                     ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
+                    : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border",
+                  isStoryMode && p.id !== "instagram" && "opacity-30 cursor-not-allowed"
                 )}
+                disabled={isStoryMode && p.id !== "instagram"}
               >
                 {p.label}
               </button>
@@ -265,13 +319,15 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
               <button
                 key={r}
                 data-testid={`button-ratio-${r}`}
-                onClick={() => setRatio(r)}
+                onClick={() => !isStoryMode && setRatio(r)}
                 className={cn(
                   "flex-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-all",
                   ratio === r
                     ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border/40 text-muted-foreground hover:text-foreground"
+                    : "border-border/40 text-muted-foreground hover:text-foreground",
+                  isStoryMode && r !== "9:16" && "opacity-30 cursor-not-allowed"
                 )}
+                disabled={isStoryMode && r !== "9:16"}
               >
                 {r}
               </button>
@@ -293,13 +349,31 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
             ))}
           </select>
         </div>
+
+        <div>
+          <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">
+            <Flame size={10} className="inline mr-0.5" /> Naughtiness
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={naughtiness}
+              onChange={(e) => setNaughtiness(Number(e.target.value))}
+              className="flex-1 accent-primary"
+              data-testid="input-naughtiness-slider"
+            />
+            <span className={cn("text-[10px] font-semibold w-16 text-right", nLabel.color)}>{nLabel.label}</span>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Topic / Hint (optional)</label>
           <Input
-            placeholder="What should the content be about?"
+            placeholder={isStoryMode ? "Story theme (optional)..." : "What should the content be about?"}
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             className="text-sm"
@@ -309,11 +383,13 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         <Button
           onClick={handleGenerate}
           disabled={isGenerating || selectedPlatforms.size === 0}
-          className="gap-2 shrink-0"
+          className={cn("gap-2 shrink-0", isStoryMode && "bg-purple-600 hover:bg-purple-700")}
           data-testid="button-generate"
         >
           {isGenerating ? (
             <><Loader2 size={14} className="animate-spin" /> Generating {count}...</>
+          ) : isStoryMode ? (
+            <><ImageIcon size={14} /> Generate {count} Stories</>
           ) : (
             <><Sparkles size={14} /> Generate {count}</>
           )}

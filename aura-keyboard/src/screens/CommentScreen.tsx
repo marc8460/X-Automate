@@ -34,8 +34,8 @@ export function CommentScreen() {
       const data = await analyzeScreenshot(result.assets[0].uri);
       setImageAnalysis(data.analysis);
       Alert.alert("Screenshot Analyzed", "Image context has been added to your request.");
-    } catch (err: any) {
-      Alert.alert("Analysis Failed", err.message);
+    } catch (err) {
+      Alert.alert("Analysis Failed", err instanceof Error ? err.message : "Unknown error");
     }
     setAnalyzing(false);
   };
@@ -50,8 +50,8 @@ export function CommentScreen() {
     try {
       const data = await generateComments(postContext, imageAnalysis || undefined, customInstruction || undefined);
       setComments(data.comments || []);
-    } catch (err: any) {
-      Alert.alert("Error", err.message);
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Unknown error");
     }
     setLoading(false);
   };

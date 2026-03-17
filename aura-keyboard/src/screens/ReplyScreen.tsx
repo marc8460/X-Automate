@@ -23,8 +23,8 @@ export function ReplyScreen() {
     try {
       const data = await generateReply(chatContext, customInstruction || undefined);
       setResult(data.reply);
-    } catch (err: any) {
-      Alert.alert("Error", err.message);
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Unknown error");
     }
     setLoading(false);
   };

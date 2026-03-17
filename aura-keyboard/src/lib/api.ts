@@ -73,11 +73,8 @@ export async function fetchMediaVault() {
 
 export async function analyzeScreenshot(uri: string) {
   const formData = new FormData();
-  formData.append("screenshot", {
-    uri,
-    name: "screenshot.jpg",
-    type: "image/jpeg",
-  } as any);
+  const file = { uri, name: "screenshot.jpg", type: "image/jpeg" } as unknown as Blob;
+  formData.append("screenshot", file);
 
   const resp = await authFetch("/api/mobile/analyze-screenshot", {
     method: "POST",

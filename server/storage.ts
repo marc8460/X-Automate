@@ -134,6 +134,7 @@ export interface IStorage {
   getContentItemById(id: number, userId: string): Promise<ContentItem | undefined>;
   updateContentItem(id: number, data: Partial<InsertContentItem>, userId: string): Promise<ContentItem | undefined>;
   deleteContentItem(id: number, userId: string): Promise<void>;
+  deleteReviewableContentItems(userId: string): Promise<number>;
   batchUpdateContentStatus(ids: number[], status: string, userId: string, extra?: Partial<InsertContentItem>): Promise<ContentItem[]>;
   claimScheduledContentDue(): Promise<ContentItem[]>;
 }
@@ -711,6 +712,16 @@ export class DatabaseStorage implements IStorage {
 
   async deleteContentItem(id: number, userId: string): Promise<void> {
     await db.delete(contentItems).where(and(eq(contentItems.id, id), eq(contentItems.userId, userId)));
+  }
+
+  async deleteReviewableContentItems(userId: string): Promise<number> {
+    const result = await db.delete(contentItems).where(
+      and(
+        eq(contentItems.userId, userId),
+        sql`${contentItems.status} IN ('needs_review', 'generated', 'idea')`
+      )
+    ).returning({ id: contentItems.id });
+    return result.length;
   }
 
   async batchUpdateContentStatus(ids: number[], status: string, userId: string, extra?: Partial<InsertContentItem>): Promise<ContentItem[]> {

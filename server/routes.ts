@@ -3523,6 +3523,12 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
     res.status(204).send();
   });
 
+  app.post("/api/content-studio/clear-generated", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const count = await storage.deleteReviewableContentItems(userId);
+    res.json({ deleted: count });
+  });
+
   app.post("/api/content-studio/items/:id/approve", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
     const item = await storage.getContentItemById(parseInt(req.params.id), userId);
@@ -3641,7 +3647,7 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
 
   app.post("/api/content-studio/generate-batch", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const { platform, platforms, format = "tweet", ratio = "4:5", count = 10, topic = "", style, mediaItemIds } = req.body;
+    const { platform, platforms, format = "tweet", ratio = "4:5", count = 10, topic = "", style, naughtiness, mediaItemIds } = req.body;
     const platformList: string[] = Array.isArray(platforms) && platforms.length > 0
       ? platforms
       : [platform || "x"];
@@ -3656,7 +3662,7 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
         return s ? s.value : fallback;
       };
       const tone = getSetting("persona_tone", "seductive");
-      const seductiveness = getSetting("seductiveness", "70");
+      const seductiveness = naughtiness !== undefined ? String(Math.min(100, Math.max(0, parseInt(naughtiness) || 60))) : getSetting("seductiveness", "70");
       const signaturePhrases = getSetting("persona_signature_phrases", "");
       const forbiddenPhrases = getSetting("persona_forbidden_phrases", "");
 
@@ -3694,7 +3700,40 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
         both: "Cross-platform: Write for both X (280 chars) and Threads (500 chars)",
       };
 
-      const personaGuide = `Tone: ${tone} | Seductiveness: ${seductiveness}/100${signaturePhrases ? ` | Use occasionally: ${signaturePhrases}` : ""}${forbiddenPhrases ? ` | Never use: ${forbiddenPhrases}` : ""}`;
+      const isStoryMode = format === "story";
+      const sedLevel = parseInt(seductiveness);
+
+      let naughtinessGuide = "";
+      if (sedLevel <= 30) {
+        naughtinessGuide = "Keep it wholesome and cute. Playful but innocent. No suggestive content.";
+      } else if (sedLevel <= 60) {
+        naughtinessGuide = "Flirty and teasing. Confident, a bit provocative but still tasteful. She knows she's attractive.";
+      } else if (sedLevel <= 80) {
+        naughtinessGuide = "Bold and seductive. She's not shy. Suggestive captions, body confidence, make them want more. Push boundaries.";
+      } else {
+        naughtinessGuide = "Maximum spice. She is THAT girl. Provocative, unapologetic, reference her body, what she's wearing or not wearing. Be freaky. Do NOT hold back or censor yourself.";
+      }
+
+      const personaGuide = `Tone: ${tone} | Seductiveness: ${seductiveness}/100\nNAUGHTINESS GUIDE: ${naughtinessGuide}${signaturePhrases ? `\nUse occasionally: ${signaturePhrases}` : ""}${forbiddenPhrases ? `\nNever use: ${forbiddenPhrases}` : ""}`;
+
+      let captionStyleGuide = "";
+      if (isStoryMode) {
+        captionStyleGuide = `
+INSTAGRAM STORY MODE: These are Instagram stories with a CTA driving traffic.
+- Captions must be SHORT (1-2 lines max) + a CTA with a link placeholder
+- Caption styles: "see more here 🔗", "my naughty side (link in bio)", "swipe up babe 💋", "the full set is waiting for you 🔥", "link in bio for more", "want to see what happens next? (link)", "this one's too hot for the feed 🙈 (link in bio)"
+- The hook IS the caption — keep it punchy and enticing
+- Always include a CTA driving to a link (use "link in bio" or "(link)" as placeholder)
+- Make them want to click through`;
+      } else {
+        captionStyleGuide = `
+CAPTION STYLE: Write captions as if the creator is talking DIRECTLY about what she sees in the photo.
+- The caption MUST reference what she's wearing, doing, or feeling in the specific image
+- Examples of good captions: "new dress, do you guys like it?", "why am i still single?", "can i text you?", "do u think im cute?", "this outfit is giving main character energy", "who's taking me out in this?", "would you take me home?", "rate this fit 1-10"
+- The caption should feel like she just took the photo and is casually posting about it
+- Use the image mood and outfit data to write relevant, personal captions
+- Short, casual, lowercase-friendly — like a real person posting, not a brand`;
+      }
 
       const systemPrompt = `You are a social media content strategist and copywriter for a female creator.
 Generate exactly ${batchCount} content pieces for a batch content factory.
@@ -3704,16 +3743,17 @@ PLATFORMS: ${platformList.map(p => platformGuide[p] || p).join("; ")}
 FORMAT: ${format}
 ${style ? `STYLE: ${style}` : ""}
 ASPECT RATIO: ${selectedRatio} (design content with this ratio in mind for visuals — select images that suit this format)
+${captionStyleGuide}
 ${topic ? `TOPIC/THEME: ${topic}` : "Generate a variety of engaging topics."}
-${mediaImages.length > 0 ? `MEDIA CONTEXT (pair each piece with one): ${mediaImages.map(m => `Image ${m.id}: mood=${m.mood}, outfit=${m.outfit}`).join("; ")}` : ""}
+${mediaImages.length > 0 ? `\nMEDIA CONTEXT — CRITICAL: You MUST pair each piece with one of these images AND write the caption specifically about what she's wearing/doing in that image:\n${mediaImages.map(m => `Image ${m.id}: mood="${m.mood}", outfit="${m.outfit}" — write caption that references this outfit/mood`).join("\n")}` : ""}
 
 For each piece, return a JSON array of objects with these fields:
 - "hook": The opening line / first sentence (the scroll-stopper)
 - "caption": The full post text including the hook
-- "cta": Call-to-action line (if applicable, empty string if not)
+- "cta": Call-to-action line${isStoryMode ? " (REQUIRED — always include a link CTA)" : " (if applicable, empty string if not)"}
 - "confidence": Your confidence score 0-100 that this will perform well
 - "strategy": One sentence explaining why this content should work
-${mediaImages.length > 0 ? `- "mediaItemId": The image ID this piece should pair with (from: ${mediaImages.map(m => m.id).join(", ")}). Distribute images across pieces.` : ""}
+${mediaImages.length > 0 ? `- "mediaItemId": The image ID this piece should pair with (from: ${mediaImages.map(m => m.id).join(", ")}). Distribute images across pieces. The caption MUST relate to the paired image.` : ""}
 
 Return ONLY a valid JSON array. No markdown, no explanation.`;
 
@@ -3721,9 +3761,9 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
         model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate ${batchCount} ${format} content pieces${topic ? ` about: ${topic}` : ""}.` },
+          { role: "user", content: `Generate ${batchCount} ${isStoryMode ? "Instagram story" : format} content pieces${topic ? ` about: ${topic}` : ""}.` },
         ],
-        temperature: 0.9,
+        temperature: sedLevel > 80 ? 1.0 : 0.9,
         max_tokens: 4000,
       });
 
