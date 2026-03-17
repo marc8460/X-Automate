@@ -21,14 +21,25 @@ import { PlatformBadge } from "@/components/platform/PlatformBadge";
 import Composer from "./Composer";
 import type { ContentItem, MediaItem } from "@shared/schema";
 
-type Platform = "x" | "threads" | "both";
-type ContentStatus = "idea" | "generated" | "needs_review" | "approved" | "scheduled" | "posting" | "posted" | "failed" | "rejected";
+type ContentPlatform = "x" | "threads" | "instagram" | "tiktok" | "both";
 type SortKey = "confidence" | "scheduledAt" | "platform" | "generatedAt";
+
+const STYLE_OPTIONS = [
+  "Engagement Bait",
+  "Direct Question",
+  "Soft Tease",
+  "Viral Hook",
+  "Community Love",
+  "Bold Statement",
+  "Behind the Scenes",
+] as const;
 
 const PLATFORM_FILTERS = [
   { id: "all", label: "All" },
   { id: "x", label: "X" },
   { id: "threads", label: "Threads" },
+  { id: "instagram", label: "Instagram" },
+  { id: "tiktok", label: "TikTok" },
   { id: "both", label: "Both" },
 ] as const;
 
@@ -88,6 +99,10 @@ function useContentItems(filters?: { status?: string; platform?: string }) {
   });
 }
 
+function getMediaUrl(item: MediaItem): string {
+  return `/uploads/${item.url}`;
+}
+
 function VaultPickerModal({
   open, onClose, onSelect, mediaItems, selectedId,
 }: {
@@ -120,18 +135,18 @@ function VaultPickerModal({
               <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-vault-empty">No media in your vault yet.</p>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                {mediaItems.map((item: any) => (
+                {mediaItems.map((item) => (
                   <button
                     key={item.id}
                     data-testid={`vault-item-${item.id}`}
-                    onClick={() => { onSelect(item.id, `/uploads/${item.filename || item.url}`); onClose(); }}
+                    onClick={() => { onSelect(item.id, getMediaUrl(item)); onClose(); }}
                     className={cn(
                       "aspect-square rounded-lg overflow-hidden border-2 transition-all",
                       selectedId === item.id ? "border-primary" : "border-transparent hover:border-border"
                     )}
                   >
                     <img
-                      src={`/uploads/${item.filename || item.url}`}
+                      src={getMediaUrl(item)}
                       alt=""
                       className="w-full h-full object-cover"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
@@ -147,8 +162,15 @@ function VaultPickerModal({
   );
 }
 
+const GEN_PLATFORMS: { id: ContentPlatform; label: string }[] = [
+  { id: "x", label: "X" },
+  { id: "threads", label: "Threads" },
+  { id: "instagram", label: "Instagram" },
+  { id: "tiktok", label: "TikTok" },
+];
+
 function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
-  const [platforms, setPlatforms] = useState<Platform>("both");
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<ContentPlatform>>(new Set(["x", "threads"]));
   const [count, setCount] = useState(10);
   const [topic, setTopic] = useState("");
   const [style, setStyle] = useState("");
@@ -156,21 +178,31 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
 
+  const togglePlatform = (p: ContentPlatform) => {
+    setSelectedPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) { if (next.size > 1) next.delete(p); }
+      else next.add(p);
+      return next;
+    });
+  };
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
       const res = await apiRequest("POST", "/api/content-studio/generate-batch", {
-        platforms: platforms === "both" ? ["x", "threads"] : [platforms],
+        platforms: Array.from(selectedPlatforms),
         count,
         topic: topic || undefined,
         style: style || undefined,
         ratio,
       });
-      const data = await res.json();
+      const data: { items?: ContentItem[] } = await res.json();
       toast({ title: `${data.items?.length || count} items generated`, description: "Review and approve them below." });
       onGenerated();
-    } catch (err: any) {
-      toast({ title: "Generation failed", description: err?.message || "Try again", variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Try again";
+      toast({ title: "Generation failed", description: message, variant: "destructive" });
     } finally {
       setIsGenerating(false);
     }
@@ -190,21 +222,21 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div>
-          <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Platform</label>
-          <div className="flex gap-1">
-            {(["x", "threads", "both"] as Platform[]).map((p) => (
+          <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Platforms</label>
+          <div className="flex flex-wrap gap-1">
+            {GEN_PLATFORMS.map((p) => (
               <button
-                key={p}
-                data-testid={`button-platform-${p}`}
-                onClick={() => setPlatforms(p)}
+                key={p.id}
+                data-testid={`button-platform-${p.id}`}
+                onClick={() => togglePlatform(p.id)}
                 className={cn(
-                  "flex-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-all capitalize",
-                  platforms === p
+                  "px-2 py-1.5 text-xs font-medium rounded-md border transition-all",
+                  selectedPlatforms.has(p.id)
                     ? "border-primary/40 bg-primary/10 text-primary"
                     : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
                 )}
               >
-                {p === "both" ? "Both" : p === "x" ? "X" : "Threads"}
+                {p.label}
               </button>
             ))}
           </div>
@@ -249,13 +281,17 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
 
         <div>
           <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Style</label>
-          <Input
-            placeholder="e.g. Soft tease, Bold..."
+          <select
             value={style}
             onChange={(e) => setStyle(e.target.value)}
-            className="h-8 text-xs"
-            data-testid="input-style"
-          />
+            className="w-full h-8 text-xs rounded-md border border-border/40 bg-background px-2 text-foreground"
+            data-testid="select-style"
+          >
+            <option value="">Any style</option>
+            {STYLE_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -272,7 +308,7 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         </div>
         <Button
           onClick={handleGenerate}
-          disabled={isGenerating}
+          disabled={isGenerating || selectedPlatforms.size === 0}
           className="gap-2 shrink-0"
           data-testid="button-generate"
         >
@@ -345,7 +381,7 @@ function ContentReviewCard({
   item, onAction, mediaItems, isSelected, onToggleSelect,
 }: {
   item: ContentItem;
-  onAction: (action: string, data?: any) => void;
+  onAction: (action: string, data?: Partial<ContentItem>) => void;
   mediaItems: MediaItem[];
   isSelected: boolean;
   onToggleSelect: () => void;
@@ -358,6 +394,7 @@ function ContentReviewCard({
   const canSchedule = item.status === "approved";
   const canPostNow = ["approved", "scheduled"].includes(item.status);
   const canEdit = !["posting", "posted"].includes(item.status);
+  const canRegenerate = ["needs_review", "generated", "rejected"].includes(item.status);
 
   return (
     <motion.div
@@ -409,8 +446,10 @@ function ContentReviewCard({
                 <PlatformBadge platform="x" size="xs" />
                 <PlatformBadge platform="threads" size="xs" />
               </>
+            ) : (["x", "threads", "instagram", "tiktok"] as const).includes(item.platform as "x" | "threads" | "instagram" | "tiktok") ? (
+              <PlatformBadge platform={item.platform as "x" | "threads" | "instagram" | "tiktok"} size="xs" />
             ) : (
-              <PlatformBadge platform={item.platform as any} size="xs" />
+              <Badge variant="outline" className="text-[10px]">{item.platform}</Badge>
             )}
           </div>
 
@@ -482,6 +521,12 @@ function ContentReviewCard({
                 <Zap size={12} /> Post
               </Button>
             )}
+            {canRegenerate && (
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 gap-1 text-xs"
+                onClick={() => onAction("regenerate")} data-testid={`button-regenerate-${item.id}`}>
+                <RefreshCw size={12} /> Regen
+              </Button>
+            )}
             {canEdit && (
               <Button size="sm" variant="ghost" className="h-7 px-2 text-muted-foreground hover:text-foreground gap-1 text-xs ml-auto"
                 onClick={() => setEditing(!editing)} data-testid={`button-edit-${item.id}`}>
@@ -510,11 +555,12 @@ function BatchActionsBar({
   selectedIds, totalCount, onAction, onSelectAll, onDeselectAll,
 }: {
   selectedIds: Set<number>; totalCount: number;
-  onAction: (action: string, data?: any) => void;
+  onAction: (action: string, data?: { threshold: number }) => void;
   onSelectAll: () => void; onDeselectAll: () => void;
 }) {
   const [showThreshold, setShowThreshold] = useState(false);
   const [threshold, setThreshold] = useState(70);
+  const [thresholdMode, setThresholdMode] = useState<"approve-above" | "reject-below">("reject-below");
 
   if (selectedIds.size === 0 && !showThreshold) return null;
 
@@ -559,13 +605,35 @@ function BatchActionsBar({
       </Button>
 
       {showThreshold && (
-        <div className="flex items-center gap-2 ml-2">
-          <span className="text-xs text-muted-foreground">Approve above</span>
+        <div className="flex items-center gap-2 ml-2 flex-wrap">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setThresholdMode("reject-below")}
+              className={cn("px-2 py-1 text-[10px] rounded border transition-all",
+                thresholdMode === "reject-below" ? "border-red-400/30 bg-red-400/10 text-red-400" : "border-border/40 text-muted-foreground"
+              )}
+              data-testid="button-threshold-reject"
+            >
+              Reject below
+            </button>
+            <button
+              onClick={() => setThresholdMode("approve-above")}
+              className={cn("px-2 py-1 text-[10px] rounded border transition-all",
+                thresholdMode === "approve-above" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500" : "border-border/40 text-muted-foreground"
+              )}
+              data-testid="button-threshold-approve"
+            >
+              Approve above
+            </button>
+          </div>
           <Input type="number" min={0} max={100} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))}
             className="w-16 h-7 text-xs" data-testid="input-threshold" />
           <span className="text-xs text-muted-foreground">%</span>
           <Button size="sm" className="h-7 text-xs gap-1"
-            onClick={() => { onAction("approve-threshold", { threshold }); setShowThreshold(false); }}
+            onClick={() => {
+              onAction(thresholdMode === "reject-below" ? "reject-threshold" : "approve-threshold", { threshold });
+              setShowThreshold(false);
+            }}
             data-testid="button-apply-threshold">
             Apply
           </Button>
@@ -615,7 +683,7 @@ function AIFactoryTab() {
     return sorted;
   }, [items, sortKey]);
 
-  const handleItemAction = useCallback(async (item: ContentItem, action: string, data?: any) => {
+  const handleItemAction = useCallback(async (item: ContentItem, action: string, data?: Partial<ContentItem>) => {
     try {
       if (action === "approve") {
         await apiRequest("POST", `/api/content-studio/items/${item.id}/approve`);
@@ -629,17 +697,25 @@ function AIFactoryTab() {
       } else if (action === "post-now") {
         await apiRequest("POST", `/api/content-studio/items/${item.id}/post-now`);
         toast({ title: "Posting now..." });
+      } else if (action === "regenerate") {
+        await apiRequest("POST", "/api/content-studio/generate-batch", {
+          platforms: [item.platform === "both" ? "x" : item.platform],
+          count: 1,
+          ratio: item.ratio,
+        });
+        toast({ title: "Regenerated", description: "New version added to your queue" });
       } else if (action === "edit") {
         await apiRequest("PATCH", `/api/content-studio/items/${item.id}`, data);
         toast({ title: "Content updated" });
       }
       invalidate();
-    } catch (err: any) {
-      toast({ title: "Action failed", description: err?.message || "Try again", variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Try again";
+      toast({ title: "Action failed", description: message, variant: "destructive" });
     }
   }, [toast, invalidate]);
 
-  const handleBatchAction = useCallback(async (action: string, data?: any) => {
+  const handleBatchAction = useCallback(async (action: string, data?: { threshold: number }) => {
     try {
       if (action === "approve-selected" || action === "reject-selected") {
         const status = action === "approve-selected" ? "approved" : "rejected";
@@ -657,19 +733,30 @@ function AIFactoryTab() {
         });
         toast({ title: `${reviewable.length} items ${transitionAction === "approve" ? "approved" : "rejected"}` });
       } else if (action === "approve-threshold") {
-        const threshold = data?.threshold || 70;
+        const scoreThreshold = data?.threshold ?? 70;
         const eligible = items.filter((i) =>
-          ["needs_review", "generated"].includes(i.status) && i.confidence >= threshold
+          ["needs_review", "generated"].includes(i.status) && i.confidence >= scoreThreshold
         );
-        if (eligible.length === 0) { toast({ title: `No items above ${threshold}%` }); return; }
+        if (eligible.length === 0) { toast({ title: `No items above ${scoreThreshold}%` }); return; }
         await apiRequest("POST", "/api/content-studio/batch-action", {
           ids: eligible.map((i) => i.id), action: "approve",
         });
-        toast({ title: `${eligible.length} items approved (score >= ${threshold}%)` });
+        toast({ title: `${eligible.length} items approved (score >= ${scoreThreshold}%)` });
+      } else if (action === "reject-threshold") {
+        const scoreThreshold = data?.threshold ?? 70;
+        const eligible = items.filter((i) =>
+          ["needs_review", "generated"].includes(i.status) && i.confidence < scoreThreshold
+        );
+        if (eligible.length === 0) { toast({ title: `No items below ${scoreThreshold}%` }); return; }
+        await apiRequest("POST", "/api/content-studio/batch-action", {
+          ids: eligible.map((i) => i.id), action: "reject",
+        });
+        toast({ title: `${eligible.length} items rejected (score < ${scoreThreshold}%)` });
       }
       invalidate();
-    } catch (err: any) {
-      toast({ title: "Batch action failed", description: err?.message || "Try again", variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Try again";
+      toast({ title: "Batch action failed", description: message, variant: "destructive" });
     }
   }, [items, selectedIds, toast, invalidate]);
 
@@ -681,8 +768,9 @@ function AIFactoryTab() {
       });
       toast({ title: "Content scheduled", description: formatDate(isoString) });
       invalidate();
-    } catch (err: any) {
-      toast({ title: "Schedule failed", description: err?.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Try again";
+      toast({ title: "Schedule failed", description: message, variant: "destructive" });
     }
     setSchedulingItem(null);
   }, [schedulingItem, toast, invalidate]);
@@ -693,8 +781,9 @@ function AIFactoryTab() {
       await apiRequest("POST", `/api/content-studio/items/${schedulingItem.id}/post-now`);
       toast({ title: "Posting now..." });
       invalidate();
-    } catch (err: any) {
-      toast({ title: "Post failed", description: err?.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Try again";
+      toast({ title: "Post failed", description: message, variant: "destructive" });
     }
     setSchedulingItem(null);
   }, [schedulingItem, toast, invalidate]);
@@ -905,7 +994,7 @@ function StoryIdeasTab() {
   const template = STORY_TEMPLATES.find((t) => t.id === selectedTemplate)!;
   const slideCount = selectedTemplate === "custom" ? customSlides : template.slides;
 
-  const selectedImage = (mediaItems as any[]).find((m) => m.id === selectedImageId);
+  const selectedImage = (mediaItems as MediaItem[]).find((m) => m.id === selectedImageId);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -916,7 +1005,7 @@ function StoryIdeasTab() {
         slideCount,
         linkUrl,
         context,
-        imageTag: selectedImage ? `${selectedImage.mood ?? ""} ${selectedImage.outfit ?? ""}`.trim() : "",
+        imageTag: selectedImage ? `${selectedImage.mood} ${selectedImage.outfit}`.trim() : "",
       });
       const data = await res.json();
       if (data.slides) setSlides(data.slides);
@@ -974,10 +1063,10 @@ function StoryIdeasTab() {
             <p className="text-xs font-semibold text-muted-foreground/70 uppercase tracking-wider mb-3">Media (optional)</p>
             {selectedImage ? (
               <div className="flex items-center gap-3">
-                <img src={`/uploads/${selectedImage.filename}`} alt="" className="w-14 h-14 rounded-lg object-cover border border-border/50"
+                <img src={getMediaUrl(selectedImage)} alt="" className="w-14 h-14 rounded-lg object-cover border border-border/50"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{selectedImage.filename}</p>
+                  <p className="text-sm font-medium truncate">{selectedImage.url}</p>
                   <p className="text-xs text-muted-foreground">{[selectedImage.mood, selectedImage.outfit].filter(Boolean).join(" · ")}</p>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => setSelectedImageId(null)}>Clear</Button>
@@ -1071,7 +1160,7 @@ function CalendarTab() {
 
 type StudioTab = "factory" | "create" | "stories" | "calendar";
 
-const STUDIO_TABS: { id: StudioTab; label: string; icon: React.FC<any> }[] = [
+const STUDIO_TABS: { id: StudioTab; label: string; icon: React.FC<{ size?: number }> }[] = [
   { id: "factory", label: "AI Factory", icon: Sparkles },
   { id: "create", label: "Manual Composer", icon: Wand2 },
   { id: "stories", label: "Story Ideas", icon: Layers },
