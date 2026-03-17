@@ -23,7 +23,7 @@ const DISPLAY_HOURS = HOURS.filter((h) => h >= 6 && h <= 23);
 
 const PLATFORM_COLORS: Record<string, string> = {
   x: "border-l-neutral-800 bg-neutral-900/10",
-  threads: "border-l-neutral-700 bg-neutral-800/10",
+  threads: "border-l-blue-500 bg-blue-500/10",
   instagram: "border-l-purple-500 bg-purple-500/10",
   tiktok: "border-l-pink-500 bg-pink-500/10",
   both: "border-l-primary bg-primary/10",
@@ -364,6 +364,58 @@ function UnscheduledSidebar({
   );
 }
 
+function SlotPickerPopup({
+  items, dateKey, hour, onSelect, onCreateNew, onClose,
+}: {
+  items: ContentItem[];
+  dateKey: string;
+  hour: number;
+  onSelect: (item: ContentItem) => void;
+  onCreateNew: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute z-30 top-full left-0 mt-1 w-52 rounded-lg border border-border/40 bg-card/95 backdrop-blur-md shadow-xl p-2 space-y-1" data-testid={`slot-picker-${dateKey}-${hour}`}>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Add to slot</p>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground" data-testid="button-close-slot-picker">
+          <X size={10} />
+        </button>
+      </div>
+      <button
+        onClick={onCreateNew}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-primary rounded hover:bg-primary/10 transition-colors"
+        data-testid="button-create-new-from-slot"
+      >
+        <Sparkles size={10} />
+        Create new in Studio
+      </button>
+      {items.length > 0 && (
+        <div className="border-t border-border/20 pt-1 mt-1 max-h-40 overflow-y-auto space-y-0.5">
+          <p className="text-[9px] text-muted-foreground px-1">Approved drafts:</p>
+          {items.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onSelect(item)}
+              className="w-full text-left px-2 py-1.5 rounded text-[10px] hover:bg-muted/50 transition-colors"
+              data-testid={`slot-pick-item-${item.id}`}
+            >
+              <div className="flex items-center gap-1 mb-0.5">
+                {isPlatformMatch(item.platform) && <PlatformBadge platform={item.platform} size="xs" />}
+                <span className="text-muted-foreground ml-auto">{item.confidence}%</span>
+              </div>
+              <p className="line-clamp-1 text-foreground/70">{item.hook || item.caption || "Untitled"}</p>
+            </button>
+          ))}
+        </div>
+      )}
+      {items.length === 0 && (
+        <p className="text-[9px] text-muted-foreground/50 text-center py-2">No approved drafts available</p>
+      )}
+    </div>
+  );
+}
+
 export default function CalendarView() {
   const [weekBase, setWeekBase] = useState(() => new Date());
   const [platformFilter, setPlatformFilter] = useState("all");
@@ -371,6 +423,7 @@ export default function CalendarView() {
   const [schedulingItem, setSchedulingItem] = useState<ContentItem | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
+  const [slotPicker, setSlotPicker] = useState<{ dateKey: string; hour: number } | null>(null);
   const dragItemRef = useRef<ContentItem | null>(null);
 
   const { toast } = useToast();
@@ -698,17 +751,43 @@ export default function CalendarView() {
                           ))}
                         </div>
                         {hourItems.length === 0 && (
-                          <button
-                            className="w-full h-full min-h-[40px] flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                            onClick={() => {
-                              if (unscheduledItems.length > 0) {
-                                setSchedulingItem(unscheduledItems[0]);
-                              }
-                            }}
-                            data-testid={`button-add-${dateKey}-${hour}`}
-                          >
-                            <Plus size={12} className="text-muted-foreground/30" />
-                          </button>
+                          <div className="relative">
+                            <button
+                              className="w-full h-full min-h-[40px] flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                              onClick={() => setSlotPicker(
+                                slotPicker?.dateKey === dateKey && slotPicker?.hour === hour
+                                  ? null
+                                  : { dateKey, hour }
+                              )}
+                              data-testid={`button-add-${dateKey}-${hour}`}
+                            >
+                              <Plus size={12} className="text-muted-foreground/30" />
+                            </button>
+                            {slotPicker?.dateKey === dateKey && slotPicker?.hour === hour && (
+                              <SlotPickerPopup
+                                items={unscheduledItems}
+                                dateKey={dateKey}
+                                hour={hour}
+                                onSelect={async (item) => {
+                                  const scheduledAt = `${dateKey}T${String(hour).padStart(2, "0")}:00`;
+                                  try {
+                                    await apiRequest("POST", `/api/content-studio/items/${item.id}/schedule`, { scheduledAt });
+                                    toast({ title: "Scheduled" });
+                                    invalidate();
+                                  } catch (err) {
+                                    const msg = err instanceof Error ? err.message : "Schedule failed";
+                                    toast({ title: "Schedule failed", description: msg, variant: "destructive" });
+                                  }
+                                  setSlotPicker(null);
+                                }}
+                                onCreateNew={() => {
+                                  window.location.href = "/studio";
+                                  setSlotPicker(null);
+                                }}
+                                onClose={() => setSlotPicker(null)}
+                              />
+                            )}
+                          </div>
                         )}
                       </div>
                     );

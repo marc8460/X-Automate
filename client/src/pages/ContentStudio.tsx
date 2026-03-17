@@ -1144,31 +1144,12 @@ function StoryIdeasTab() {
   );
 }
 
-function CalendarTab() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
-      <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10 mb-4">
-        <Calendar size={32} className="text-primary/40" />
-      </div>
-      <h3 className="text-xl font-bold font-display mb-2">Content Calendar</h3>
-      <p className="text-muted-foreground text-sm max-w-sm mb-4">
-        Plan and visualize your posting schedule across all platforms.
-      </p>
-      <a href="/studio/calendar" className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors" data-testid="link-open-calendar">
-        <Calendar size={14} />
-        Open Calendar
-      </a>
-    </div>
-  );
-}
-
-type StudioTab = "factory" | "create" | "stories" | "calendar";
+type StudioTab = "factory" | "create" | "stories";
 
 const STUDIO_TABS: { id: StudioTab; label: string; icon: React.FC<{ size?: number }> }[] = [
   { id: "factory", label: "AI Factory", icon: Sparkles },
   { id: "create", label: "Manual Composer", icon: Wand2 },
   { id: "stories", label: "Story Ideas", icon: Layers },
-  { id: "calendar", label: "Calendar", icon: Calendar },
 ];
 
 export default function ContentStudio() {
@@ -1210,7 +1191,6 @@ export default function ContentStudio() {
           {activeTab === "factory" && <AIFactoryTab />}
           {activeTab === "create" && <Composer />}
           {activeTab === "stories" && <StoryIdeasTab />}
-          {activeTab === "calendar" && <CalendarTab />}
         </motion.div>
       </AnimatePresence>
     </div>
