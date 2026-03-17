@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, DragEvent } from "react";
+import { useState, useCallback, useMemo, useRef, Fragment, DragEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock,
@@ -716,8 +716,8 @@ export default function CalendarView() {
               })}
 
               {DISPLAY_HOURS.map((hour) => (
-                <>
-                  <div key={`time-${hour}`} className="border-b border-border/10 py-1 px-1 text-right">
+                <Fragment key={`row-${hour}`}>
+                  <div className="border-b border-border/10 py-1 px-1 text-right">
                     <span className="text-[10px] text-muted-foreground/50">
                       {hour % 12 || 12}{hour >= 12 ? "p" : "a"}
                     </span>
@@ -792,7 +792,7 @@ export default function CalendarView() {
                       </div>
                     );
                   })}
-                </>
+                </Fragment>
               ))}
             </div>
           </div>

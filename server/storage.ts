@@ -689,7 +689,8 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`(${contentItems.scheduledAt} >= ${filters.startDate} OR (${contentItems.scheduledAt} IS NULL AND ${contentItems.postedAt} >= ${filters.startDate}))`);
     }
     if (filters?.endDate) {
-      conditions.push(sql`(${contentItems.scheduledAt} <= ${filters.endDate} OR (${contentItems.scheduledAt} IS NULL AND ${contentItems.postedAt} <= ${filters.endDate}))`);
+      const endOfDay = `${filters.endDate}T23:59:59`;
+      conditions.push(sql`(${contentItems.scheduledAt} <= ${endOfDay} OR (${contentItems.scheduledAt} IS NULL AND ${contentItems.postedAt} <= ${endOfDay}))`);
     }
     return db.select().from(contentItems).where(and(...conditions)).orderBy(desc(contentItems.generatedAt));
   }
