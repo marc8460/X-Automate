@@ -3641,7 +3641,10 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
 
   app.post("/api/content-studio/generate-batch", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const { platform = "x", format = "tweet", ratio = "4:5", count = 10, topic = "", mediaItemIds } = req.body;
+    const { platform, platforms, format = "tweet", ratio = "4:5", count = 10, topic = "", style, mediaItemIds } = req.body;
+    const platformList: string[] = Array.isArray(platforms) && platforms.length > 0
+      ? platforms
+      : [platform || "x"];
     const validRatios = ["1:1", "4:5", "9:16", "16:9"];
     const selectedRatio = validRatios.includes(ratio) ? ratio : "4:5";
     const batchCount = Math.min(Math.max(1, parseInt(count) || 10), 20);
@@ -3686,6 +3689,8 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       const platformGuide: Record<string, string> = {
         x: "Twitter/X: Max 280 chars for tweets, punchy hooks, no hashtag spam",
         threads: "Threads: 500 char limit, conversational, storytelling works well",
+        instagram: "Instagram: Engaging captions with relevant hashtags, visual-first storytelling",
+        tiktok: "TikTok: Short punchy hooks, trend-aware, casual tone, vertical format",
         both: "Cross-platform: Write for both X (280 chars) and Threads (500 chars)",
       };
 
@@ -3695,8 +3700,9 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
 Generate exactly ${batchCount} content pieces for a batch content factory.
 
 PERSONA: ${personaGuide}
-PLATFORM: ${platformGuide[platform] || platformGuide.x}
+PLATFORMS: ${platformList.map(p => platformGuide[p] || p).join("; ")}
 FORMAT: ${format}
+${style ? `STYLE: ${style}` : ""}
 ASPECT RATIO: ${selectedRatio} (design content with this ratio in mind for visuals — select images that suit this format)
 ${topic ? `TOPIC/THEME: ${topic}` : "Generate a variety of engaging topics."}
 ${mediaImages.length > 0 ? `MEDIA CONTEXT (pair each piece with one): ${mediaImages.map(m => `Image ${m.id}: mood=${m.mood}, outfit=${m.outfit}`).join("; ")}` : ""}
@@ -3731,12 +3737,16 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
       }
 
       const created = [];
-      for (const piece of pieces) {
+      for (let idx = 0; idx < pieces.length; idx++) {
+        const piece = pieces[idx];
+        const itemPlatform = platformList.length === 1
+          ? platformList[0]
+          : platformList[idx % platformList.length];
         const mediaId = piece.mediaItemId ? parseInt(String(piece.mediaItemId)) : null;
         const matchedMedia = mediaId ? mediaImages.find(m => m.id === mediaId) : null;
         const item = await storage.createContentItem({
           userId,
-          platform,
+          platform: itemPlatform,
           format,
           ratio: selectedRatio,
           status: "needs_review",
