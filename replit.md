@@ -38,7 +38,7 @@ Tables: tweets, media_items, engagements, follower_interactions, live_follower_i
 ## Project Structure
 ```
 client/src/
-  pages/          - Dashboard, Composer, MediaVault, UnifiedInbox, ViralEngine, Analytics, Settings
+  pages/          - Dashboard, ContentStudio (AI Factory + Composer + Stories + Calendar tabs), Composer, MediaVault, UnifiedInbox, ViralEngine, Analytics, Settings
   components/     - UI (shadcn), layout (Layout, Sidebar, TopNav, PlatformSwitcher), platform (PlatformBadge)
   contexts/       - PlatformContext, AccountContext
   types/          - platform.ts (platform types and config)
@@ -144,6 +144,18 @@ aura-keyboard/    - React Native/Expo mobile companion app
 - **Calendar**: GET `/api/content-studio/calendar?startDate=&endDate=&platform=` — returns items grouped by date with platform filtering
 - **Background scheduler**: `server/contentScheduler.ts` atomically claims due items (UPDATE...WHERE status='scheduled' RETURNING) and auto-posts them every 30s
 - **Security**: SSRF protection on imageUrl (private IP/host blocklist), safe path resolution for uploads, no `as any` casts in critical flows
+
+## Content Studio Frontend
+- **AI Factory tab** (default): Batch AI content generation → review cards in responsive grid → approve/reject/edit/schedule/post
+- **Generation panel**: Platform selector (X/Threads/Both), count slider (1-20), ratio picker (4:5/9:16/1:1), style input, topic hint
+- **Review cards**: Platform badge, format tag, image preview at correct ratio, hook/caption/CTA, confidence score (color-coded), status badge, quick actions
+- **Inline editor**: Expand card to edit hook/caption/CTA, change media from vault picker
+- **Batch actions toolbar**: Approve All, Reject All, Approve Selected, Reject Selected, Score Threshold approval (approve all above N%)
+- **Filters**: Platform filter tabs (All/X/Threads/Both), Status filter tabs (All/Needs Review/Approved/Scheduled/Posted/Rejected/Failed)
+- **Sorting**: By newest, confidence score, scheduled date, platform
+- **Scheduling flow**: Approve → Schedule opens DateTimeWheelModal → picks date/time → saves to backend
+- **Post Now**: Immediate posting via /post-now endpoint
+- **Other tabs**: Manual Composer (existing Composer component), Story Ideas (AI story sequences), Calendar (placeholder)
 
 ## Mobile API (Aura AI Keyboard)
 - **Auth**: Bearer token in `Authorization` header. Tokens stored in `mobile_api_tokens` table. Token format: `aura_mob_<48 hex chars>`. Middleware `isMobileAuthenticated` validates + touches `lastUsedAt`.
