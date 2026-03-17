@@ -3576,7 +3576,7 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
     res.json(updated);
   });
 
-  app.post("/api/content-studio/items/:id/send-back-to-draft", isAuthenticated, async (req: Request, res: Response) => {
+  const sendToDraftHandler = async (req: Request, res: Response) => {
     const userId = getUserId(req);
     const item = await storage.getContentItemById(parseInt(req.params.id), userId);
     if (!item) return res.status(404).json({ message: "Not found" });
@@ -3586,7 +3586,9 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
     }
     const updated = await storage.updateContentItem(item.id, { status: "needs_review", scheduledAt: null }, userId);
     res.json(updated);
-  });
+  };
+  app.post("/api/content-studio/items/:id/send-back-to-draft", isAuthenticated, sendToDraftHandler);
+  app.post("/api/content-studio/items/:id/send-to-draft", isAuthenticated, sendToDraftHandler);
 
   app.post("/api/content-studio/batch-action", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
@@ -3594,7 +3596,7 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
     if (!Array.isArray(ids) || ids.length === 0 || !action) {
       return res.status(400).json({ message: "ids (non-empty array) and action are required" });
     }
-    const validActions = ["approve", "reject", "schedule", "send-back-to-draft"];
+    const validActions = ["approve", "reject", "schedule", "send-back-to-draft", "send-to-draft"];
     if (!validActions.includes(action)) {
       return res.status(400).json({ message: `Invalid action. Must be one of: ${validActions.join(", ")}` });
     }
@@ -3603,6 +3605,7 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       reject: "rejected",
       schedule: "scheduled",
       "send-back-to-draft": "needs_review",
+      "send-to-draft": "needs_review",
     };
     const targetStatus = statusMap[action];
     if (action === "schedule") {
@@ -3610,16 +3613,37 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       const pd = new Date(scheduledAt);
       if (isNaN(pd.getTime())) return res.status(400).json({ message: "scheduledAt must be a valid ISO datetime" });
     }
+
+    const allItems = await storage.getContentItems(userId, {});
+    const itemMap = new Map(allItems.map(i => [i.id, i]));
+    const validIds: number[] = [];
+    const skipped: { id: number; reason: string }[] = [];
+    for (const id of ids) {
+      const existing = itemMap.get(id);
+      if (!existing) {
+        skipped.push({ id, reason: "not found" });
+        continue;
+      }
+      const allowed = ALLOWED_TRANSITIONS[existing.status];
+      if (!allowed || !allowed.includes(targetStatus)) {
+        skipped.push({ id, reason: `cannot transition from "${existing.status}" to "${targetStatus}"` });
+        continue;
+      }
+      validIds.push(id);
+    }
+
     const extra: Partial<{ scheduledAt: string | null }> = {};
     if (action === "schedule" && scheduledAt) extra.scheduledAt = scheduledAt;
-    if (action === "send-back-to-draft") extra.scheduledAt = null;
-    const items = await storage.batchUpdateContentStatus(ids, targetStatus, userId, extra);
-    res.json(items);
+    if (action === "send-back-to-draft" || action === "send-to-draft") extra.scheduledAt = null;
+    const updated = validIds.length > 0 ? await storage.batchUpdateContentStatus(validIds, targetStatus, userId, extra) : [];
+    res.json({ updated, skipped });
   });
 
   app.post("/api/content-studio/generate-batch", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
     const { platform = "x", format = "tweet", ratio = "4:5", count = 10, topic = "", mediaItemIds } = req.body;
+    const validRatios = ["1:1", "4:5", "9:16", "16:9"];
+    const selectedRatio = validRatios.includes(ratio) ? ratio : "4:5";
     const batchCount = Math.min(Math.max(1, parseInt(count) || 10), 20);
 
     try {
@@ -3636,14 +3660,27 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       const allMedia = await storage.getMediaItems(userId);
       let mediaImages: { id: number; url: string; mood: string; outfit: string }[] = [];
 
+      const ratioMoodMap: Record<string, string[]> = {
+        "4:5": ["sultry", "confident", "sexy", "glamorous", "moody", "editorial", "portrait"],
+        "9:16": ["story", "full-body", "casual", "behind-the-scenes", "vertical", "selfie"],
+        "1:1": ["close-up", "headshot", "product", "aesthetic"],
+        "16:9": ["landscape", "cinematic", "lifestyle", "travel"],
+      };
+      const preferredMoods = ratioMoodMap[selectedRatio] || [];
+
       if (Array.isArray(mediaItemIds) && mediaItemIds.length > 0) {
         for (const mid of mediaItemIds) {
           const m = allMedia.find((x: { id: number }) => x.id === mid);
           if (m) mediaImages.push({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit });
         }
       } else if (allMedia.length > 0) {
-        const shuffled = [...allMedia].sort(() => Math.random() - 0.5);
-        mediaImages = shuffled.slice(0, batchCount).map(m => ({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit }));
+        const scored = allMedia.map(m => {
+          const moodLower = m.mood.toLowerCase();
+          const matchScore = preferredMoods.some(p => moodLower.includes(p)) ? 2 : 1;
+          return { ...m, matchScore, rand: Math.random() };
+        });
+        scored.sort((a, b) => b.matchScore - a.matchScore || a.rand - b.rand);
+        mediaImages = scored.slice(0, batchCount).map(m => ({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit }));
       }
 
       const platformGuide: Record<string, string> = {
@@ -3660,7 +3697,7 @@ Generate exactly ${batchCount} content pieces for a batch content factory.
 PERSONA: ${personaGuide}
 PLATFORM: ${platformGuide[platform] || platformGuide.x}
 FORMAT: ${format}
-ASPECT RATIO: ${ratio} (design content with this ratio in mind for visuals)
+ASPECT RATIO: ${selectedRatio} (design content with this ratio in mind for visuals — select images that suit this format)
 ${topic ? `TOPIC/THEME: ${topic}` : "Generate a variety of engaging topics."}
 ${mediaImages.length > 0 ? `MEDIA CONTEXT (pair each piece with one): ${mediaImages.map(m => `Image ${m.id}: mood=${m.mood}, outfit=${m.outfit}`).join("; ")}` : ""}
 
@@ -3701,7 +3738,7 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
           userId,
           platform,
           format,
-          ratio,
+          ratio: selectedRatio,
           status: "needs_review",
           hook: piece.hook || "",
           caption: piece.caption || "",
