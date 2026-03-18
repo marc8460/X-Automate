@@ -56,6 +56,7 @@ export const mediaItems = pgTable("media_items", {
   lastUsed: text("last_used").notNull().default("Never"),
   risk: text("risk").notNull().default("safe"),
   folderId: integer("folder_id"),
+  aspectRatio: text("aspect_ratio"),
 });
 
 export const insertMediaItemSchema = createInsertSchema(mediaItems).omit({ id: true });

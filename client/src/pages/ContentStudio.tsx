@@ -188,46 +188,58 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
   const [style, setStyle] = useState("");
   const [ratio, setRatio] = useState("4:5");
   const [naughtiness, setNaughtiness] = useState(60);
-  const [isStoryMode, setIsStoryMode] = useState(false);
+  const [instagramType, setInstagramType] = useState<"story" | "post" | "reel" | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
 
+  const instagramSelected = selectedPlatforms.has("instagram");
+  const isInstagramOnly = instagramSelected && selectedPlatforms.size === 1;
+
   const togglePlatform = (p: ContentPlatform) => {
-    if (isStoryMode) return;
     setSelectedPlatforms((prev) => {
       const next = new Set(prev);
-      if (next.has(p)) { if (next.size > 1) next.delete(p); }
-      else next.add(p);
+      if (next.has(p)) {
+        if (next.size > 1) {
+          next.delete(p);
+          if (p === "instagram") setInstagramType(null);
+        }
+      } else {
+        next.add(p);
+        if (p === "instagram" && instagramType === null) {
+          setInstagramType("post");
+          setRatio("4:5");
+        }
+      }
       return next;
     });
   };
 
-  const activateStoryMode = () => {
-    setIsStoryMode(true);
-    setSelectedPlatforms(new Set(["instagram"]));
-    setRatio("9:16");
-  };
-
-  const deactivateStoryMode = () => {
-    setIsStoryMode(false);
-    setSelectedPlatforms(new Set(["x", "threads"]));
-    setRatio("4:5");
+  const selectInstagramType = (type: "story" | "post" | "reel") => {
+    setInstagramType(type);
+    setRatio(type === "post" ? "4:5" : "9:16");
   };
 
   const handleGenerate = async () => {
     setIsGenerating(true);
+    const effectiveRatio = instagramSelected && instagramType
+      ? (instagramType === "post" ? "4:5" : "9:16")
+      : ratio;
+    const effectiveFormat = instagramSelected && instagramType
+      ? (instagramType === "post" ? "tweet" : "story")
+      : "tweet";
     try {
       const res = await apiRequest("POST", "/api/content-studio/generate-batch", {
         platforms: Array.from(selectedPlatforms),
         count,
         topic: topic || undefined,
         style: style || undefined,
-        ratio,
-        format: isStoryMode ? "story" : "tweet",
+        ratio: effectiveRatio,
+        format: effectiveFormat,
         naughtiness,
       });
       const data: { items?: ContentItem[] } = await res.json();
-      toast({ title: `${data.items?.length || count} items generated`, description: isStoryMode ? "Instagram Stories ready for review." : "Review and approve them below." });
+      const typeLabel = instagramType === "story" ? "Instagram Stories" : instagramType === "reel" ? "Instagram Reels" : "items";
+      toast({ title: `${data.items?.length || count} ${typeLabel} generated`, description: "Review and approve them below." });
       onGenerated();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Try again";
@@ -249,28 +261,7 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
           <h3 className="font-semibold text-sm" data-testid="text-gen-title">AI Content Generator</h3>
           <p className="text-xs text-muted-foreground">Generate batch content for review</p>
         </div>
-        <button
-          data-testid="button-story-mode"
-          onClick={isStoryMode ? deactivateStoryMode : activateStoryMode}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
-            isStoryMode
-              ? "border-purple-500/40 bg-purple-500/10 text-purple-400"
-              : "border-border/40 text-muted-foreground hover:text-foreground hover:border-purple-500/30"
-          )}
-        >
-          <ImageIcon size={12} />
-          {isStoryMode ? "Story Mode ON" : "Instagram Story"}
-        </button>
       </div>
-
-      {isStoryMode && (
-        <div className="mb-4 p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
-          <p className="text-[11px] text-purple-300">
-            <strong>Story Mode:</strong> Generates Instagram Stories with 9:16 images and CTA captions (link in bio, swipe up, etc.)
-          </p>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <div>
@@ -285,15 +276,37 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
                   "px-2 py-1.5 text-xs font-medium rounded-md border transition-all",
                   selectedPlatforms.has(p.id)
                     ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border",
-                  isStoryMode && p.id !== "instagram" && "opacity-30 cursor-not-allowed"
+                    : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
                 )}
-                disabled={isStoryMode && p.id !== "instagram"}
               >
                 {p.label}
               </button>
             ))}
           </div>
+          {instagramSelected && (
+            <div className="mt-2">
+              <div className="flex gap-1">
+                {(["story", "post", "reel"] as const).map((t) => (
+                  <button
+                    key={t}
+                    data-testid={`button-instagram-type-${t}`}
+                    onClick={() => selectInstagramType(t)}
+                    className={cn(
+                      "flex-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-all capitalize",
+                      instagramType === t
+                        ? "border-pink-500/50 bg-pink-500/10 text-pink-400"
+                        : "border-border/40 text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {instagramType === "post" ? "4:5 portrait image from Media Vault" : "9:16 vertical image from Media Vault"}
+              </p>
+            </div>
+          )}
         </div>
 
         <div>
@@ -319,15 +332,15 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
               <button
                 key={r}
                 data-testid={`button-ratio-${r}`}
-                onClick={() => !isStoryMode && setRatio(r)}
+                onClick={() => !isInstagramOnly && setRatio(r)}
                 className={cn(
                   "flex-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-all",
-                  ratio === r
+                  (isInstagramOnly ? (instagramType === "post" ? "4:5" : "9:16") : ratio) === r
                     ? "border-primary/40 bg-primary/10 text-primary"
                     : "border-border/40 text-muted-foreground hover:text-foreground",
-                  isStoryMode && r !== "9:16" && "opacity-30 cursor-not-allowed"
+                  isInstagramOnly && "opacity-50 cursor-not-allowed"
                 )}
-                disabled={isStoryMode && r !== "9:16"}
+                disabled={isInstagramOnly}
               >
                 {r}
               </button>
@@ -373,7 +386,7 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         <div className="flex-1">
           <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Topic / Hint (optional)</label>
           <Input
-            placeholder={isStoryMode ? "Story theme (optional)..." : "What should the content be about?"}
+            placeholder="What should the content be about?"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             className="text-sm"
@@ -382,14 +395,12 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         </div>
         <Button
           onClick={handleGenerate}
-          disabled={isGenerating || selectedPlatforms.size === 0}
-          className={cn("gap-2 shrink-0", isStoryMode && "bg-purple-600 hover:bg-purple-700")}
+          disabled={isGenerating || selectedPlatforms.size === 0 || (instagramSelected && instagramType === null)}
+          className="gap-2 shrink-0"
           data-testid="button-generate"
         >
           {isGenerating ? (
             <><Loader2 size={14} className="animate-spin" /> Generating {count}...</>
-          ) : isStoryMode ? (
-            <><ImageIcon size={14} /> Generate {count} Stories</>
           ) : (
             <><Sparkles size={14} /> Generate {count}</>
           )}
@@ -471,6 +482,7 @@ function ContentReviewCard({
   const canPostNow = ["approved", "scheduled"].includes(item.status);
   const canEdit = !["posting", "posted"].includes(item.status);
   const canRegenerate = ["needs_review", "generated", "rejected"].includes(item.status);
+  const canDelete = item.status !== "posting";
 
   return (
     <motion.div
@@ -609,6 +621,12 @@ function ContentReviewCard({
                 <Pencil size={12} />
               </Button>
             )}
+            {canDelete && (
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 gap-1 text-xs"
+                onClick={() => onAction("delete")} data-testid={`button-delete-${item.id}`}>
+                <Trash2 size={12} />
+              </Button>
+            )}
           </div>
 
           <AnimatePresence>
@@ -628,11 +646,11 @@ function ContentReviewCard({
 }
 
 function BatchActionsBar({
-  selectedIds, totalCount, onAction, onSelectAll, onDeselectAll,
+  selectedIds, totalCount, onAction, onDeselectAll,
 }: {
   selectedIds: Set<number>; totalCount: number;
   onAction: (action: string, data?: { threshold: number }) => void;
-  onSelectAll: () => void; onDeselectAll: () => void;
+  onDeselectAll: () => void;
 }) {
   const [showThreshold, setShowThreshold] = useState(false);
   const [threshold, setThreshold] = useState(70);
@@ -658,6 +676,10 @@ function BatchActionsBar({
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-400 border-red-400/20 hover:bg-red-400/10"
             onClick={() => onAction("reject-selected")} data-testid="button-reject-selected">
             <XCircle size={12} /> Reject Selected
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-400 border-red-400/20 hover:bg-red-500/10"
+            onClick={() => onAction("delete-selected")} data-testid="button-delete-selected">
+            <Trash2 size={12} /> Delete Selected
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
             onClick={onDeselectAll} data-testid="button-deselect-all">
@@ -716,12 +738,6 @@ function BatchActionsBar({
         </div>
       )}
 
-      {selectedIds.size === 0 && (
-        <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground ml-auto"
-          onClick={onSelectAll} data-testid="button-select-all">
-          Select All
-        </Button>
-      )}
     </motion.div>
   );
 }
@@ -783,6 +799,9 @@ function AIFactoryTab() {
       } else if (action === "edit") {
         await apiRequest("PATCH", `/api/content-studio/items/${item.id}`, data);
         toast({ title: "Content updated" });
+      } else if (action === "delete") {
+        await apiRequest("DELETE", `/api/content-studio/items/${item.id}`);
+        toast({ title: "Item deleted" });
       }
       invalidate();
     } catch (err) {
@@ -793,7 +812,12 @@ function AIFactoryTab() {
 
   const handleBatchAction = useCallback(async (action: string, data?: { threshold: number }) => {
     try {
-      if (action === "approve-selected" || action === "reject-selected") {
+      if (action === "delete-selected") {
+        const ids = Array.from(selectedIds);
+        await Promise.all(ids.map((id) => apiRequest("DELETE", `/api/content-studio/items/${id}`)));
+        toast({ title: `${ids.length} item${ids.length === 1 ? "" : "s"} deleted` });
+        setSelectedIds(new Set());
+      } else if (action === "approve-selected" || action === "reject-selected") {
         const status = action === "approve-selected" ? "approved" : "rejected";
         const transitionAction = action === "approve-selected" ? "approve" : "reject";
         const ids = Array.from(selectedIds);
@@ -876,6 +900,27 @@ function AIFactoryTab() {
     setSelectedIds(new Set(sortedItems.map((i) => i.id)));
   }, [sortedItems]);
 
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const handleClearAll = useCallback(async () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      setTimeout(() => setConfirmClear(false), 3000);
+      return;
+    }
+    try {
+      await apiRequest("POST", "/api/content-studio/clear-generated");
+      toast({ title: "All suggestions deleted" });
+      invalidate();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Try again";
+      toast({ title: "Failed to delete", description: message, variant: "destructive" });
+    }
+    setConfirmClear(false);
+  }, [confirmClear, toast, invalidate]);
+
+  const hasSuggestions = items.some((i) => ["needs_review", "generated", "idea"].includes(i.status));
+
   return (
     <div className="space-y-5">
       <GenerationPanel onGenerated={invalidate} />
@@ -937,6 +982,30 @@ function AIFactoryTab() {
               {s.label}
             </button>
           ))}
+          {sortedItems.length > 0 && selectedIds.size < sortedItems.length && (
+            <button
+              data-testid="button-select-all"
+              onClick={selectAll}
+              className="ml-2 flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border transition-all border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
+            >
+              Select All ({sortedItems.length})
+            </button>
+          )}
+          {hasSuggestions && (
+            <button
+              data-testid="button-clear-all"
+              onClick={handleClearAll}
+              className={cn(
+                "ml-2 flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border transition-all",
+                confirmClear
+                  ? "border-red-500/50 bg-red-500/10 text-red-400"
+                  : "border-border/40 text-muted-foreground hover:text-red-400 hover:border-red-500/30"
+              )}
+            >
+              <Trash2 size={10} />
+              {confirmClear ? "Click again to confirm" : "Delete All Suggestions"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -944,7 +1013,6 @@ function AIFactoryTab() {
         selectedIds={selectedIds}
         totalCount={sortedItems.length}
         onAction={handleBatchAction}
-        onSelectAll={selectAll}
         onDeselectAll={() => setSelectedIds(new Set())}
       />
 

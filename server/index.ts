@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { startEngagementPoller } from "./engagementPoller";
 import { startCreatorMonitor } from "./creatorMonitor";
 import { startContentScheduler } from "./contentScheduler";
+import { backfillMediaAspectRatios } from "./mediaRatioBackfill";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 
 const app = express();
@@ -105,6 +106,7 @@ app.use((req, res, next) => {
   startEngagementPoller();
   startCreatorMonitor();
   startContentScheduler();
+  backfillMediaAspectRatios();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

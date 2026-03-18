@@ -56,6 +56,14 @@ function getUserId(req: Request): string {
   return (req as any).user?.claims?.sub ?? "anonymous";
 }
 
+function detectAspectRatio(width: number, height: number): string {
+  const r = width / height;
+  if (r < 0.65) return "9:16";
+  if (r < 0.9) return "4:5";
+  if (r < 1.15) return "1:1";
+  return "16:9";
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -1696,30 +1704,33 @@ Generate exactly 3 different reply options. Output each reply on its own line wi
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
       const removeMetadata = req.body.removeMetadata === "true";
-      if (removeMetadata) {
-        const filePath = req.file.path;
-        try {
-          const image = sharp(filePath);
-          const metadata = await image.metadata();
-          let pipeline = sharp(filePath).rotate();
-          if (metadata.format === "jpeg") {
-            pipeline = pipeline.jpeg({ quality: 100, mozjpeg: false });
-          } else if (metadata.format === "png") {
-            pipeline = pipeline.png({ compressionLevel: 0 });
-          } else if (metadata.format === "webp") {
-            pipeline = pipeline.webp({ quality: 100, lossless: true });
+      const filePath = req.file.path;
+      let aspectRatio: string | null = null;
+
+      try {
+        if (removeMetadata) {
+          const { data, info } = await sharp(filePath)
+            .rotate()
+            .toBuffer({ resolveWithObject: true });
+          if (info.width && info.height) {
+            aspectRatio = detectAspectRatio(info.width, info.height);
           }
-          const buffer = await pipeline.toBuffer();
-          fs.writeFileSync(filePath, buffer);
-        } catch (stripErr: any) {
-          console.error("[media/upload] metadata strip error:", stripErr.message);
+          await fs.promises.writeFile(filePath, data);
+        } else {
+          const meta = await sharp(filePath).metadata();
+          if (meta.width && meta.height) {
+            aspectRatio = detectAspectRatio(meta.width, meta.height);
+          }
         }
+      } catch (err: any) {
+        console.error("[media/upload] image processing error:", err.message);
       }
 
       const userId = getUserId(req);
       const url = `/uploads/${req.file.filename}`;
       const mood = (req.body.mood as string) || "Neutral";
       const outfit = (req.body.outfit as string) || "Untagged";
+
       const item = await storage.createMediaItem({
         userId,
         url,
@@ -1728,11 +1739,31 @@ Generate exactly 3 different reply options. Output each reply on its own line wi
         usageCount: 0,
         lastUsed: "Never",
         risk: "safe",
+        aspectRatio,
       });
       res.status(201).json(item);
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Upload failed" });
     }
+  });
+
+  app.post("/api/media/detect-ratios", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    const allMedia = await storage.getMediaItems(userId);
+    let updated = 0;
+    for (const item of allMedia) {
+      if (item.aspectRatio) continue;
+      const filePath = path.join(process.cwd(), item.url.startsWith("/") ? item.url.slice(1) : item.url);
+      try {
+        const meta = await sharp(filePath).metadata();
+        if (meta.width && meta.height) {
+          const aspectRatio = detectAspectRatio(meta.width, meta.height);
+          await storage.updateMediaItem(item.id, { aspectRatio }, userId);
+          updated++;
+        }
+      } catch (_) {}
+    }
+    res.json({ total: allMedia.length, updated });
   });
 
   // --- Niche Profiles ---
@@ -3669,27 +3700,39 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
       const allMedia = await storage.getMediaItems(userId);
       let mediaImages: { id: number; url: string; mood: string; outfit: string }[] = [];
 
-      const ratioMoodMap: Record<string, string[]> = {
-        "4:5": ["sultry", "confident", "sexy", "glamorous", "moody", "editorial", "portrait"],
-        "9:16": ["story", "full-body", "casual", "behind-the-scenes", "vertical", "selfie"],
-        "1:1": ["close-up", "headshot", "product", "aesthetic"],
-        "16:9": ["landscape", "cinematic", "lifestyle", "travel"],
-      };
-      const preferredMoods = ratioMoodMap[selectedRatio] || [];
-
       if (Array.isArray(mediaItemIds) && mediaItemIds.length > 0) {
         for (const mid of mediaItemIds) {
           const m = allMedia.find((x: { id: number }) => x.id === mid);
           if (m) mediaImages.push({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit });
         }
       } else if (allMedia.length > 0) {
-        const scored = allMedia.map(m => {
-          const moodLower = m.mood.toLowerCase();
-          const matchScore = preferredMoods.some(p => moodLower.includes(p)) ? 2 : 1;
-          return { ...m, matchScore, rand: Math.random() };
-        });
-        scored.sort((a, b) => b.matchScore - a.matchScore || a.rand - b.rand);
-        mediaImages = scored.slice(0, batchCount).map(m => ({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit }));
+        // Detect aspect ratio for each image (stored value or on-the-fly via sharp)
+        const withRatios = await Promise.all(allMedia.map(async (m: any) => {
+          let ar: string | null = m.aspectRatio ?? null;
+          if (!ar) {
+            try {
+              const fp = path.join(process.cwd(), m.url.startsWith("/") ? m.url.slice(1) : m.url);
+              const meta = await sharp(fp).metadata();
+              if (meta.width && meta.height) {
+                ar = detectAspectRatio(meta.width, meta.height);
+                storage.updateMediaItem(m.id, { aspectRatio: ar }, userId).catch(() => {});
+              }
+            } catch (e: any) {
+              console.warn(`[generate-batch] sharp failed for ${m.url}: ${e.message}`);
+            }
+          }
+          return { ...m, detectedRatio: ar };
+        }));
+
+        console.log(`[generate-batch] ratio=${selectedRatio} vault=${withRatios.length} ratios=${JSON.stringify(withRatios.map(m => m.detectedRatio))}`);
+
+        // Strict filter — never use wrong-ratio images
+        const ratioMatched = withRatios.filter(m => m.detectedRatio === selectedRatio);
+        console.log(`[generate-batch] matched=${ratioMatched.length}`);
+
+        // No fallback: if no matching images exist, generate without images
+        const shuffled = ratioMatched.slice().sort(() => Math.random() - 0.5);
+        mediaImages = shuffled.slice(0, batchCount).map(m => ({ id: m.id, url: m.url, mood: m.mood, outfit: m.outfit }));
       }
 
       const platformGuide: Record<string, string> = {

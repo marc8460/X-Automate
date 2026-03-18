@@ -47,7 +47,6 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useMediaItems,
-  useUploadMedia,
   useDeleteMediaItem,
   useMediaFolders,
   useCreateMediaFolder,
@@ -59,7 +58,8 @@ import {
 import type { MediaFolder } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 
 // ─── FolderChip ───────────────────────────────────────────────────────────────
 function FolderChip({
@@ -116,6 +116,29 @@ function FolderChip({
   );
 }
 
+// ─── Aspect Ratio Helpers ─────────────────────────────────────────────────────
+function clientDetectRatio(w: number, h: number): string {
+  const r = w / h;
+  if (r < 0.65) return "9:16";
+  if (r < 0.9) return "4:5";
+  if (r < 1.15) return "1:1";
+  return "16:9";
+}
+
+function ratioContainerClass(ratio: string | null | undefined): string {
+  if (ratio === "9:16") return "aspect-[9/16]";
+  if (ratio === "1:1") return "aspect-square";
+  if (ratio === "16:9") return "aspect-[16/9]";
+  return "aspect-[4/5]"; // 4:5 or unknown
+}
+
+const RATIO_BADGE: Record<string, { label: string; cls: string }> = {
+  "9:16": { label: "9:16", cls: "bg-purple-500/80 text-white" },
+  "4:5":  { label: "4:5",  cls: "bg-blue-500/80 text-white" },
+  "1:1":  { label: "1:1",  cls: "bg-green-500/80 text-white" },
+  "16:9": { label: "16:9", cls: "bg-orange-500/80 text-white" },
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function MediaVault() {
   const [, navigate] = useLocation();
@@ -145,9 +168,11 @@ export default function MediaVault() {
   const [generatingCaptionId, setGeneratingCaptionId] = useState<number | null>(null);
   const [captionResults, setCaptionResults] = useState<Record<number, string>>({});
 
+  // Client-side aspect ratio detection (for images not yet tagged in DB)
+  const [detectedRatios, setDetectedRatios] = useState<Record<number, string>>({});
+
   // Data hooks
   const { data: mediaItems, isLoading } = useMediaItems();
-  const uploadMutation = useUploadMedia();
   const deleteMutation = useDeleteMediaItem();
   const { data: folders } = useMediaFolders();
   const createFolder = useCreateMediaFolder();
@@ -282,7 +307,7 @@ export default function MediaVault() {
     let failed = 0;
     setUploadProgress({ done: 0, total });
 
-    for (const file of imageFiles) {
+    await Promise.all(imageFiles.map(async (file) => {
       try {
         const compressed = await compressImage(file);
         const formData = new FormData();
@@ -290,7 +315,8 @@ export default function MediaVault() {
         formData.append("mood", uploadMood);
         formData.append("outfit", uploadOutfit || "Untagged");
         formData.append("removeMetadata", removeMetadata ? "true" : "false");
-        await uploadMutation.mutateAsync(formData);
+        const res = await fetch("/api/media/upload", { method: "POST", body: formData });
+        if (!res.ok) throw new Error((await res.json()).message || "Upload failed");
         done++;
         setUploadProgress({ done, total });
       } catch {
@@ -298,7 +324,8 @@ export default function MediaVault() {
         done++;
         setUploadProgress({ done, total });
       }
-    }
+    }));
+    queryClient.invalidateQueries({ queryKey: ["/api/media"] });
 
     setUploadProgress(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -309,12 +336,25 @@ export default function MediaVault() {
     } else {
       toast({ title: "Partial upload", description: `${total - failed} of ${total} uploaded. ${failed} failed.`, variant: "destructive" });
     }
-  }, [uploadMood, uploadOutfit, uploadMutation, toast, compressImage, removeMetadata]);
+  }, [uploadMood, uploadOutfit, toast, compressImage, removeMetadata]);
 
   const handleDelete = (id: number) => {
     deleteMutation.mutate(id, {
       onSuccess: () => toast({ title: "Deleted", description: "Media removed from vault." }),
     });
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    let deleted = 0;
+    for (const id of ids) {
+      try {
+        await deleteMutation.mutateAsync(id);
+        deleted++;
+      } catch {}
+    }
+    toast({ title: `${deleted} image${deleted !== 1 ? "s" : ""} deleted` });
+    exitSelectMode();
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -747,14 +787,31 @@ export default function MediaVault() {
                   ? "border-primary shadow-lg shadow-primary/20"
                   : "border-border/50 hover:border-primary/30"
               }`}>
-                <div className="aspect-[3/4] relative overflow-hidden">
+                <div className={cn(ratioContainerClass((item as any).aspectRatio || detectedRatios[item.id]), "relative overflow-hidden bg-black/10")}>
                   <img
                     src={item.url}
                     alt="Vault content"
                     loading="lazy"
                     decoding="async"
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
+                    onLoad={(e) => {
+                      const img = e.currentTarget;
+                      if (!(item as any).aspectRatio && img.naturalWidth && img.naturalHeight) {
+                        const ar = clientDetectRatio(img.naturalWidth, img.naturalHeight);
+                        setDetectedRatios(prev => ({ ...prev, [item.id]: ar }));
+                      }
+                    }}
                   />
+                  {/* Aspect ratio badge — bottom-left, always visible */}
+                  {(() => {
+                    const ar = (item as any).aspectRatio || detectedRatios[item.id];
+                    const badge = ar ? RATIO_BADGE[ar] : null;
+                    return badge ? (
+                      <span className={cn("absolute bottom-2 left-2 text-[10px] font-bold px-1.5 py-0.5 rounded backdrop-blur-sm z-10", badge.cls)}>
+                        {badge.label}
+                      </span>
+                    ) : null;
+                  })()}
                   {selectMode && (
                     <div className={`absolute top-3 left-3 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${
                       selectedIds.has(item.id)
@@ -955,6 +1012,15 @@ export default function MediaVault() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleBulkDelete}
+                data-testid="button-bulk-delete"
+              >
+                <Trash2 className="w-4 h-4 mr-1.5" />
+                Delete ({selectedIds.size})
+              </Button>
               <Button size="sm" variant="ghost" onClick={exitSelectMode} className="text-muted-foreground" data-testid="button-cancel-select">
                 Cancel
               </Button>

@@ -38,6 +38,7 @@ export interface IStorage {
   deleteMediaFolder(id: number, userId: string): Promise<void>;
 
   getMediaItems(userId: string): Promise<MediaItem[]>;
+  getAllMediaItems(): Promise<MediaItem[]>;
   createMediaItem(item: InsertMediaItem): Promise<MediaItem>;
   updateMediaItem(id: number, data: Partial<InsertMediaItem>, userId: string): Promise<MediaItem | undefined>;
   deleteMediaItem(id: number, userId: string): Promise<void>;
@@ -179,6 +180,10 @@ export class DatabaseStorage implements IStorage {
 
   async getMediaItems(userId: string): Promise<MediaItem[]> {
     return db.select().from(mediaItems).where(eq(mediaItems.userId, userId));
+  }
+
+  async getAllMediaItems(): Promise<MediaItem[]> {
+    return db.select().from(mediaItems);
   }
 
   async createMediaItem(item: InsertMediaItem): Promise<MediaItem> {
