@@ -8,6 +8,7 @@ import { startCreatorMonitor } from "./creatorMonitor";
 import { startContentScheduler } from "./contentScheduler";
 import { backfillMediaAspectRatios } from "./mediaRatioBackfill";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
+import { runStartupMigrations } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -98,6 +99,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await runStartupMigrations();
+
   await setupAuth(app);
   registerAuthRoutes(app);
 
