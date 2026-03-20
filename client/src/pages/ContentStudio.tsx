@@ -105,12 +105,15 @@ function getMediaUrl(item: MediaItem): string {
 }
 
 function VaultPickerModal({
-  open, onClose, onSelect, mediaItems, selectedId,
+  open, onClose, onSelect, mediaItems, selectedId, requiredRatio,
 }: {
   open: boolean; onClose: () => void; onSelect: (id: number, url: string) => void;
-  mediaItems: MediaItem[]; selectedId?: number | null;
+  mediaItems: MediaItem[]; selectedId?: number | null; requiredRatio?: string;
 }) {
   if (!open) return null;
+  const filtered = requiredRatio
+    ? mediaItems.filter((m) => m.aspectRatio === requiredRatio)
+    : mediaItems;
   return (
     <AnimatePresence>
       <motion.div
@@ -128,15 +131,26 @@ function VaultPickerModal({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-foreground">Pick from Media Vault</h3>
+            <div>
+              <h3 className="font-semibold text-foreground">Pick from Media Vault</h3>
+              {requiredRatio && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Showing only {requiredRatio} assets ({filtered.length} available)
+                </p>
+              )}
+            </div>
             <Button size="sm" variant="ghost" onClick={onClose} data-testid="vault-picker-close">Close</Button>
           </div>
           <div className="overflow-y-auto flex-1">
-            {mediaItems.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-vault-empty">No media in your vault yet.</p>
+            {filtered.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-vault-empty">
+                {requiredRatio
+                  ? `No ${requiredRatio} assets in your vault. Upload ${requiredRatio} images to use them here.`
+                  : "No media in your vault yet."}
+              </p>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                {mediaItems.map((item) => (
+                {filtered.map((item) => (
                   <button
                     key={item.id}
                     data-testid={`vault-item-${item.id}`}
@@ -181,19 +195,74 @@ function getNaughtinessLabel(value: number) {
   return NAUGHTINESS_LABELS.find((l) => value <= l.max) || NAUGHTINESS_LABELS[3];
 }
 
+// Maps each explicit content type to its required ratio
+const CONTENT_TYPE_RATIO: Record<string, string> = {
+  instagram_story: "9:16",
+  instagram_reel: "9:16",
+  instagram_post: "4:5",
+  threads_post: "4:5",
+  x_post: "4:5",
+  tiktok_post: "9:16",
+  tiktok_slideshow: "9:16",
+};
+
+// Derive content type from platform + sub-type selection
+function deriveContentType(
+  platforms: Set<ContentPlatform>,
+  instagramType: "story" | "post" | "reel" | null,
+  tiktokType: "post" | "slideshow" | null,
+): string | null {
+  if (platforms.size === 1) {
+    const p = Array.from(platforms)[0];
+    if (p === "instagram") return instagramType ? `instagram_${instagramType}` : null;
+    if (p === "tiktok") return tiktokType ? `tiktok_${tiktokType}` : null;
+    if (p === "x") return "x_post";
+    if (p === "threads") return "threads_post";
+  }
+  // Multi-platform: check if all have same ratio
+  return null;
+}
+
+// Get required ratio for a set of platforms + sub-types
+function deriveRequiredRatio(
+  platforms: Set<ContentPlatform>,
+  instagramType: "story" | "post" | "reel" | null,
+  tiktokType: "post" | "slideshow" | null,
+): string | null {
+  const ratios = new Set<string>();
+  for (const p of platforms) {
+    if (p === "instagram") {
+      if (!instagramType) return null;
+      ratios.add(instagramType === "post" ? "4:5" : "9:16");
+    } else if (p === "tiktok") {
+      ratios.add("9:16");
+    } else if (p === "x" || p === "threads") {
+      ratios.add("4:5");
+    }
+  }
+  if (ratios.size === 1) return Array.from(ratios)[0];
+  if (ratios.size > 1) return null; // conflict
+  return null;
+}
+
 function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<ContentPlatform>>(new Set(["x", "threads"]));
   const [count, setCount] = useState(10);
   const [topic, setTopic] = useState("");
   const [style, setStyle] = useState("");
-  const [ratio, setRatio] = useState("4:5");
   const [naughtiness, setNaughtiness] = useState(60);
   const [instagramType, setInstagramType] = useState<"story" | "post" | "reel" | null>(null);
+  const [tiktokType, setTiktokType] = useState<"post" | "slideshow" | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
 
   const instagramSelected = selectedPlatforms.has("instagram");
-  const isInstagramOnly = instagramSelected && selectedPlatforms.size === 1;
+  const tiktokSelected = selectedPlatforms.has("tiktok");
+
+  const requiredRatio = deriveRequiredRatio(selectedPlatforms, instagramType, tiktokType);
+  const hasRatioConflict = requiredRatio === null && selectedPlatforms.size > 0 &&
+    !(instagramSelected && instagramType === null) &&
+    !(tiktokSelected && tiktokType === null);
 
   const togglePlatform = (p: ContentPlatform) => {
     setSelectedPlatforms((prev) => {
@@ -202,43 +271,36 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         if (next.size > 1) {
           next.delete(p);
           if (p === "instagram") setInstagramType(null);
+          if (p === "tiktok") setTiktokType(null);
         }
       } else {
         next.add(p);
-        if (p === "instagram" && instagramType === null) {
-          setInstagramType("post");
-          setRatio("4:5");
-        }
+        if (p === "instagram" && instagramType === null) setInstagramType("post");
+        if (p === "tiktok" && tiktokType === null) setTiktokType("post");
       }
       return next;
     });
   };
 
-  const selectInstagramType = (type: "story" | "post" | "reel") => {
-    setInstagramType(type);
-    setRatio(type === "post" ? "4:5" : "9:16");
-  };
-
   const handleGenerate = async () => {
+    if (!requiredRatio || hasRatioConflict) return;
     setIsGenerating(true);
-    const effectiveRatio = instagramSelected && instagramType
-      ? (instagramType === "post" ? "4:5" : "9:16")
-      : ratio;
-    const effectiveFormat = instagramSelected && instagramType
-      ? (instagramType === "post" ? "tweet" : "story")
-      : "tweet";
+
+    // Derive single contentType for single-platform generation
+    const contentType = deriveContentType(selectedPlatforms, instagramType, tiktokType);
+
     try {
       const res = await apiRequest("POST", "/api/content-studio/generate-batch", {
         platforms: Array.from(selectedPlatforms),
         count,
         topic: topic || undefined,
         style: style || undefined,
-        ratio: effectiveRatio,
-        format: effectiveFormat,
+        contentType: contentType || undefined,
+        ratio: requiredRatio,
         naughtiness,
       });
       const data: { items?: ContentItem[] } = await res.json();
-      const typeLabel = instagramType === "story" ? "Instagram Stories" : instagramType === "reel" ? "Instagram Reels" : "items";
+      const typeLabel = contentType ? contentType.replace("_", " ") : "items";
       toast({ title: `${data.items?.length || count} ${typeLabel} generated`, description: "Review and approve them below." });
       onGenerated();
     } catch (err) {
@@ -290,7 +352,7 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
                   <button
                     key={t}
                     data-testid={`button-instagram-type-${t}`}
-                    onClick={() => selectInstagramType(t)}
+                    onClick={() => setInstagramType(t)}
                     className={cn(
                       "flex-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-all capitalize",
                       instagramType === t
@@ -302,9 +364,27 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {instagramType === "post" ? "4:5 portrait image from Media Vault" : "9:16 vertical image from Media Vault"}
-              </p>
+            </div>
+          )}
+          {tiktokSelected && (
+            <div className="mt-2">
+              <div className="flex gap-1">
+                {(["post", "slideshow"] as const).map((t) => (
+                  <button
+                    key={t}
+                    data-testid={`button-tiktok-type-${t}`}
+                    onClick={() => setTiktokType(t)}
+                    className={cn(
+                      "flex-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-all capitalize",
+                      tiktokType === t
+                        ? "border-red-500/50 bg-red-500/10 text-red-400"
+                        : "border-border/40 text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -327,25 +407,26 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
 
         <div>
           <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Ratio</label>
-          <div className="flex gap-1">
-            {["4:5", "9:16", "1:1"].map((r) => (
-              <button
-                key={r}
-                data-testid={`button-ratio-${r}`}
-                onClick={() => !isInstagramOnly && setRatio(r)}
-                className={cn(
-                  "flex-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-all",
-                  (isInstagramOnly ? (instagramType === "post" ? "4:5" : "9:16") : ratio) === r
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border/40 text-muted-foreground hover:text-foreground",
-                  isInstagramOnly && "opacity-50 cursor-not-allowed"
-                )}
-                disabled={isInstagramOnly}
-              >
-                {r}
-              </button>
-            ))}
+          <div className="flex gap-1 items-center">
+            {requiredRatio ? (
+              <div className="flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border border-primary/40 bg-primary/10 text-primary text-center" data-testid="text-ratio-locked">
+                {requiredRatio} <span className="opacity-60 font-normal">(locked)</span>
+              </div>
+            ) : hasRatioConflict ? (
+              <div className="flex-1 px-2 py-1.5 text-xs font-semibold rounded-md border border-red-500/40 bg-red-500/10 text-red-400 text-center" data-testid="text-ratio-conflict">
+                Ratio conflict
+              </div>
+            ) : (
+              <div className="flex-1 px-2 py-1.5 text-xs rounded-md border border-border/40 text-muted-foreground text-center">
+                —
+              </div>
+            )}
           </div>
+          {requiredRatio && (
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Only {requiredRatio} assets from vault will be used
+            </p>
+          )}
         </div>
 
         <div>
@@ -382,6 +463,13 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         </div>
       </div>
 
+      {hasRatioConflict && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 text-xs">
+          <AlertTriangle size={12} className="shrink-0" />
+          Selected platforms need different ratios. Generate them separately (e.g. X alone, then TikTok alone).
+        </div>
+      )}
+
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5 block">Topic / Hint (optional)</label>
@@ -395,7 +483,14 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
         </div>
         <Button
           onClick={handleGenerate}
-          disabled={isGenerating || selectedPlatforms.size === 0 || (instagramSelected && instagramType === null)}
+          disabled={
+            isGenerating ||
+            selectedPlatforms.size === 0 ||
+            (instagramSelected && instagramType === null) ||
+            (tiktokSelected && tiktokType === null) ||
+            hasRatioConflict ||
+            !requiredRatio
+          }
           className="gap-2 shrink-0"
           data-testid="button-generate"
         >
@@ -411,14 +506,16 @@ function GenerationPanel({ onGenerated }: { onGenerated: () => void }) {
 }
 
 function InlineEditor({
-  item, onSave, onCancel, mediaItems,
+  item, onSave, onCancel, mediaItems, requiredRatio,
 }: {
-  item: ContentItem; onSave: (data: Partial<ContentItem>) => void; onCancel: () => void; mediaItems: MediaItem[];
+  item: ContentItem; onSave: (data: Partial<ContentItem>) => void; onCancel: () => void;
+  mediaItems: MediaItem[]; requiredRatio?: string;
 }) {
   const [hook, setHook] = useState(item.hook);
   const [caption, setCaption] = useState(item.caption);
   const [cta, setCta] = useState(item.cta);
   const [imageUrl, setImageUrl] = useState(item.imageUrl || "");
+  const [mediaItemId, setMediaItemId] = useState<number | null>(item.mediaItemId ?? null);
   const [showVault, setShowVault] = useState(false);
 
   return (
@@ -447,9 +544,12 @@ function InlineEditor({
         <Button size="sm" variant="outline" className="text-xs gap-1" onClick={() => setShowVault(true)} data-testid="button-change-media">
           <ImageIcon size={12} /> {imageUrl ? "Change" : "Add"} Media
         </Button>
+        {requiredRatio && (
+          <span className="text-[10px] text-muted-foreground">Only {requiredRatio} assets shown</span>
+        )}
       </div>
       <div className="flex gap-2 pt-1">
-        <Button size="sm" onClick={() => onSave({ hook, caption, cta, imageUrl: imageUrl || null })} className="gap-1" data-testid="button-save-edit">
+        <Button size="sm" onClick={() => onSave({ hook, caption, cta, imageUrl: imageUrl || null, mediaItemId })} className="gap-1" data-testid="button-save-edit">
           <Check size={12} /> Save
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel} data-testid="button-cancel-edit">Cancel</Button>
@@ -457,8 +557,9 @@ function InlineEditor({
       <VaultPickerModal
         open={showVault}
         onClose={() => setShowVault(false)}
-        onSelect={(id, url) => setImageUrl(url)}
+        onSelect={(id, url) => { setMediaItemId(id); setImageUrl(url); }}
         mediaItems={mediaItems}
+        requiredRatio={requiredRatio}
       />
     </motion.div>
   );
@@ -564,6 +665,22 @@ function ContentReviewCard({
             <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3" data-testid={`text-caption-${item.id}`}>{item.caption}</p>
           )}
 
+          {item.slides && (() => {
+            try {
+              const slides: Array<{ text: string }> = JSON.parse(item.slides);
+              if (slides.length > 0) return (
+                <div className="space-y-1">
+                  {slides.map((s, i) => (
+                    <div key={i} className="flex items-start gap-1.5">
+                      <span className="text-[10px] text-muted-foreground/60 shrink-0 mt-0.5">S{i + 1}</span>
+                      <span className="text-xs text-foreground/80 italic">{s.text}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            } catch { return null; }
+          })()}
+
           {item.cta && (
             <div className="inline-block px-2 py-1 bg-primary/10 text-primary text-[10px] font-semibold rounded-full border border-primary/20">
               {item.cta}
@@ -636,6 +753,7 @@ function ContentReviewCard({
                 onSave={(data) => { onAction("edit", data); setEditing(false); }}
                 onCancel={() => setEditing(false)}
                 mediaItems={mediaItems}
+                requiredRatio={item.ratio || undefined}
               />
             )}
           </AnimatePresence>

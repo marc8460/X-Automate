@@ -322,6 +322,7 @@ export const contentItems = pgTable("content_items", {
   hook: text("hook").notNull().default(""),
   caption: text("caption").notNull().default(""),
   cta: text("cta").notNull().default(""),
+  slides: text("slides"),
   mediaItemId: integer("media_item_id"),
   imageUrl: text("image_url"),
   scheduledAt: text("scheduled_at"),

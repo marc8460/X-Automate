@@ -64,6 +64,112 @@ function detectAspectRatio(width: number, height: number): string {
   return "16:9";
 }
 
+// Maps content type to required aspect ratio. Platform + format = source of truth.
+const CONTENT_TYPE_RATIO_MAP: Record<string, string> = {
+  instagram_story: "9:16",
+  instagram_reel: "9:16",
+  instagram_post: "4:5",
+  threads_post: "4:5",
+  x_post: "4:5",
+  tiktok_post: "9:16",
+  tiktok_slideshow: "9:16",
+};
+
+// Returns the platform-specific caption style guide based on inspiration document.
+function getPlatformCaptionPrompt(contentType: string, sedLevel: number): string {
+  switch (contentType) {
+    case "x_post":
+    case "threads_post":
+      return `
+CAPTION STYLE — ${contentType === "x_post" ? "X (Twitter)" : "Threads"}:
+Write extremely short, direct, casual captions. Think: a single thought, a question, or even just an emoji.
+Tone: flirty, conversational, validation-seeking, internet-native.
+Examples of the vibe: "Can i text you?", "Why am i still single? 💔", "Would you date me? 🤔", "New dress do you guys like it?", "Am I actually pretty? 🥺", "your new obsession", "💕"
+Rules:
+- Keep it under 2 lines (X: max 280 chars, Threads: max 500 chars)
+- Write like a real person posting a casual thought, not a brand
+- Use lowercase or semi-casual style
+- Often a simple question seeking validation or flirty one-liner
+- No hashtag spam${sedLevel > 60 ? "\n- Can be suggestive/bold while keeping it short" : ""}`;
+
+    case "instagram_story":
+      return `
+CAPTION STYLE — Instagram Story:
+Write ultra-short overlay text that goes directly on top of the story image.
+Tone: teasing, mysterious, preview energy, CTA-driven.
+Examples of the vibe: "Yes I finally did it..", "Waiting for you", "More of me ❤️🫣"
+Rules:
+- Maximum 1 short line (3-6 words ideal)
+- The hook IS the caption — make them want to tap/click
+- Always pair with a CTA driving to a link (use "link in bio" or "tap here" as placeholder)
+- Feels like text placed directly on the story, not a traditional caption
+- Tease something — never reveal everything`;
+
+    case "instagram_reel":
+      return `
+CAPTION STYLE — Instagram Reel:
+Write one strong on-screen hook line. Meme-ish, relatable, or boldly flirty.
+Tone: confident, playful, sometimes suggestive, hook-based.
+Examples of the vibe: "When the fake scenarios in my head start getting a little too good", "You deserve an amazing girl, that's why I exist.", "Can I call you bad boy but without d and o?"
+Rules:
+- One powerful centered line — this IS the content
+- Meme format, relatable situation, or bold/playful statement
+- Casual writing style — intentional typos/informal spelling are fine
+- Should stop the scroll instantly
+- No long captions — the visual + one line is everything${sedLevel > 60 ? "\n- Can push into suggestive territory with a wink" : ""}`;
+
+    case "instagram_post":
+      return `
+CAPTION STYLE — Instagram Feed Post:
+Write captions as if the creator is talking directly about what she sees in the photo.
+Tone: casual, personal, flirty, direct — like a real person just posted this.
+Rules:
+- Reference the specific outfit, mood, or vibe from the image
+- Short to medium length (1-4 lines)
+- Examples: "new dress, do you guys like it?", "why am i still single?", "this outfit is giving main character energy", "who's taking me out in this?"
+- Feels like she just took the photo and is casually posting
+- Use the image mood and outfit data to write relevant, personal captions
+- Lowercase-friendly, no brand-speak`;
+
+    case "tiktok_post":
+      return `
+CAPTION STYLE — TikTok Post:
+Short, punchy, trend-aware hook. Casual and internet-native.
+Tone: chaotic, flirty, self-aware, scroll-stopping.
+Rules:
+- 1-2 short lines max
+- Very casual lowercase style
+- Can use TikTok-native language and energy
+- Hook should make someone pause mid-scroll
+- Playful or bold${sedLevel > 60 ? ", can be suggestive" : ""}`;
+
+    case "tiktok_slideshow":
+      return `
+CAPTION STYLE — TikTok Slideshow:
+Generate a 2-slide setup/payoff split. The punchline lands on slide 2.
+Tone: flirty, casual, short, conversational — TikTok-native energy.
+Examples of the vibe:
+  Slide 1: "Im always kidding..." / Slide 2: "Unless ur down"
+  Slide 1: "I wanna look in ur eyes..." / Slide 2: "as it goes in n out"
+  Slide 1: "Could be sitting on ur lap moving back n forth all night..." / Slide 2: "but textings cool too I guess"
+Rules:
+- Slide 1: setup, teaser, or bold statement
+- Slide 2: payoff, twist, or punchline
+- Each slide = 1 short line (max 8 words)
+- Casual lowercase, no punctuation required
+- The split must feel intentional — escalation or twist from slide 1 to slide 2
+IMPORTANT: For the JSON response, include a "slides" array: [{"text": "slide 1 text"}, {"text": "slide 2 text"}]
+Also set hook = slide 1 text and caption = both slides combined.`;
+
+    default:
+      // Fallback: generic casual style
+      return `
+CAPTION STYLE: Write casual captions as if the creator is talking directly about what she sees in the photo.
+- Reference the outfit, mood, or vibe from the image
+- Short, casual, lowercase-friendly — like a real person posting, not a brand`;
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -3678,13 +3784,20 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
 
   app.post("/api/content-studio/generate-batch", isAuthenticated, async (req: Request, res: Response) => {
     const userId = getUserId(req);
-    const { platform, platforms, format = "tweet", ratio = "4:5", count = 10, topic = "", style, naughtiness, mediaItemIds } = req.body;
+    const { platform, platforms, format = "tweet", ratio = "4:5", contentType, count = 10, topic = "", style, naughtiness, mediaItemIds } = req.body;
     const platformList: string[] = Array.isArray(platforms) && platforms.length > 0
       ? platforms
       : [platform || "x"];
-    const validRatios = ["1:1", "4:5", "9:16", "16:9"];
-    const selectedRatio = validRatios.includes(ratio) ? ratio : "4:5";
     const batchCount = Math.min(Math.max(1, parseInt(count) || 10), 20);
+
+    // Derive required ratio from contentType (source of truth). Fall back to client-sent ratio only if contentType is unknown.
+    const validRatios = ["1:1", "4:5", "9:16", "16:9"];
+    const selectedRatio = (contentType && CONTENT_TYPE_RATIO_MAP[contentType])
+      ? CONTENT_TYPE_RATIO_MAP[contentType]
+      : (validRatios.includes(ratio) ? ratio : "4:5");
+
+    // Resolve effective format for storage
+    const effectiveFormat = contentType || format;
 
     try {
       const settingsData = await storage.getSettings(userId);
@@ -3743,7 +3856,7 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
         both: "Cross-platform: Write for both X (280 chars) and Threads (500 chars)",
       };
 
-      const isStoryMode = format === "story";
+      const isSlideshow = effectiveFormat === "tiktok_slideshow";
       const sedLevel = parseInt(seductiveness);
 
       let naughtinessGuide = "";
@@ -3759,33 +3872,16 @@ Generate exactly 5 comments, each with a different strategy. Score based on like
 
       const personaGuide = `Tone: ${tone} | Seductiveness: ${seductiveness}/100\nNAUGHTINESS GUIDE: ${naughtinessGuide}${signaturePhrases ? `\nUse occasionally: ${signaturePhrases}` : ""}${forbiddenPhrases ? `\nNever use: ${forbiddenPhrases}` : ""}`;
 
-      let captionStyleGuide = "";
-      if (isStoryMode) {
-        captionStyleGuide = `
-INSTAGRAM STORY MODE: These are Instagram stories with a CTA driving traffic.
-- Captions must be SHORT (1-2 lines max) + a CTA with a link placeholder
-- Caption styles: "see more here 🔗", "my naughty side (link in bio)", "swipe up babe 💋", "the full set is waiting for you 🔥", "link in bio for more", "want to see what happens next? (link)", "this one's too hot for the feed 🙈 (link in bio)"
-- The hook IS the caption — keep it punchy and enticing
-- Always include a CTA driving to a link (use "link in bio" or "(link)" as placeholder)
-- Make them want to click through`;
-      } else {
-        captionStyleGuide = `
-CAPTION STYLE: Write captions as if the creator is talking DIRECTLY about what she sees in the photo.
-- The caption MUST reference what she's wearing, doing, or feeling in the specific image
-- Examples of good captions: "new dress, do you guys like it?", "why am i still single?", "can i text you?", "do u think im cute?", "this outfit is giving main character energy", "who's taking me out in this?", "would you take me home?", "rate this fit 1-10"
-- The caption should feel like she just took the photo and is casually posting about it
-- Use the image mood and outfit data to write relevant, personal captions
-- Short, casual, lowercase-friendly — like a real person posting, not a brand`;
-      }
+      const captionStyleGuide = getPlatformCaptionPrompt(effectiveFormat, sedLevel);
 
       const systemPrompt = `You are a social media content strategist and copywriter for a female creator.
 Generate exactly ${batchCount} content pieces for a batch content factory.
 
 PERSONA: ${personaGuide}
 PLATFORMS: ${platformList.map(p => platformGuide[p] || p).join("; ")}
-FORMAT: ${format}
+CONTENT TYPE: ${effectiveFormat}
 ${style ? `STYLE: ${style}` : ""}
-ASPECT RATIO: ${selectedRatio} (design content with this ratio in mind for visuals — select images that suit this format)
+ASPECT RATIO: ${selectedRatio}
 ${captionStyleGuide}
 ${topic ? `TOPIC/THEME: ${topic}` : "Generate a variety of engaging topics."}
 ${mediaImages.length > 0 ? `\nMEDIA CONTEXT — CRITICAL: You MUST pair each piece with one of these images AND write the caption specifically about what she's wearing/doing in that image:\n${mediaImages.map(m => `Image ${m.id}: mood="${m.mood}", outfit="${m.outfit}" — write caption that references this outfit/mood`).join("\n")}` : ""}
@@ -3793,9 +3889,10 @@ ${mediaImages.length > 0 ? `\nMEDIA CONTEXT — CRITICAL: You MUST pair each pie
 For each piece, return a JSON array of objects with these fields:
 - "hook": The opening line / first sentence (the scroll-stopper)
 - "caption": The full post text including the hook
-- "cta": Call-to-action line${isStoryMode ? " (REQUIRED — always include a link CTA)" : " (if applicable, empty string if not)"}
+- "cta": Call-to-action line${effectiveFormat === "instagram_story" ? " (REQUIRED — always include a link CTA like 'link in bio' or 'tap here')" : " (if applicable, empty string if not)"}
 - "confidence": Your confidence score 0-100 that this will perform well
 - "strategy": One sentence explaining why this content should work
+${isSlideshow ? `- "slides": Array of slide objects [{"text": "slide 1"}, {"text": "slide 2"}] — REQUIRED for tiktok_slideshow` : ""}
 ${mediaImages.length > 0 ? `- "mediaItemId": The image ID this piece should pair with (from: ${mediaImages.map(m => m.id).join(", ")}). Distribute images across pieces. The caption MUST relate to the paired image.` : ""}
 
 Return ONLY a valid JSON array. No markdown, no explanation.`;
@@ -3804,14 +3901,14 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
         model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate ${batchCount} ${isStoryMode ? "Instagram story" : format} content pieces${topic ? ` about: ${topic}` : ""}.` },
+          { role: "user", content: `Generate ${batchCount} ${effectiveFormat} content pieces${topic ? ` about: ${topic}` : ""}.` },
         ],
         temperature: sedLevel > 80 ? 1.0 : 0.9,
         max_tokens: 4000,
       });
 
       const raw = completion.choices[0]?.message?.content?.trim() ?? "[]";
-      let pieces: Array<{ hook?: string; caption?: string; cta?: string; confidence?: number; strategy?: string; mediaItemId?: number | string }>;
+      let pieces: Array<{ hook?: string; caption?: string; cta?: string; confidence?: number; strategy?: string; mediaItemId?: number | string; slides?: Array<{ text: string }> }>;
       try {
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
         pieces = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
@@ -3827,15 +3924,19 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
           : platformList[idx % platformList.length];
         const mediaId = piece.mediaItemId ? parseInt(String(piece.mediaItemId)) : null;
         const matchedMedia = mediaId ? mediaImages.find(m => m.id === mediaId) : null;
+        const slidesJson = isSlideshow && Array.isArray(piece.slides) && piece.slides.length > 0
+          ? JSON.stringify(piece.slides)
+          : null;
         const item = await storage.createContentItem({
           userId,
           platform: itemPlatform,
-          format,
+          format: effectiveFormat,
           ratio: selectedRatio,
           status: "needs_review",
           hook: piece.hook || "",
           caption: piece.caption || "",
           cta: piece.cta || "",
+          slides: slidesJson,
           confidence: typeof piece.confidence === "number" ? piece.confidence : 50,
           strategy: piece.strategy || null,
           mediaItemId: matchedMedia ? matchedMedia.id : null,

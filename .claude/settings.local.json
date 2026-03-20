@@ -19,7 +19,13 @@
       "Bash(fuser -k 5000/tcp 2>/dev/null; lsof -ti:5000 | xargs kill -9 2>/dev/null; sleep 2 && echo \"cleared\")",
       "Bash(ls /proc/*/fd 2>/dev/null | xargs -I{} sh -c 'readlink {} 2>/dev/null | grep -q \"socket:\\\\[6383431\\\\]\" && dirname {}' 2>/dev/null | head -5)",
       "Bash(for pid:*)",
-      "Bash(kill -9 8431 2>/dev/null && echo \"Killed PID 8431\" || echo \"Could not kill\")"
+      "Bash(kill -9 8431 2>/dev/null && echo \"Killed PID 8431\" || echo \"Could not kill\")",
+      "Bash(grep -E '\\\\.\\(md|txt|pdf\\)$')",
+      "Bash(grep:*)",
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Bash(done)",
+      "Bash(ls -lh /home/runner/workspace/attached_assets/*.txt)"
     ]
   }
 }
